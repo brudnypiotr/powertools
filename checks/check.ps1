@@ -72,7 +72,7 @@ function Find-Python {
 }
 
 $env:POWERTOOLS_PS_VERSION = $PSVersionTable.PSVersion.ToString()
-$env:POWERTOOLS_EXEC_POLICY = (Get-ExecutionPolicy).ToString()
+try { $env:POWERTOOLS_EXEC_POLICY = (Get-ExecutionPolicy).ToString() } catch { $env:POWERTOOLS_EXEC_POLICY = 'unknown' }
 $env:PYTHONIOENCODING = 'utf-8'
 
 Write-Host ''
