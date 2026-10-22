@@ -79,11 +79,33 @@ def update() -> dict:
     return {"before": before, "after": after, "changed": before != after}
 
 
-def restart_later() -> None:
-    """Start the launcher again in ~2 s (after this process has quit), without a console window."""
-    launcher = ROOT / "powertools.cmd"
-    if sys.platform != "win32":
-        return
-    detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(["cmd", "/c", f'ping -n 3 127.0.0.1 >nul & "{launcher}" --no-browser'], cwd=ROOT,
-                     creationflags=detached | FLAGS, close_fds=True)
+RESTART = """@echo off
+rem Written by powertools before an update restart: wait until the old process is gone, then start the launcher.
+set "PORTFILE={portfile}"
+set /a N=0
+:wait
+if not exist "%PORTFILE%" goto start
+set /a N+=1
+if %N% GEQ 30 goto start
+ping -n 2 127.0.0.1 >nul
+goto wait
+:start
+ping -n 2 127.0.0.1 >nul
+echo %date% %time% restarting >> "{log}"
+call "{launcher}" --no-browser >> "{log}" 2>&1
+echo %date% %time% launcher exit %errorlevel% >> "{log}"
+"""
+
+
+def restart_later(port_file: Path) -> Path:
+    """Start the launcher again once this process has quit. A script file avoids cmd's quoting rules
+    (a command line with nested quotes reached cmd as \\" and did nothing)."""
+    local = ROOT / "local"
+    local.mkdir(exist_ok=True)
+    script, log = local / "restart.cmd", local / "restart.log"
+    script.write_text(RESTART.format(portfile=port_file, log=log, launcher=ROOT / "powertools.cmd"), encoding="ascii",
+                      errors="replace", newline="\r\n")  # cmd needs CRLF for labels
+    if sys.platform == "win32":
+        detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(["cmd", "/c", str(script)], cwd=ROOT, creationflags=detached, close_fds=True)
+    return script

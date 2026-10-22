@@ -91,7 +91,9 @@ def update(h):
     except updater.GitError as e:
         raise ValueError(f"update failed: {e}") from e
     if result["changed"]:
-        updater.restart_later()
+        from ..config import data_dir
+
+        updater.restart_later(data_dir() / "port.txt")
         h.send(200, {**result, "restarting": True})
         h.app.quit()
     else:

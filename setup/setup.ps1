@@ -121,7 +121,10 @@ if ($code -ne 0) { Step 'packages' 'FAIL' 'pip install failed (see above)'; exit
 Step 'packages' 'OK' 'requirements.txt'
 
 # ------------------------------------------------------------------ 3. icon + shortcuts
-$icon = Join-Path $Base 'app.ico'
+# the file name carries the setup version: Windows caches shortcut icons by path
+$setupVersion = (Get-Content (Join-Path $ScriptDir 'version.txt') -Raw).Trim()
+Get-ChildItem $Base -Filter 'app*.ico' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+$icon = Join-Path $Base "app-$setupVersion.ico"
 $boot = "import sys, runpy; sys.path.insert(0, r'$Repo'); from powertools.icon import save_ico; save_ico(r'$icon')"
 $null = Invoke-Native $vpy @('-c', $boot)
 $launcher = Join-Path $Repo 'powertools.cmd'

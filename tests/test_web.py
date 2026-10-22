@@ -78,5 +78,39 @@ def test_about_and_busy_update(server):
 
 def test_icon_is_served(server):
     _, base = server
-    r = urllib.request.urlopen(base + "/icon.png", timeout=5)
+    r = urllib.request.urlopen(base + "/dot-192.png", timeout=5)
     assert r.headers["Content-Type"] == "image/png" and r.read()[:4] == b"\x89PNG"
+
+
+def test_restart_script(tmp_path, monkeypatch):
+    from powertools import updater
+
+    monkeypatch.setattr(updater, "ROOT", tmp_path)
+    script = updater.restart_later(tmp_path / "port.txt")
+    raw = script.read_bytes()
+    assert b"\r\n:wait\r\n" in raw and b'call "' in raw and b"powertools.cmd\" --no-browser" in raw
+    assert b'\\"' not in raw  # no escaped quotes: cmd does not understand them
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="runs cmd.exe")
+def test_restart_script_really_starts_the_launcher(tmp_path, monkeypatch):
+    import time
+
+    from powertools import updater
+
+    root = tmp_path / "dir with space"
+    root.mkdir()
+    marker = root / "started.txt"
+    (root / "powertools.cmd").write_text(f'@echo off\r\necho %* > "{marker}"\r\n', encoding="ascii")
+    monkeypatch.setattr(updater, "ROOT", root)
+    port = root / "port.txt"
+    port.write_text("1")
+    updater.restart_later(port)
+    time.sleep(3)
+    assert not marker.exists()  # still waiting for the old process
+    port.unlink()  # the old process quits
+    for _ in range(40):
+        if marker.exists():
+            break
+        time.sleep(0.5)
+    assert marker.read_text().strip() == "--no-browser"
