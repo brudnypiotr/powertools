@@ -29,8 +29,16 @@ DEFAULTS: dict = {
     "replacements": [],          # [{"from": "merlo", "to": "Merlot"}], whole words, case-insensitive
     "beam_size": 5,
     "open_window_on_start": True,
+    "output_dir": "",            # "" = Documents\\powertools; point it at the wiki inbox
+    "mail_attachments": True,
 }
 MODELS = ["turbo", "large-v3", "medium", "small"]
+
+
+def output_dir(settings) -> "Path":
+    d = Path(settings["output_dir"]) if settings["output_dir"] else Path.home() / "Documents" / "powertools"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def validate(key: str, value):

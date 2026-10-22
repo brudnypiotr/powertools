@@ -21,6 +21,20 @@ desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to ski
 
 `powertools.cmd --console` runs with the log in the window; `powertools.cmd --setup` repeats the setup.
 
+## Teams chats and mail (step 2)
+
+Tabs **Teams** and **Mail** in the window. Paste an access token from
+[Graph Explorer](https://developer.microsoft.com/graph/graph-explorer) (tab "Access token", valid about an
+hour); it is stored encrypted for your Windows user (DPAPI). Only what Graph Explorer can read without admin
+consent: 1:1, group and meeting chats with shared files, and mail; team channels are out of scope.
+
+- Pick chats or search mail threads (folder, person, subject), choose a range (last 2/10/30 days, since a
+  date, everything, or **only new since the last export**) and export.
+- Output (Settings > Export folder, point it at the wiki inbox): `teams/<chat>/<from>_<to>.md` with
+  `files/`, `mail/<subject>/<from>_<to>.md` with `attachments/`. Every file has frontmatter (source, title,
+  participants, range, counts). Mail uses only the new part of each reply, so quoted history is not repeated.
+- When the token expires mid-export, the job pauses; paste a new token and it continues.
+
 ## Step 0: feasibility checker
 
 Before building, `check.cmd` tests every assumption on the target laptop and writes a report that holds

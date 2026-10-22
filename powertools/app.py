@@ -61,6 +61,9 @@ class App:
         self.hotkey = None
         self.httpd = None
         self.url = ""
+        from .graph.service import GraphService
+
+        self.graph = GraphService(self.settings, self.store)
         self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state)
         self._quit = threading.Event()
 

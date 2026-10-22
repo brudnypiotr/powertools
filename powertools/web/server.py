@@ -94,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(app, port: int = 0) -> ThreadingHTTPServer:
-    from . import api  # noqa: F401  (registers the routes)
+    from . import api, api_graph  # noqa: F401  (register the routes)
 
     Handler.app = app
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)

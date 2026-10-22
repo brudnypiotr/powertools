@@ -12,8 +12,8 @@
   <nav>
     <button data-tab="dictation" class="active">Dictation</button>
     <button data-tab="meetings" disabled title="next">Meetings</button>
-    <button data-tab="teams" disabled title="next">Teams</button>
-    <button data-tab="mail" disabled title="next">Mail</button>
+    <button data-tab="teams">Teams</button>
+    <button data-tab="mail">Mail</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="diagnostics">Diagnostics</button>
   </nav>
@@ -33,6 +33,41 @@
       <input id="search" type="search" placeholder="Search">
     </div>
     <ul id="history"></ul>
+  </section>
+
+  <section id="teams" class="tab">
+    <div class="card graphbar"></div>
+    <div class="row">
+      <input id="chat-filter" type="search" placeholder="Filter by name or title">
+      <select id="chat-type">
+        <option value="">All chats</option><option value="oneOnOne">1:1</option>
+        <option value="group">Group</option><option value="meeting">Meeting</option>
+      </select>
+      <button id="chat-refresh">Refresh</button>
+    </div>
+    <div class="card list-card"><table class="list"><thead><tr>
+      <th><input type="checkbox" id="chat-all"></th><th>Chat</th><th>Type</th><th>Last activity</th><th>Exported up to</th>
+    </tr></thead><tbody id="chats"><tr><td colspan="5">Paste a token above, then Refresh.</td></tr></tbody></table></div>
+    <div class="row exportbar"><span class="range" data-for="teams"></span>
+      <button id="chat-export" class="primary">Export selected</button></div>
+    <div class="jobs"></div>
+  </section>
+
+  <section id="mail" class="tab">
+    <div class="card graphbar"></div>
+    <form id="mail-search" class="card searchform">
+      <label>Folder <select name="folder"><option value="">All mail</option></select></label>
+      <label>Person <input name="person" placeholder="name or address"></label>
+      <label>Subject <input name="subject" placeholder="words in the subject"></label>
+      <span class="range" data-for="mail-search"></span>
+      <button class="primary">Search</button>
+    </form>
+    <div class="card list-card"><table class="list"><thead><tr>
+      <th><input type="checkbox" id="mail-all"></th><th>Subject</th><th>People</th><th>Msgs</th><th>Last</th><th>Exported up to</th>
+    </tr></thead><tbody id="threads"><tr><td colspan="6">Search to list threads.</td></tr></tbody></table></div>
+    <div class="row exportbar"><span class="range" data-for="mail"></span>
+      <button id="mail-export" class="primary">Export selected</button></div>
+    <div class="jobs"></div>
   </section>
 
   <section id="settings" class="tab">
@@ -57,6 +92,9 @@
       <label class="check"><input type="checkbox" name="paste"> Paste into the active window (off: only copy)</label>
       <label class="check"><input type="checkbox" name="restore_clipboard"> Restore the previous clipboard after pasting</label>
       <label class="check"><input type="checkbox" name="open_window_on_start"> Open this window when the app starts</label>
+      <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
+        <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
+      <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
       <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
         <small>Whisper is nudged to spell these words this way.</small></label>

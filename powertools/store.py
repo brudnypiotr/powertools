@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS dictations (
   audio_s REAL,
   took_s REAL
 );
+CREATE TABLE IF NOT EXISTS cursors (
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  newest TEXT NOT NULL,
+  exported_at REAL NOT NULL,
+  PRIMARY KEY (kind, key)
+);
 """
 
 
@@ -50,6 +57,26 @@ class Store:
             cur = self._db.execute("DELETE FROM dictations WHERE id = ?", (int(item_id),))
             self._db.commit()
             return cur.rowcount > 0
+
+    # ------------------------------------------------------------------ export cursors ("only new since last time")
+    def cursor(self, kind: str, key: str) -> str:
+        with self._lock:
+            row = self._db.execute("SELECT newest FROM cursors WHERE kind = ? AND key = ?", (kind, key)).fetchone()
+            return row["newest"] if row else ""
+
+    def cursors(self, kind: str) -> dict[str, dict]:
+        with self._lock:
+            return {r["key"]: {"newest": r["newest"], "exported_at": r["exported_at"]}
+                    for r in self._db.execute("SELECT * FROM cursors WHERE kind = ?", (kind,))}
+
+    def set_cursor(self, kind: str, key: str, newest: str) -> None:
+        with self._lock:
+            old = self._db.execute("SELECT newest FROM cursors WHERE kind = ? AND key = ?", (kind, key)).fetchone()
+            if old and old["newest"] >= newest:
+                newest = old["newest"]
+            self._db.execute("INSERT OR REPLACE INTO cursors (kind, key, newest, exported_at) VALUES (?, ?, ?, ?)",
+                             (kind, key, newest, time.time()))
+            self._db.commit()
 
     def close(self) -> None:
         with self._lock:
