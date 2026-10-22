@@ -174,6 +174,7 @@ def test_missing_issue_does_not_stop_job(svc):
 
 def test_credentials_are_powertools_own(tmp_path, monkeypatch):
     monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+    monkeypatch.setattr(auth, "shared_token", lambda: "")
     for var in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     s = Settings(tmp_path / "settings.json")
@@ -187,3 +188,18 @@ def test_credentials_are_powertools_own(tmp_path, monkeypatch):
     c = auth.resolve(s, auth.JiraTokenStore(tmp_path / "t.bin"))
     assert (c.base_url, c.email, c.token, c.token_source) == ("https://site.atlassian.net", "me@example.com",
                                                              "pasted-token-123", "saved in powertools")
+
+
+
+def test_shared_credential_is_read_live(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+    monkeypatch.setattr(auth, "shared_token", lambda: "shared-tok")
+    s = Settings(tmp_path / "settings.json")
+    store = auth.JiraTokenStore(tmp_path / "t.bin")
+    c = auth.resolve(s, store)
+    assert (c.token, c.token_source) == ("shared-tok", "Windows Credential Manager (jira-token)")
+    assert not (tmp_path / "t.bin").exists()  # nothing copied
+    monkeypatch.setattr(auth, "shared_token", lambda: "rotated-tok")
+    assert auth.resolve(s, store).token == "rotated-tok"
+    store.set("pasted-token-123")
+    assert auth.resolve(s, store).token == "pasted-token-123"

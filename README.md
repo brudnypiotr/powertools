@@ -52,8 +52,9 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
 
 ## Jira (step 4)
 
-Tab **Jira**. Set the site and e-mail in Settings > Jira and paste a token in the tab (kept encrypted for your
-Windows user, DPAPI). Jira Cloud: API token from id.atlassian.com + e-mail; Data Center: personal access token.
+Tab **Jira**. Set the site and e-mail in Settings > Jira. Token: when the Windows Credential Manager already holds
+the entry `jira-token` (service `woynich-wiki`, e.g. from the wiki's Keys and tokens) it is read from there live, nothing
+copied; otherwise paste one in the tab (kept encrypted for your Windows user, DPAPI; a pasted token wins). Jira Cloud: API token from id.atlassian.com + e-mail; Data Center: personal access token.
 Read-only.
 
 - **Download** issue keys or browse links, an **epic with all its issues**, or everything matching a JQL.
