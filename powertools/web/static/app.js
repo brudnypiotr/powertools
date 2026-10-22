@@ -533,6 +533,8 @@ async function loadAbout(fetchRemote) {
     $("#about-status").textContent = a.busy ? `${pending.length} new change(s). Update after: ${a.busy}.` : `${pending.length} new change(s) available.`;
     $("#about-do").classList.toggle("hidden", !!a.busy);
   } else $("#about-status").textContent = a.fetched ? "You have the latest version." : "";
+  appInstalled = !!a.installed;
+  renderInstall();
 }
 $("#engine-foot").addEventListener("click", () => { dlg.showModal(); loadAbout(true); });
 dlg.querySelector(".close").addEventListener("click", () => dlg.close());
@@ -556,16 +558,19 @@ $("#about-do").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------- install as an app (own taskbar icon, pinning)
-let installEvent = null;
+let installEvent = null, appInstalled = false;
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-const standalone = window.matchMedia("(display-mode: standalone)").matches;
 function renderInstall() {
-  if (standalone) { $("#install-text").textContent = "Installed as an app: pin it from the taskbar."; return; }
+  if (appInstalled) {
+    $("#install-text").textContent = "Installed as an app: pin it from the taskbar.";
+    $("#install-do").classList.add("hidden");
+    return;
+  }
   $("#install-do").classList.toggle("hidden", !installEvent);
-  if (!installEvent) $("#install-text").textContent =
-    "To get its own taskbar icon: open this window in Edge, then ⋯ menu > Apps > Install this site as an app.";
+  $("#install-text").textContent = installEvent ? "Install the window as an app to get its own taskbar icon and pinning."
+    : `To get its own taskbar icon: open ${location.origin} in Edge, then ⋯ menu > Apps > Install this site as an app.`;
 }
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; renderInstall(); });
-window.addEventListener("appinstalled", () => { $("#install-text").textContent = "Installed. Next time the app window opens with its own icon."; $("#install-do").classList.add("hidden"); });
+window.addEventListener("appinstalled", () => { appInstalled = true; $("#install-text").textContent = "Installed. Next time the app window opens with its own icon."; $("#install-do").classList.add("hidden"); });
 $("#install-do").addEventListener("click", async () => { if (installEvent) { installEvent.prompt(); installEvent = null; renderInstall(); } });
 renderInstall();

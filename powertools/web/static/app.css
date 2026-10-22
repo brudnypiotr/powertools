@@ -157,6 +157,7 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .about-grid span:nth-child(odd) { color: var(--muted); }
 .about-update { display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: var(--hover); border-radius: 10px; }
 .about-update span { flex: 1; }
+.about-update + .about-update, #about-pending:not(:empty) { margin-top: 8px; }
 .changelog { list-style: none; padding: 0; margin: 0; font-size: 12.5px; max-height: 34vh; overflow: auto; }
 .changelog li { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .changelog li span:first-child { color: var(--muted); width: 78px; flex: none; font-variant-numeric: tabular-nums; }

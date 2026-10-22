@@ -76,7 +76,19 @@ def about(h):
     info = updater.about(fetch=h.query("fetch") == "1")
     info["busy"] = h.app.busy()
     info["engine"] = h.app.engine.status()
+    info["installed"] = app_installed()
     h.send(200, info)
+
+
+def app_installed() -> bool:
+    """Installed as an Edge app? An Edge --app window also reports display-mode standalone, so the page cannot tell."""
+    import sys
+
+    if sys.platform != "win32":
+        return False
+    from ..app import PORT, installed_profile, web_app_id
+
+    return bool(installed_profile(web_app_id(f"http://127.0.0.1:{PORT}/")))
 
 
 @route("POST", "/api/update")
