@@ -2,7 +2,7 @@
 .SYNOPSIS
   powertools feasibility checker for Windows, for a normal user without admin rights.
 .DESCRIPTION
-  1. Finds Python 3.10+ (a private one from an earlier woynich-wiki setup is fine).
+  1. Finds Python 3.10+.
   2. Creates checks\.venv and installs the packages from checks\requirements.txt (uses the system proxy).
   3. Runs python -m checks.run. The report lands in checks\out\report-<time>.txt and .json.
      The report holds only statuses, counts, HTTP codes and device names: safe to paste into a chat.
@@ -40,7 +40,7 @@ function Invoke-Native {
 
 function Find-Python {
   $candidates = @(
-    (Join-Path $env:LOCALAPPDATA 'woynich-wiki\python312\python.exe'),
+    (Join-Path $env:LOCALAPPDATA 'powertools\python312\python.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'),
@@ -98,7 +98,7 @@ try {
   if (-not (Test-Path $vpy)) {
     $py = Find-Python
     if (-not $py) {
-      Write-Host 'No Python 3.10+ found. Run the woynich-wiki setup once (it installs a private Python) or install' -ForegroundColor Red
+      Write-Host 'No Python 3.10+ found. Run powertools.cmd once (its setup installs Python per-user) or install' -ForegroundColor Red
       Write-Host 'Python per-user from python.org (no admin needed), then run check.cmd again.' -ForegroundColor Red
       exit 2
     }

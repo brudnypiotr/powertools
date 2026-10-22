@@ -30,9 +30,9 @@ class Jira:
         import requests
 
         if not base_url:
-            raise JiraError(0, "Jira site not set: Settings > Jira site (or jira.base_url in woynich-wiki)")
+            raise JiraError(0, "Jira site not set: Settings > Jira site")
         if not token:
-            raise JiraError(0, "no Jira token: paste one in the Jira tab, or set it in woynich-wiki (Keys and tokens)")
+            raise JiraError(0, "no Jira token: paste one in the Jira tab")
         self.base = base_url.rstrip("/")
         self.cloud = "atlassian.net" in self.base
         if self.cloud and not email:

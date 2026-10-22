@@ -38,8 +38,8 @@ DEFAULTS: dict = {
     "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"
     "meeting_final_model": "large-v3",  # model for the final pass, or "live" to keep the live transcript
     "meeting_keep_audio_days": 7,
-    "jira_url": "",              # "" = woynich-wiki's jira.base_url; e.g. https://<site>.atlassian.net
-    "jira_email": "",            # Atlassian e-mail (Jira Cloud); "" = woynich-wiki's jira.email
+    "jira_url": "",              # e.g. https://<site>.atlassian.net
+    "jira_email": "",            # Atlassian e-mail (Jira Cloud sign-in)
     "jira_attachments": True,
     "jira_max_attachment_mb": 25,
 }

@@ -5,6 +5,7 @@
   1. Finds Python 3.11+ (any, the embeddable one too: the overlay uses Win32 directly, not tkinter); installs
      Python 3.12 per-user from python.org only when there is none.
   2. Creates .venv and installs requirements.txt (faster-whisper + CUDA libraries, ~1.5 GB the first time).
+     Unpacks Portable Git to %LOCALAPPDATA%\powertools\git when there is no git (Update in the app needs it).
   3. Creates the shortcuts (desktop, Start menu) and, unless -NoAutostart, a Startup entry.
   4. Runs the self-test. Writes setup.log; records setup\version.txt in local\setup-version.txt.
 .EXAMPLE
@@ -61,7 +62,6 @@ function Find-Python {
     $cmd = Get-Command $c -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source -notmatch 'WindowsApps') { $candidates += $cmd.Source }
   }
-  $candidates += (Join-Path $env:LOCALAPPDATA 'woynich-wiki\python312\python.exe')  # embeddable: no tkinter
   $found = @($candidates | ForEach-Object { Test-Python $_ } | Where-Object { $_ })
   $full = $found | Where-Object { $_.tk } | Select-Object -First 1
   if ($full) { return $full }
@@ -104,7 +104,10 @@ Step 'Python' 'OK' ("{0} {1}" -f $py.version, $py.exe)
 
 # ------------------------------------------------------------------ 2. venv + packages
 $vpy = Join-Path $Venv 'Scripts\python.exe'
-$recreate = (Test-Path $vpy) -and -not (Test-Python $vpy)
+$cfg = Join-Path $Venv 'pyvenv.cfg'
+# a venv built on another app's Python breaks when that app is removed: powertools keeps its own
+$foreign = (Test-Path $cfg) -and ((Get-Content $cfg -Raw) -match 'woynich-wiki')
+$recreate = (Test-Path $vpy) -and ($foreign -or -not (Test-Python $vpy))
 if ($recreate) { Remove-Item $Venv -Recurse -Force }
 if (-not (Test-Path $vpy)) {
   $code = Invoke-Native $py.exe @('-m', 'venv', $Venv)
@@ -119,6 +122,20 @@ Write-Host 'Installing packages (first time: ~1.5 GB, a few minutes) ...'
 $code = Invoke-Native $vpy @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', (Join-Path $Repo 'requirements.txt'))
 if ($code -ne 0) { Step 'packages' 'FAIL' 'pip install failed (see above)'; exit 2 }
 Step 'packages' 'OK' 'requirements.txt'
+
+# ------------------------------------------------------------------ 2b. Git (for Update in the app)
+$gitDir = Join-Path $Base 'git'
+$git = Get-Command git -ErrorAction SilentlyContinue
+if ($git) { Step 'Git' 'OK' $git.Source }
+elseif (Test-Path (Join-Path $gitDir 'cmd\git.exe')) { Step 'Git' 'OK' (Join-Path $gitDir 'cmd\git.exe') }
+else {
+  try {
+    $sfx = Get-File $Sources.portable_git.url $Sources.portable_git.sha256 'PortableGit.7z.exe'
+    $p = Start-Process -FilePath $sfx -ArgumentList @("-o$gitDir", '-y') -Wait -PassThru
+    if ($p.ExitCode -ne 0) { throw "extract exit code $($p.ExitCode)" }
+    Step 'Git' 'OK' ("Portable Git unpacked to $gitDir")
+  } catch { Step 'Git' 'WARN' ("could not unpack Portable Git: $($_.Exception.Message); Update in the app will not work") }
+}
 
 # ------------------------------------------------------------------ 3. icon + shortcuts
 # the file name carries the setup version: Windows caches shortcut icons by path

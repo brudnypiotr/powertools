@@ -1,5 +1,7 @@
 {
-  "_comment": "Downloads used by setup.ps1, checked against sha256 (same sources as woynich-wiki).",
+  "_comment": "Downloads used by setup.ps1, checked against sha256.",
   "python_installer": {"version": "3.12.10", "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe",
-                       "sha256": "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb"}
+                       "sha256": "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb"},
+  "portable_git": {"version": "2.56.0.2", "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/PortableGit-2.56.0.2-64-bit.7z.exe",
+                   "sha256": "075e158ef8e1f0ab80b347e245405d3eca735c2dc88fd8e032e137d0ca61f61b"}
 }

@@ -1,4 +1,4 @@
-"""About and Update: version, changelog from git, update by fast-forward pull and restart (as in woynich-wiki).
+"""About and Update: version, changelog from git, update by fast-forward pull and restart.
 
 The copy is a git clone; Update = `git pull --ff-only`, then the launcher is started again (it repeats the setup
 when setup/version.txt changed) and this process quits.
@@ -26,7 +26,7 @@ def git_exe() -> str | None:
     found = shutil.which("git")
     if found:
         return found
-    for p in (Path(os.environ.get("LOCALAPPDATA", "")) / "woynich-wiki" / "git" / "cmd" / "git.exe",
+    for p in (Path(os.environ.get("LOCALAPPDATA", "")) / "powertools" / "git" / "cmd" / "git.exe",  # setup's Portable Git
               Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Git" / "cmd" / "git.exe"):
         if os.environ.get("LOCALAPPDATA") and p.exists():
             return str(p)

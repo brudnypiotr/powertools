@@ -1,4 +1,4 @@
-"""The window: a local web server on 127.0.0.1 (stdlib, same idea as woynich-wiki's kb serve).
+"""The window: a local web server on 127.0.0.1 (stdlib only).
 
 Safety on a shared machine: only 127.0.0.1, the Host header must match (stops DNS rebinding), and every
 request that changes something must carry the X-Powertools header (a foreign web page cannot add it without

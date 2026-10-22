@@ -72,7 +72,6 @@ class FakeJira:
 @pytest.fixture()
 def svc(tmp_path, monkeypatch):
     monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
-    monkeypatch.setattr(auth, "woynich_dirs", lambda: [])
     s = Settings(tmp_path / "settings.json")
     s.update({"output_dir": str(tmp_path / "out")})
     service = JiraService(s, Jobs())
@@ -173,20 +172,18 @@ def test_missing_issue_does_not_stop_job(svc):
     assert job.state == "done" and any("ABC-404" in n for n in job.notes) and job.notes[-1] == "1 new, 1 failed"
 
 
-def test_credentials_from_woynich_profile(tmp_path, monkeypatch):
+def test_credentials_are_powertools_own(tmp_path, monkeypatch):
     monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
-    prof = tmp_path / "woynich-wiki" / "instance" / "config"
-    prof.mkdir(parents=True)
-    (prof / "profile.yaml").write_text("instance:\n  title: x\njira:\n  base_url: https://site.atlassian.net/\n"
-                                       "  email: 'me@example.com'  # sign-in\ncode_repos: []\n", encoding="utf-8")
-    monkeypatch.setattr(auth, "woynich_dirs", lambda: [tmp_path / "woynich-wiki"])
-    monkeypatch.setattr(auth, "woynich_keyring_token", lambda: "tok-from-woynich")
+    for var in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
     s = Settings(tmp_path / "settings.json")
     c = auth.resolve(s, auth.JiraTokenStore(tmp_path / "t.bin"))
-    assert (c.base_url, c.email, c.token, c.token_source) == ("https://site.atlassian.net", "me@example.com",
-                                                             "tok-from-woynich", "woynich-wiki (Keys and tokens)")
-    store = auth.JiraTokenStore(tmp_path / "t.bin")
-    store.set("pasted-token-123")
-    s.update({"jira_url": "https://other.example"})
+    assert (c.base_url, c.email, c.token) == ("", "", "")
+    with pytest.raises(JiraError):
+        from powertools.jira.client import Jira
+        Jira(c.base_url, c.email, c.token)
+    auth.JiraTokenStore(tmp_path / "t.bin").set("pasted-token-123")
+    s.update({"jira_url": "https://site.atlassian.net/", "jira_email": "me@example.com"})
     c = auth.resolve(s, auth.JiraTokenStore(tmp_path / "t.bin"))
-    assert (c.base_url, c.token, c.token_source) == ("https://other.example", "pasted-token-123", "pasted in powertools")
+    assert (c.base_url, c.email, c.token, c.token_source) == ("https://site.atlassian.net", "me@example.com",
+                                                             "pasted-token-123", "saved in powertools")

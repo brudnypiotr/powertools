@@ -300,14 +300,14 @@ async function renderJiraBar(check) {
   let s;
   try { s = await api("GET", "/api/jira/status" + (check ? "?check=1" : "")); }
   catch (e) { bar.textContent = e.message; return; }
-  const status = !s.site ? `<span class="warn">No Jira site: Settings > Jira site (or set it in woynich-wiki).</span>`
-    : !s.has_token ? `<span class="warn">No Jira token found (woynich-wiki or pasted).</span>`
+  const status = !s.site ? `<span class="warn">No Jira site: set it in Settings > Jira.</span>`
+    : !s.has_token ? `<span class="warn">No Jira token: paste one here.</span>`
     : s.error ? `<span class="warn">${esc(s.error)}</span>`
     : `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span>`;
   bar.innerHTML = `${status} <span class="muted">${esc(s.site)}${s.token_source ? " · token: " + esc(s.token_source) : ""}</span>
-    <input type="password" placeholder="Paste a token (optional, overrides woynich-wiki)" class="token-input">
-    <button class="token-save">Use token</button><button class="token-check">Check</button>
-    ${s.token_source === "pasted in powertools" ? `<button class="token-clear">Forget pasted token</button>` : ""}`;
+    <input type="password" placeholder="Paste a Jira API token (Cloud) or personal access token (Data Center)" class="token-input">
+    <button class="token-save">${s.has_token ? "Replace token" : "Save token"}</button><button class="token-check">Check</button>
+    ${s.token_source === "saved in powertools" ? `<button class="token-clear">Forget token</button>` : ""}`;
   bar.querySelector(".token-check").onclick = () => renderJiraBar(true);
   bar.querySelector(".token-save").onclick = async () => {
     const token = bar.querySelector(".token-input").value.trim();
