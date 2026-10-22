@@ -31,6 +31,11 @@ DEFAULTS: dict = {
     "open_window_on_start": True,
     "output_dir": "",            # "" = Documents\\powertools; point it at the wiki inbox
     "mail_attachments": True,
+    "meeting_prompt": True,      # ask "Record?" when Teams starts using the microphone
+    "meeting_mic": "",           # "" = Windows default microphone (WASAPI name)
+    "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"
+    "meeting_final_model": "large-v3",  # model for the final pass, or "live" to keep the live transcript
+    "meeting_keep_audio_days": 7,
 }
 MODELS = ["turbo", "large-v3", "medium", "small"]
 
@@ -63,6 +68,12 @@ def validate(key: str, value):
             raise ValueError("replacements must be a list")
         value = [{"from": str(r["from"]).strip(), "to": str(r["to"]).strip()}
                  for r in value if isinstance(r, dict) and str(r.get("from", "")).strip()]
+    if key == "meeting_final_model" and value not in MODELS + ["live"]:
+        raise ValueError("meeting_final_model must be a model name or 'live'")
+    if key == "meeting_keep_audio_days":
+        value = int(value)
+        if not 0 <= value <= 365:
+            raise ValueError("meeting_keep_audio_days must be 0..365")
     if key == "beam_size":
         value = int(value)
         if not 1 <= value <= 10:

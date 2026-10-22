@@ -35,6 +35,19 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
   participants, range, counts). Mail uses only the new part of each reply, so quoted history is not repeated.
 - When the token expires mid-export, the job pauses; paste a new token and it continues.
 
+## Meetings (step 3)
+
+- When Teams starts using the microphone, a card in the bottom-right corner asks **Record 'Title'?**
+  (title and attendees from the calendar when a Graph token is set). The card does not take the focus.
+  Tray menu > Record meeting, or the Meetings tab, starts a recording by hand.
+- Two tracks: your microphone = **Me**, the sound of the output device (headphones or speakers) =
+  **Others**. Pick both devices in Settings > Meetings.
+- Live transcript every 30 s in the Meetings tab, with "Mark moment". After the call (Teams leaves the
+  microphone for 20 s, or Stop) the accurate model (large-v3) transcribes both tracks and writes
+  `meetings/<date>_<title>.md`: invitation text, attendees, marked moments, `Me:` / `Others:` lines.
+- Dictation keeps working during a meeting and goes first in the Whisper queue.
+- Others is one voice track: Teams transcripts with names need admin consent, so they are out of scope.
+
 ## Step 0: feasibility checker
 
 Before building, `check.cmd` tests every assumption on the target laptop and writes a report that holds

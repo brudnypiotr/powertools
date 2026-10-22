@@ -11,7 +11,7 @@
   <h1>powertools</h1>
   <nav>
     <button data-tab="dictation" class="active">Dictation</button>
-    <button data-tab="meetings" disabled title="next">Meetings</button>
+    <button data-tab="meetings">Meetings</button>
     <button data-tab="teams">Teams</button>
     <button data-tab="mail">Mail</button>
     <button data-tab="settings">Settings</button>
@@ -19,6 +19,7 @@
   </nav>
 </header>
 
+<div id="prompt" class="prompt hidden"></div>
 <main>
   <section id="dictation" class="tab active">
     <div class="card status">
@@ -33,6 +34,13 @@
       <input id="search" type="search" placeholder="Search">
     </div>
     <ul id="history"></ul>
+  </section>
+
+  <section id="meetings" class="tab">
+    <div id="meeting-now" class="card"></div>
+    <div id="meeting-live" class="card live hidden"></div>
+    <div class="row"><h2>Recorded meetings</h2><button class="open-out">Open export folder</button></div>
+    <ul id="meeting-list" class="sessions"></ul>
   </section>
 
   <section id="teams" class="tab">
@@ -95,6 +103,20 @@
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
+      <h3>Meetings</h3>
+      <label class="check"><input type="checkbox" name="meeting_prompt"> Ask "Record?" when a Teams call starts</label>
+      <label>Meeting microphone <select name="meeting_mic"></select></label>
+      <label>Meeting output (what you hear: headphones or speakers) <select name="meeting_output"></select>
+        <small>Its sound is recorded as "Others". Pick the device Teams plays to.</small></label>
+      <label>Final transcript
+        <select name="meeting_final_model">
+          <option value="large-v3">large-v3 after the meeting (most accurate)</option>
+          <option value="turbo">turbo after the meeting</option>
+          <option value="live">keep the live transcript (fastest)</option>
+        </select>
+      </label>
+      <label>Keep meeting audio (days) <input name="meeting_keep_audio_days" type="number" min="0" max="365"></label>
+      <h3>Dictation details</h3>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
       <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
         <small>Whisper is nudged to spell these words this way.</small></label>

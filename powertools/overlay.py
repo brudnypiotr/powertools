@@ -33,6 +33,9 @@ class NullOverlay:
     def show(self, state: str) -> None:
         pass
 
+    def ask(self, title: str, text: str, on_yes, on_no, timeout: int = 45) -> bool:
+        return False  # not shown; the caller falls back to the window
+
     def quit(self) -> None:
         self._stop.set()
 
@@ -75,18 +78,58 @@ class Overlay:
     def _place(self, visible: bool) -> None:
         self.root.geometry(f"{W}x{H}+{self.x if visible else -3000}+{self.y if visible else -3000}")
 
-    def _no_focus(self) -> None:
-        """Windows: never activate, no taskbar button, clicks pass through."""
+    def _no_focus(self, widget=None, click_through: bool = True) -> None:
+        """Windows: never activate, no taskbar button; the pill also lets clicks pass through."""
         try:
             import ctypes
 
-            self.root.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            widget = widget or self.root
+            widget.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(widget.winfo_id()) or widget.winfo_id()
             GWL_EXSTYLE, NOACTIVATE, TOOLWINDOW, TRANSPARENT, LAYERED = -20, 0x08000000, 0x80, 0x20, 0x80000
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | NOACTIVATE | TOOLWINDOW | TRANSPARENT | LAYERED)
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE) | NOACTIVATE | TOOLWINDOW | LAYERED
+            if click_through:
+                style |= TRANSPARENT
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
         except Exception:
             pass  # not Windows
+
+    def ask(self, title: str, text: str, on_yes, on_no, timeout: int = 45) -> bool:
+        self._q.put(("ask", title, text, on_yes, on_no, timeout))
+        return True
+
+    def _ask(self, title: str, text: str, on_yes, on_no, timeout: int) -> None:
+        """Card in the bottom-right corner with Record / Not now. It does not take the focus away from Teams."""
+        import tkinter as tk
+
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=BG, highlightthickness=1, highlightbackground="#3a3b42")
+        answered = {"done": False}
+
+        def answer(fn) -> None:
+            if answered["done"]:
+                return
+            answered["done"] = True
+            win.destroy()
+            threading.Thread(target=fn, daemon=True).start()
+
+        tk.Label(win, text=title, fg="#9aa0aa", bg=BG, font=("Segoe UI", 9)).pack(anchor="w", padx=14, pady=(10, 0))
+        tk.Label(win, text=text, fg="white", bg=BG, font=("Segoe UI", 11, "bold"), wraplength=300,
+                 justify="left").pack(anchor="w", padx=14, pady=(2, 10))
+        row = tk.Frame(win, bg=BG)
+        row.pack(anchor="e", padx=12, pady=(0, 12))
+        for label, color, fn in (("Not now", "#3a3b42", on_no), ("Record", RED, on_yes)):
+            b = tk.Label(row, text=label, fg="white", bg=color, padx=14, pady=5, cursor="hand2",
+                         font=("Segoe UI", 10, "bold" if label == "Record" else "normal"))
+            b.pack(side="left", padx=4)
+            b.bind("<Button-1>", lambda _e, f=fn: answer(f))
+        win.update_idletasks()
+        w, h = max(330, win.winfo_reqwidth()), win.winfo_reqheight()
+        win.geometry(f"{w}x{h}+{self.root.winfo_screenwidth() - w - 16}+{self.root.winfo_screenheight() - h - 64}")
+        self._no_focus(win, click_through=False)
+        win.after(timeout * 1000, lambda: answer(on_no))
 
     # ------------------------------------------------------------------ thread-safe API
     def show(self, state: str) -> None:
@@ -135,6 +178,9 @@ class Overlay:
         try:
             while True:
                 state = self._q.get_nowait()
+                if isinstance(state, tuple) and state[0] == "ask":
+                    self._ask(*state[1:])
+                    continue
                 if state == "__quit__":
                     self.root.quit()
                     return

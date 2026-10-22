@@ -67,6 +67,36 @@ class GraphService:
             self.me = self.g.get("/me", {"$select": "id,displayName"})
         return self.me
 
+    # ------------------------------------------------------------------ calendar
+    def current_event(self) -> dict:
+        """The Teams meeting on the calendar right now (title, attendees, organizer, invite text), or {}."""
+        if not self.tokens.get():
+            return {}
+        now = datetime.now().astimezone()
+        data = self.g.get("/me/calendarView",
+                          {"startDateTime": (now - timedelta(minutes=20)).isoformat(timespec="seconds"),
+                           "endDateTime": (now + timedelta(minutes=20)).isoformat(timespec="seconds"), "$top": "20",
+                           "$select": "subject,start,end,isCancelled,onlineMeeting,attendees,organizer,body"},
+                          {"Prefer": 'outlook.timezone="UTC", outlook.body-content-type="text"'})
+        best, best_gap = None, None
+        for e in data.get("value", []):
+            if e.get("isCancelled") or not (e.get("onlineMeeting") or {}).get("joinUrl"):
+                continue
+            start = export.parse_time(e["start"]["dateTime"] + "Z")
+            end = export.parse_time(e["end"]["dateTime"] + "Z")
+            if not (start - timedelta(minutes=15) <= now <= end + timedelta(minutes=15)):
+                continue
+            gap = abs((now - start).total_seconds())
+            if best is None or gap < best_gap:
+                best, best_gap = e, gap
+        if not best:
+            return {}
+        names = [(a.get("emailAddress") or {}).get("name", "") for a in best.get("attendees", [])]
+        return {"title": best.get("subject") or "Teams meeting",
+                "attendees": [n for n in names if n],
+                "organizer": ((best.get("organizer") or {}).get("emailAddress") or {}).get("name", ""),
+                "invite": ((best.get("body") or {}).get("content") or "").strip()[:4000]}
+
     # ------------------------------------------------------------------ Teams
     def chats(self, refresh: bool = False) -> list[dict]:
         if refresh or not self._chats or time.time() - self._chats_at > 300:

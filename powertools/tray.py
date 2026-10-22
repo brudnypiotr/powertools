@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 COLORS = {"idle": (90, 150, 230), "recording": (224, 36, 44), "transcribing": (240, 160, 32),
-          "loading": (150, 150, 150), "error": (110, 110, 110)}
+          "loading": (150, 150, 150), "error": (110, 110, 110), "meeting": (150, 70, 200)}
 
 
 def icon_image(state: str):
@@ -16,13 +16,18 @@ def icon_image(state: str):
 
 
 class Tray:
-    def __init__(self, title: str, hotkey: str, on_toggle, on_open, on_quit):
+    def __init__(self, title: str, hotkey: str, on_toggle, on_open, on_quit, meeting=None):
+        """meeting: (is_recording, on_start_stop, on_mark) callables, or None."""
         import pystray
 
         self._pystray = pystray
         self.hotkey = hotkey
+        recording, start_stop, mark = meeting or (lambda: False, lambda: None, lambda: None)
         menu = pystray.Menu(
             pystray.MenuItem(lambda _item: f"Dictate ({self.hotkey})", lambda: on_toggle()),
+            pystray.MenuItem(lambda _item: "Stop meeting recording" if recording() else "Record meeting",
+                             lambda: start_stop()),
+            pystray.MenuItem("Mark this moment", lambda: mark(), visible=lambda _item: recording()),
             pystray.MenuItem("Open window", lambda: on_open(), default=True),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: on_quit()),

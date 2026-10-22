@@ -63,7 +63,12 @@ class App:
         self.url = ""
         from .graph.service import GraphService
 
+        from .meetings.manager import MeetingManager
+
         self.graph = GraphService(self.settings, self.store)
+        self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed)
+        self.watcher = None
+        self.pending_prompt: dict = {}
         self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state)
         self._quit = threading.Event()
 
@@ -77,6 +82,8 @@ class App:
             "engine": self.engine.status(),
             "hotkey": self.settings["hotkey"],
             "overlay": bool(self.overlay and self.overlay.available),
+            "meeting": self.meetings.current.view() if self.meetings.current else None,
+            "pending_prompt": self.pending_prompt,
             "python": sys.version.split()[0],
             "data_dir": str(data_dir()),
         }
@@ -122,11 +129,71 @@ class App:
         if self.overlay:
             self.overlay.quit()
 
+    # ------------------------------------------------------------------ meetings
+    def meeting_devices(self) -> dict:
+        from .meetings.devices import meeting_devices
+        try:
+            return meeting_devices()
+        except Exception as e:
+            log.warning("cannot list meeting devices: %s", e)
+            return {"inputs": [], "outputs": []}
+
+    def start_meeting(self, title: str = "", event: dict | None = None, auto: bool = False):
+        self.pending_prompt = {}
+        if event is None:
+            event = self._calendar_event()
+        return self.meetings.start(title, event, auto)
+
+    def toggle_meeting(self) -> None:
+        if self.meetings.current:
+            self.meetings.stop()
+        else:
+            self.start_meeting()
+
+    def _calendar_event(self) -> dict:
+        try:
+            return self.graph.current_event()
+        except Exception as e:  # no token, expired token, network: record without metadata
+            log.info("no calendar metadata: %s", e)
+            return {}
+
+    def _call_started(self) -> None:
+        if self.meetings.current or not self.settings["meeting_prompt"]:
+            return
+        event = self._calendar_event()
+        title = event.get("title") or "Teams call"
+        who = f"{len(event['attendees'])} people" if event.get("attendees") else "no calendar entry"
+        self.pending_prompt = {"title": title, "detail": who, "event": event}
+
+        def yes() -> None:
+            if not self.meetings.current:
+                self.start_meeting(event=event, auto=True)
+
+        def no() -> None:
+            self.pending_prompt = {}
+
+        if not (self.overlay and self.overlay.ask("Teams call", f"Record '{title}'? ({who})", yes, no)):
+            self.open_window()  # no tkinter: the window shows the question
+
+    def _call_ended(self) -> None:
+        self.pending_prompt = {}
+        s = self.meetings.current
+        if s and s.meta.get("auto"):
+            log.info("Teams left the microphone: stopping the recording")
+            threading.Thread(target=self.meetings.stop, daemon=True).start()
+
+    def _meeting_changed(self) -> None:
+        if self.tray and self.dictation.state == "idle":
+            self.tray.set_state("meeting" if self.meetings.current else "idle",
+                                "powertools: recording a meeting" if self.meetings.current else "powertools: ready")
+
     # ------------------------------------------------------------------ state display
     def _on_state(self, state: str) -> None:
         if self.overlay:
             self.overlay.show(state)
-        if self.tray:
+        if self.tray and state == "idle" and self.meetings.current:
+            self.tray.set_state("meeting", "powertools: recording a meeting")
+        elif self.tray:
             self.tray.set_state(state, f"powertools: {state}")
 
     def _watch_engine(self) -> None:
@@ -164,8 +231,13 @@ class App:
             self.hotkey.bind(self.settings["hotkey"])
         except Exception as e:
             log.error("hotkey %s failed: %s", self.settings["hotkey"], e)
-        self.tray = Tray("powertools", self.settings["hotkey"], self.dictation.toggle, self.open_window, self.quit)
+        self.tray = Tray("powertools", self.settings["hotkey"], self.dictation.toggle, self.open_window, self.quit,
+                         meeting=(lambda: bool(self.meetings.current), self.toggle_meeting, self.meetings.mark))
         self.tray.start()
+        from .meetings.watcher import Watcher
+
+        self.watcher = Watcher(self._call_started, self._call_ended)
+        self.watcher.start()
         self._watch_engine()
         if open_browser and self.settings["open_window_on_start"]:
             self.open_window()
@@ -174,6 +246,10 @@ class App:
             self.overlay.run()  # blocks until quit()
         finally:
             self._quit.set()
+            if self.watcher:
+                self.watcher.stop()
+            if self.meetings.current:
+                self.meetings.stop()
             if self.hotkey:
                 self.hotkey.unbind()
             if self.recorder.active:

@@ -24,6 +24,7 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "teams" || b.dataset.tab === "mail") { renderGraphBar(); loadJobs(); }
     if (b.dataset.tab === "teams" && !chats.length) loadChats(false);
     if (b.dataset.tab === "mail" && !foldersLoaded) loadFolders();
+    if (b.dataset.tab === "meetings") loadMeetings();
   }));
 
 // ---------------------------------------------------------------- status
@@ -56,6 +57,7 @@ async function poll() {
       <div class="text">${esc(last.text)}</div>`;
     loadHistory();
   }
+  renderPrompt(s.pending_prompt);
   setTimeout(poll, s.dictation === "recording" ? 150 : 700);
 }
 $("#toggle").addEventListener("click", () => api("POST", "/api/toggle"));
@@ -94,8 +96,15 @@ $("#history").addEventListener("click", async (ev) => {
 
 // ---------------------------------------------------------------- settings
 async function loadSettings() {
-  const [s, devices] = await Promise.all([api("GET", "/api/settings"), api("GET", "/api/devices")]);
+  const [s, devices, md] = await Promise.all([api("GET", "/api/settings"), api("GET", "/api/devices"),
+    api("GET", "/api/meetings/devices")]);
   const f = $("#settings-form");
+  const opts = (list, cur, def) => `<option value="">${def}</option>` +
+    [...new Set([...list, cur].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
+  f.meeting_mic.innerHTML = opts(md.inputs, s.meeting_mic, "Windows default microphone");
+  f.meeting_output.innerHTML = opts(md.outputs, s.meeting_output, "Windows default output");
+  for (const k of ["meeting_mic", "meeting_output", "meeting_final_model", "meeting_keep_audio_days"]) f[k].value = s[k];
+  f.meeting_prompt.checked = s.meeting_prompt;
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir"]) f[k].value = s[k];
@@ -112,6 +121,8 @@ $("#settings-form").addEventListener("submit", async (e) => {
     beam_size: Number(f.beam_size.value), paste: f.paste.checked, restore_clipboard: f.restore_clipboard.checked,
     open_window_on_start: f.open_window_on_start.checked, vocabulary: lines(f.vocabulary.value),
     output_dir: f.output_dir.value.trim(), mail_attachments: f.mail_attachments.checked,
+    meeting_prompt: f.meeting_prompt.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
+    meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
       .map((l) => { const [a, ...b] = l.split("=>"); return { from: a.trim(), to: b.join("=>").trim() }; }),
   };
@@ -265,6 +276,79 @@ async function loadJobs() {
   clearTimeout(jobsTimer);
   if (jobs.some((j) => j.state === "running" || j.state === "queued")) jobsTimer = setTimeout(loadJobs, 1500);
 }
+
+// ---------------------------------------------------------------- meetings
+function renderPrompt(p) {
+  const el = $("#prompt");
+  if (!p || !p.title) { el.classList.add("hidden"); return; }
+  if (!el.classList.contains("hidden")) return;
+  el.innerHTML = `<b>Teams call</b><span class="grow">Record '${esc(p.title)}'? (${esc(p.detail)})</span>
+    <button class="rec">Record</button><button class="no">Not now</button>`;
+  el.classList.remove("hidden");
+  el.querySelector(".rec").onclick = async () => { el.classList.add("hidden"); await api("POST", "/api/meetings/start", { from_prompt: true }); loadMeetings(); };
+  el.querySelector(".no").onclick = () => { el.classList.add("hidden"); api("POST", "/api/meetings/dismiss"); };
+}
+const clock = (s) => [Math.floor(s / 3600), Math.floor(s / 60) % 60, Math.floor(s) % 60].map((n) => String(n).padStart(2, "0")).join(":");
+let meetTimer = null, liveCount = -1;
+async function loadMeetings() {
+  clearTimeout(meetTimer);
+  let m;
+  try { m = await api("GET", "/api/meetings"); } catch { return; }
+  const cur = m.current, now = $("#meeting-now"), live = $("#meeting-live");
+  if (cur) {
+    if (!now.querySelector(".timer")) {
+      now.innerHTML = `<div class="meetbar"><span class="pill recording">recording</span><b class="mtitle"></b>
+        <span class="timer"></span><span class="lv">Me <span class="meter"><span class="lme"></span></span></span>
+        <span class="lv">Others <span class="meter"><span class="lot"></span></span></span></div>
+        <div class="meetbar" style="margin-top:10px"><input class="note" placeholder="Note for this moment (optional)">
+        <button class="mark">Mark moment</button><button class="stop rec">Stop</button></div>`;
+      now.querySelector(".mark").onclick = async () => { await api("POST", "/api/meetings/mark", { note: now.querySelector(".note").value }); now.querySelector(".note").value = ""; };
+      now.querySelector(".stop").onclick = async () => { await api("POST", "/api/meetings/stop"); setTimeout(loadMeetings, 500); };
+    }
+    now.querySelector(".mtitle").textContent = cur.title;
+    now.querySelector(".timer").textContent = clock(Date.now() / 1000 - cur.started);
+    now.querySelector(".lme").style.width = Math.min(100, m.levels.me * 600) + "%";
+    now.querySelector(".lot").style.width = Math.min(100, m.levels.others * 600) + "%";
+    live.classList.remove("hidden");
+    if (cur.live.length !== liveCount) {
+      liveCount = cur.live.length;
+      const stick = live.scrollTop + live.clientHeight >= live.scrollHeight - 30;
+      live.innerHTML = cur.live.map((s) => `<p><span class="t">${clock(s.start)}</span><span class="who">${s.speaker === "me" ? "Me" : "Others"}:</span> ${esc(s.text)}</p>`).join("")
+        || "<p class='t'>The live transcript appears every 30 seconds.</p>";
+      if (stick) live.scrollTop = live.scrollHeight;
+    }
+  } else {
+    liveCount = -1;
+    live.classList.add("hidden");
+    if (!now.querySelector(".start")) {
+      now.innerHTML = `<div class="meetbar"><input class="title" placeholder="Title (empty: from the calendar)">
+        <button class="start rec">Start recording</button></div>
+        <small>Records your microphone (Me) and what you hear (Others). Teams calls are noticed automatically.</small>`;
+      now.querySelector(".start").onclick = async () => {
+        try { await api("POST", "/api/meetings/start", { title: now.querySelector(".title").value }); loadMeetings(); }
+        catch (e) { alert(e.message); }
+      };
+    }
+  }
+  const status = { done: "done", finalizing: "transcribing...", interrupted: "interrupted", recording: "recording" };
+  $("#meeting-list").innerHTML = m.sessions.map((s) => `<li data-id="${esc(s.id)}">
+      <div class="grow"><b>${esc(s.title)}</b><div class="muted">${new Date(s.started * 1000).toLocaleString()} ·
+        ${Math.round((s.seconds || 0) / 60)} min · ${status[s.status] || esc(s.status)}${s.error ? " · " + esc(s.error) : ""}</div>
+        ${s.md ? `<div class="muted">${esc(s.md)}</div>` : ""}</div>
+      ${s.status === "interrupted" || s.status === "done" ? `<button data-act="final">Transcribe again</button>` : ""}
+      <button data-act="del">Delete</button></li>`).join("") || "<li>No recordings yet.</li>";
+  document.querySelectorAll(".open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
+  if ($("#meetings").classList.contains("active")) meetTimer = setTimeout(loadMeetings, cur ? 1000 : 4000);
+}
+$("#meeting-list").addEventListener("click", async (e) => {
+  const act = e.target.dataset.act, li = e.target.closest("li");
+  if (!act || !li) return;
+  if (act === "del" && !confirm("Delete this recording (audio and live transcript)? The exported Markdown stays.")) return;
+  try {
+    await api(act === "del" ? "DELETE" : "POST", `/api/meetings/${li.dataset.id}` + (act === "final" ? "/finalize" : ""));
+  } catch (err) { alert(err.message); }
+  loadMeetings();
+});
 
 poll();
 loadHistory();
