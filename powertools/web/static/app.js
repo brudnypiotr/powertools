@@ -372,3 +372,46 @@ $("#meeting-list").addEventListener("click", async (e) => {
 
 poll();
 loadHistory();
+
+// ---------------------------------------------------------------- about + update
+const dlg = $("#about");
+const logItems = (items) => items.map((c) => `<li><span>${esc(c.date)}</span><span>${esc(c.subject)}</span></li>`).join("");
+async function loadAbout(fetchRemote) {
+  $("#about-status").textContent = fetchRemote ? "Checking for updates..." : "";
+  $("#about-do").classList.add("hidden");
+  let a;
+  try { a = await api("GET", "/api/about" + (fetchRemote ? "?fetch=1" : "")); }
+  catch (e) { $("#about-status").textContent = e.message; return; }
+  $("#about-version").textContent = `v${a.version}${a.commit ? " · " + a.commit : ""}${a.branch ? " · " + a.branch : ""}`;
+  const e = a.engine || {};
+  const rows = [["Whisper", `${e.model || "?"}${e.device ? " on " + e.device + (e.compute ? "/" + e.compute : "") : ""} (${e.state || "?"})`],
+    ["Python", a.python], ["Folder", a.root]];
+  $("#about-info").innerHTML = rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("");
+  $("#about-log").innerHTML = logItems(a.changelog || []);
+  const pending = a.pending || [];
+  $("#about-pending").innerHTML = pending.length ? `<h3>New in the update</h3><ul class="changelog new">${logItems(pending)}</ul>` : "";
+  if (a.error) $("#about-status").textContent = a.git ? `Updates unavailable: ${a.error}` : "Updates need git (not found).";
+  else if (pending.length) {
+    $("#about-status").textContent = a.busy ? `${pending.length} new change(s). Update after: ${a.busy}.` : `${pending.length} new change(s) available.`;
+    $("#about-do").classList.toggle("hidden", !!a.busy);
+  } else $("#about-status").textContent = a.fetched ? "You have the latest version." : "";
+}
+$("#engine-foot").addEventListener("click", () => { dlg.showModal(); loadAbout(true); });
+dlg.querySelector(".close").addEventListener("click", () => dlg.close());
+dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+$("#about-check").addEventListener("click", () => loadAbout(true));
+$("#about-do").addEventListener("click", async () => {
+  $("#about-do").classList.add("hidden");
+  $("#about-status").textContent = "Updating...";
+  let r;
+  try { r = await api("POST", "/api/update"); } catch (e) { $("#about-status").textContent = e.message; return; }
+  if (!r.restarting) { loadAbout(false); return; }
+  $("#about-status").textContent = `Updated ${r.before} → ${r.after}. Restarting (setup may run first)...`;
+  const started = Date.now();
+  await new Promise((ok) => setTimeout(ok, 3000));
+  const wait = async () => {
+    try { await api("GET", "/api/ping"); location.reload(); }
+    catch { if (Date.now() - started < 300000) setTimeout(wait, 1500); else $("#about-status").textContent = "Restart takes long: start powertools from the shortcut (see setup.log)."; }
+  };
+  wait();
+});

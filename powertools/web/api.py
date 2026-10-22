@@ -69,6 +69,35 @@ def log_tail(h):
     h.send(200, {"lines": h.app.log_tail(int(h.query("lines", "200")))})
 
 
+@route("GET", "/api/about")
+def about(h):
+    from .. import updater
+
+    info = updater.about(fetch=h.query("fetch") == "1")
+    info["busy"] = h.app.busy()
+    info["engine"] = h.app.engine.status()
+    h.send(200, info)
+
+
+@route("POST", "/api/update")
+def update(h):
+    from .. import updater
+
+    busy = h.app.busy()
+    if busy:
+        raise ValueError(f"not now: {busy}. Try again when it has finished.")
+    try:
+        result = updater.update()
+    except updater.GitError as e:
+        raise ValueError(f"update failed: {e}") from e
+    if result["changed"]:
+        updater.restart_later()
+        h.send(200, {**result, "restarting": True})
+        h.app.quit()
+    else:
+        h.send(200, {**result, "restarting": False})
+
+
 @route("POST", "/api/quit")
 def quit_app(h):
     h.send(200, {"quitting": True})

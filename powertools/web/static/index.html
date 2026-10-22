@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>powertools</title>
 <link rel="stylesheet" href="/app.css">
+<link rel="icon" href="/favicon.png">
 </head>
 <body>
 <aside class="side">
-  <div class="brand"><span class="logo"></span>powertools</div>
+  <div class="brand"><img src="/icon.png" alt="" class="logo">powertools</div>
   <nav>
     <button data-tab="dictation" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
     <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
@@ -17,7 +18,7 @@
     <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
   </nav>
-  <div class="side-foot" id="engine-foot"></div>
+  <button class="side-foot" id="engine-foot" title="About, changelog and updates"></button>
 </aside>
 
 <main class="main">
@@ -137,6 +138,16 @@
     <div class="card"><pre id="log"></pre></div>
   </section>
 </main>
+<dialog id="about">
+  <div class="about-head"><img src="/icon.png" alt=""><div><b>powertools</b><div id="about-version" class="muted"></div></div>
+    <button class="icon close" title="Close">✕</button></div>
+  <div id="about-info" class="about-grid"></div>
+  <div class="about-update"><span id="about-status" class="muted">Checking for updates...</span>
+    <button id="about-check">Check again</button><button id="about-do" class="primary hidden">Update and restart</button></div>
+  <div id="about-pending"></div>
+  <h3>Changelog</h3>
+  <ul id="about-log" class="changelog"></ul>
+</dialog>
 <script src="/app.js"></script>
 </body>
 </html>

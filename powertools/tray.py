@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-COLORS = {"idle": (90, 150, 230), "recording": (224, 36, 44), "transcribing": (240, 160, 32),
-          "loading": (150, 150, 150), "error": (110, 110, 110), "meeting": (150, 70, 200)}
-
-
 def icon_image(state: str):
-    from PIL import Image, ImageDraw
+    from .icon import draw
 
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse((6, 6, 58, 58), fill=COLORS.get(state, COLORS["idle"]) + (255,), outline=(255, 255, 255, 255), width=4)
-    return img
+    return draw(64, state)
 
 
 class Tray:

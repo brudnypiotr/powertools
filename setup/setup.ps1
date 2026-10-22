@@ -122,7 +122,7 @@ Step 'packages' 'OK' 'requirements.txt'
 
 # ------------------------------------------------------------------ 3. icon + shortcuts
 $icon = Join-Path $Base 'app.ico'
-$boot = "import sys, runpy; sys.path.insert(0, r'$Repo'); from powertools.tray import icon_image; icon_image('idle').save(r'$icon', sizes=[(16,16),(32,32),(48,48),(64,64)])"
+$boot = "import sys, runpy; sys.path.insert(0, r'$Repo'); from powertools.icon import save_ico; save_ico(r'$icon')"
 $null = Invoke-Native $vpy @('-c', $boot)
 $launcher = Join-Path $Repo 'powertools.cmd'
 $shell = New-Object -ComObject WScript.Shell

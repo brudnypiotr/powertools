@@ -1,0 +1,89 @@
+"""About and Update: version, changelog from git, update by fast-forward pull and restart (as in woynich-wiki).
+
+The copy is a git clone; Update = `git pull --ff-only`, then the launcher is started again (it repeats the setup
+when setup/version.txt changed) and this process quits.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from . import __version__
+
+ROOT = Path(__file__).resolve().parents[1]
+FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+class GitError(RuntimeError):
+    pass
+
+
+def git_exe() -> str | None:
+    found = shutil.which("git")
+    if found:
+        return found
+    for p in (Path(os.environ.get("LOCALAPPDATA", "")) / "woynich-wiki" / "git" / "cmd" / "git.exe",
+              Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Git" / "cmd" / "git.exe"):
+        if os.environ.get("LOCALAPPDATA") and p.exists():
+            return str(p)
+    return None
+
+
+def git(*args: str, timeout: int = 60) -> str:
+    exe = git_exe()
+    if not exe:
+        raise GitError("git not found")
+    r = subprocess.run([exe, *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=timeout, creationflags=FLAGS)
+    if r.returncode != 0:
+        raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
+    return r.stdout.strip()
+
+
+def _log(rng: str, n: int = 40) -> list[dict]:
+    out = git("log", rng, f"-n{n}", "--date=short", "--pretty=format:%h%x09%ad%x09%s")
+    items = []
+    for line in out.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            items.append({"commit": parts[0], "date": parts[1], "subject": parts[2]})
+    return items
+
+
+def about(fetch: bool = False) -> dict:
+    info = {"version": __version__, "python": sys.version.split()[0], "root": str(ROOT), "git": bool(git_exe())}
+    try:
+        info["commit"] = git("rev-parse", "--short", "HEAD")
+        info["branch"] = git("rev-parse", "--abbrev-ref", "HEAD")
+        info["changelog"] = _log("HEAD", 40)
+        info["dirty"] = bool(git("status", "--porcelain", "--untracked-files=no"))
+        if fetch:
+            git("fetch", "--quiet", "origin", timeout=40)
+        upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+        info["upstream"] = upstream
+        info["pending"] = _log(f"HEAD..{upstream}", 50)
+        info["fetched"] = fetch
+    except (GitError, subprocess.TimeoutExpired) as e:
+        info["error"] = str(e)
+    return info
+
+
+def update() -> dict:
+    before = git("rev-parse", "--short", "HEAD")
+    git("pull", "--ff-only", "--quiet", timeout=120)
+    after = git("rev-parse", "--short", "HEAD")
+    return {"before": before, "after": after, "changed": before != after}
+
+
+def restart_later() -> None:
+    """Start the launcher again in ~2 s (after this process has quit), without a console window."""
+    launcher = ROOT / "powertools.cmd"
+    if sys.platform != "win32":
+        return
+    detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(["cmd", "/c", f'ping -n 3 127.0.0.1 >nul & "{launcher}" --no-browser'], cwd=ROOT,
+                     creationflags=detached | FLAGS, close_fds=True)

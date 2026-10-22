@@ -52,7 +52,10 @@ def pill(state: str, t: float, levels: list[float], scale: float = 1.0) -> Image
         cx = 22 * k
         pulse = (6 + 1.6 * (1 + math.sin(t * 5.5)) / 2) * k
         halo = pulse + 5 * k * (0.6 + 0.4 * (1 + math.sin(t * 5.5)) / 2)
-        d.ellipse((cx - halo, cy - halo, cx + halo, cy + halo), fill=(255, 69, 80, 60))
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse((cx - halo, cy - halo, cx + halo, cy + halo), fill=(255, 69, 80, 70))
+        img.alpha_composite(glow)
+        d = ImageDraw.Draw(img)
         d.ellipse((cx - pulse, cy - pulse, cx + pulse, cy + pulse), fill=RED)
         n = 11
         x0, gap, bw = 42 * k, 8.6 * k, 4 * k

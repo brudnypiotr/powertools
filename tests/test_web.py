@@ -63,3 +63,20 @@ def test_page_is_served(server):
     _, base = server
     html = urllib.request.urlopen(base + "/", timeout=5).read().decode()
     assert "<title>powertools</title>" in html
+
+
+def test_about_and_busy_update(server):
+    app, base = server
+    a = call(base, "GET", "/api/about")
+    assert a["version"] and "changelog" in a or "error" in a
+    app.dictation.state = "recording"
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(base, "POST", "/api/update", {})
+    assert e.value.code == 400
+    app.dictation.state = "idle"
+
+
+def test_icon_is_served(server):
+    _, base = server
+    r = urllib.request.urlopen(base + "/icon.png", timeout=5)
+    assert r.headers["Content-Type"] == "image/png" and r.read()[:4] == b"\x89PNG"

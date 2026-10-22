@@ -20,6 +20,7 @@ from .config import Settings, data_dir
 from .store import Store
 
 log = logging.getLogger("powertools")
+PORT = 48613
 
 
 def setup_logging(console: bool) -> None:
@@ -130,6 +131,16 @@ class App:
             log.warning("cannot list devices: %s", e)
             return []
 
+    def busy(self) -> str:
+        """What an update would interrupt, or ''."""
+        if self.dictation.state in ("recording", "transcribing"):
+            return "dictation in progress"
+        if self.meetings.current:
+            return "a meeting is being recorded"
+        if any(j.state in ("queued", "running") for j in self.graph.jobs.all):
+            return "an export is running"
+        return ""
+
     def log_tail(self, n: int) -> list[str]:
         f = data_dir() / "app.log"
         if not f.exists():
@@ -233,7 +244,10 @@ class App:
         from .tray import Tray
         from .web.server import serve
 
-        self.httpd = serve(self)
+        try:
+            self.httpd = serve(self, PORT)  # a fixed port lets an open window reconnect after a restart
+        except OSError:
+            self.httpd = serve(self)
         port = self.httpd.server_address[1]
         self.url = f"http://127.0.0.1:{port}/"
         (data_dir() / "port.txt").write_text(str(port))
