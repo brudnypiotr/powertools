@@ -74,6 +74,9 @@ function Find-Python {
 $env:POWERTOOLS_PS_VERSION = $PSVersionTable.PSVersion.ToString()
 try { $env:POWERTOOLS_EXEC_POLICY = (Get-ExecutionPolicy).ToString() } catch { $env:POWERTOOLS_EXEC_POLICY = 'unknown' }
 $env:PYTHONIOENCODING = 'utf-8'
+# An embeddable Python (python312._pth) ignores the current folder and PYTHONPATH, so 'python -m checks.run' cannot
+# find the package. Put the repository on sys.path ourselves. No double quotes: PS 5.1 strips them from arguments.
+$Boot = "import sys, runpy; sys.path.insert(0, r'$Repo'); runpy.run_module('checks.run', run_name='__main__', alter_sys=True)"
 
 Write-Host ''
 Write-Host 'powertools feasibility checker (no admin rights needed)' -ForegroundColor Cyan
@@ -87,7 +90,7 @@ try {
     if (-not (Test-Path $wpy)) { throw "No python.exe in $WhisperVenv\Scripts" }
     Write-Host "Using the existing venv for the Whisper test: $WhisperVenv"
     $ErrorActionPreference = 'Continue'
-    & $wpy -m checks.run --only whisper --whisper --model $Model
+    & $wpy -c $Boot --only whisper --whisper --model $Model
     exit $LASTEXITCODE
   }
 
@@ -119,7 +122,7 @@ try {
     if ($code -ne 0) { Write-Host '[WARN] faster-whisper install failed (see above).' -ForegroundColor Yellow }
   }
 
-  $runArgs = @('-m', 'checks.run', '--model', $Model)
+  $runArgs = @('-c', $Boot, '--model', $Model)
   if ($Only) { $runArgs += @('--only', $Only) }
   if ($Whisper) { $runArgs += '--whisper' }
   if ($Dry) { $runArgs += '--dry' }

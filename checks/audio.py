@@ -7,7 +7,9 @@ import json
 import subprocess
 import sys
 
-from .common import FAIL, IS_WIN, OK, OUT_DIR, SKIP, WARN, Context
+from .common import CHECKS_DIR, FAIL, IS_WIN, OK, OUT_DIR, SKIP, WARN, Context
+
+ROOT = CHECKS_DIR.parent
 
 SILENT_DB = -55.0
 
@@ -36,7 +38,10 @@ def list_devices(ctx: Context) -> None:
 
 
 def record(ctx: Context, backend: str) -> dict:
-    cmd = [sys.executable, "-m", "checks.audio_worker", backend, str(ctx.seconds), str(OUT_DIR)]
+    # -c bootstrap instead of -m: an embeddable Python ignores the current folder (see check.ps1)
+    boot = (f"import sys, runpy; sys.path.insert(0, {str(ROOT)!r}); "
+            "runpy.run_module('checks.audio_worker', run_name='__main__', alter_sys=True)")
+    cmd = [sys.executable, "-c", boot, backend, str(ctx.seconds), str(OUT_DIR)]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=ctx.seconds + 40)
     except subprocess.TimeoutExpired:
