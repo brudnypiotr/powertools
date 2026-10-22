@@ -162,3 +162,16 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .changelog li span:first-child { color: var(--muted); width: 78px; flex: none; font-variant-numeric: tabular-nums; }
 .changelog.new li { color: var(--accent); }
 #about-pending h3 { margin-top: 12px; }
+/* Jira */
+.jirabar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.jirabar input { flex: 1; min-width: 220px; }
+.jirabar .ok { color: var(--ok); font-weight: 600; } .jirabar .warn { color: var(--rec); font-weight: 600; }
+.searchform label.grow { flex: 3; min-width: 260px; }
+.jira-opts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 13px; }
+.jira-opts input[type=number] { width: 80px; }
+.filters { display: flex; flex-direction: column; gap: 6px; flex-basis: 100%; }
+.filters:empty { display: none; }
+.filter { display: flex; gap: 6px; align-items: center; }
+.filter .f-field, .filter .f-value { flex: 1; }
+.list .warn, td.warn { color: var(--rec); font-weight: 600; }
+.small { font-size: 12px; margin: 4px 2px 8px; word-break: break-all; }

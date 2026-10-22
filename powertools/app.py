@@ -109,6 +109,9 @@ class App:
         from .meetings.manager import MeetingManager
 
         self.graph = GraphService(self.settings, self.store)
+        from .jira.service import JiraService
+
+        self.jira = JiraService(self.settings, self.graph.jobs)
         self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed, self._meeting_event)
         self.watcher = None
         self.pending_prompt: dict = {}

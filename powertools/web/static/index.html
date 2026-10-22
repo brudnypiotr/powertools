@@ -18,6 +18,7 @@
     <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
+    <button data-tab="jira"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 12 12 21 3 12z"/><path d="m12 8 4 4-4 4-4-4z"/></svg><span>Jira</span></button>
     <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
   </nav>
@@ -86,6 +87,52 @@
     <div class="jobs"></div>
   </section>
 
+  <section id="jira" class="tab">
+    <div class="card jirabar"></div>
+    <form id="jira-quick" class="card searchform">
+      <label>Download <select name="mode">
+        <option value="keys">Issue keys or links</option><option value="epic">Epic with all its issues</option>
+        <option value="jql">Everything matching JQL</option></select></label>
+      <label class="grow"><input name="value" placeholder="ABC-123, ABC-124 or https://.../browse/ABC-125"></label>
+      <button class="primary">Download</button>
+    </form>
+    <div class="card jira-opts">
+      <label>Linked issues <select name="depth">
+        <option value="0">none</option><option value="1">1 level</option><option value="2">2 levels</option>
+        <option value="3">3 levels</option><option value="4">4 levels</option><option value="5">5 levels</option></select></label>
+      <label class="check"><input type="checkbox" name="follow" value="links" checked> links</label>
+      <label class="check"><input type="checkbox" name="follow" value="subtasks" checked> sub-tasks</label>
+      <label class="check"><input type="checkbox" name="follow" value="parent"> parent / epic</label>
+      <label class="check"><input type="checkbox" name="follow" value="children"> epic's issues</label>
+      <label class="check"><input type="checkbox" name="attachments" checked> attachments</label>
+      <label>Max issues <input name="max_issues" type="number" min="1" max="2000" value="200"></label>
+    </div>
+    <form id="jira-search" class="card searchform">
+      <label>Project <input name="project" placeholder="key, e.g. ABC"></label>
+      <label>Epic <input name="epic" placeholder="ABC-100"></label>
+      <label>Labels <input name="labels" placeholder="one, two"></label>
+      <label>Text <input name="text" placeholder="words anywhere"></label>
+      <label>Updated within (days) <input name="updated_days" type="number" min="1" max="3650"></label>
+      <div id="jira-filters" class="filters"></div>
+      <button type="button" id="jira-add-filter">+ Field filter</button>
+      <label class="grow">JQL (added with AND) <input name="jql" placeholder='status = "In Progress" AND fixVersion = 2.4'></label>
+      <button class="primary">Search</button>
+      <datalist id="jira-field-names"></datalist>
+    </form>
+    <div id="jira-jql" class="muted small"></div>
+    <div class="card list-card"><table class="list"><thead><tr>
+      <th><input type="checkbox" id="jira-all"></th><th>Key</th><th>Summary</th><th>Type</th><th>Status</th><th>Updated</th><th>Downloaded</th>
+    </tr></thead><tbody id="jira-results"><tr><td colspan="7">Search, or paste keys above.</td></tr></tbody></table></div>
+    <div class="row exportbar"><button id="jira-dl-all">Download all matches</button>
+      <button id="jira-dl-sel" class="primary">Download selected</button></div>
+    <div class="jobs"></div>
+    <div class="row"><h2>Downloaded</h2><input id="jira-dl-filter" type="search" placeholder="Filter">
+      <button id="jira-refresh-sel">Update selected</button><button id="jira-refresh-all" class="primary">Update all</button></div>
+    <div class="card list-card"><table class="list"><thead><tr>
+      <th><input type="checkbox" id="jira-dl-check"></th><th>Key</th><th>Summary</th><th>Status</th><th>Updated in Jira</th><th>Downloaded</th><th>Last result</th>
+    </tr></thead><tbody id="jira-downloaded"></tbody></table></div>
+  </section>
+
   <section id="settings" class="tab">
     <form id="settings-form" class="card form">
       <label>Hotkey <input name="hotkey" placeholder="alt+q"><small>e.g. alt+q, ctrl+shift+space, f9</small></label>
@@ -112,6 +159,12 @@
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
+      <h3>Jira</h3>
+      <label>Jira site <input name="jira_url" placeholder="empty = the one set in woynich-wiki">
+        <small>e.g. https://yoursite.atlassian.net. The token comes from woynich-wiki unless you paste one in the Jira tab.</small></label>
+      <label>Jira e-mail <input name="jira_email" placeholder="empty = the one set in woynich-wiki"><small>Needed for Jira Cloud.</small></label>
+      <label class="check"><input type="checkbox" name="jira_attachments"> Download Jira attachments by default</label>
+      <label>Skip Jira attachments over (MB) <input name="jira_max_attachment_mb" type="number" min="1" max="2000"></label>
       <h3>Meetings</h3>
       <label class="check"><input type="checkbox" name="notifications"> Windows notifications (call noticed, recording, transcript saved)</label>
       <label class="check"><input type="checkbox" name="meeting_prompt"> Ask "Record?" when a Teams call starts</label>

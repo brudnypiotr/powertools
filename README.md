@@ -1,7 +1,7 @@
 # powertools
 
 Personal Windows toolkit (work in progress): dictation with local Whisper, meeting recording with
-transcription, and exporting Teams chats and mail (Microsoft Graph) as Markdown sources for a wiki.
+transcription, and exporting Teams chats and mail (Microsoft Graph) and Jira issues as Markdown sources for a wiki.
 Everything runs in user space: no admin rights, PowerShell 5.1, private Python.
 
 ## Dictation (step 1)
@@ -49,6 +49,26 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
   `meetings/<date>_<title>.md`: invitation text, attendees, marked moments, `Me:` / `Others:` lines.
 - Dictation keeps working during a meeting and goes first in the Whisper queue.
 - Others is one voice track: Teams transcripts with names need admin consent, so they are out of scope.
+
+## Jira (step 4)
+
+Tab **Jira**. Uses the same token as woynich-wiki, so usually nothing to set up: the token from woynich-wiki's
+Keys and tokens (Windows Credential Manager), else the `copilot-jira` Windows credential, else one pasted in the tab
+(DPAPI). Site and e-mail come from woynich-wiki's `instance/config/profile.yaml` unless set in Settings > Jira.
+Cloud (e-mail + API token) and Data Center (personal access token) both work. Read-only.
+
+- **Download** issue keys or browse links, an **epic with all its issues**, or everything matching a JQL.
+- **Search**: project, epic, labels, text, updated within N days, any number of field filters (field name with
+  autocomplete, operator `= != ~ > < in is ...`, value) and free JQL; the JQL used is shown. Download the selected
+  issues or all matches.
+- **Linked issues** to 0-5 levels, following links, sub-tasks, parent/epic and/or an epic's issues; "Max issues"
+  caps the walk. Attachments on or off (Settings: default and size limit); already downloaded attachments are kept.
+- Output: `jira/<KEY>.md` (frontmatter with key, status, people, labels, sprints, links...; description, other
+  fields, links, sub-tasks, attachments, comments) and `jira/<KEY>/` with attachments; inline images point at them.
+- **Update** (selected or all downloaded): one search finds what changed in Jira since the download, only those are
+  fetched again. A changed file is overwritten with `download_status: "changed"`, a `changes:` list in the
+  frontmatter and a "Changed since the last download" note (fields, description, new/edited comments, attachments,
+  custom fields, plus Jira's own history since then); `## Downloads` keeps the history. Unchanged files are not touched.
 
 ## Step 0: feasibility checker
 

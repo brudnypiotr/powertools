@@ -38,6 +38,10 @@ DEFAULTS: dict = {
     "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"
     "meeting_final_model": "large-v3",  # model for the final pass, or "live" to keep the live transcript
     "meeting_keep_audio_days": 7,
+    "jira_url": "",              # "" = woynich-wiki's jira.base_url; e.g. https://<site>.atlassian.net
+    "jira_email": "",            # Atlassian e-mail (Jira Cloud); "" = woynich-wiki's jira.email
+    "jira_attachments": True,
+    "jira_max_attachment_mb": 25,
 }
 MODELS = ["turbo", "large-v3", "medium", "small"]
 
@@ -76,6 +80,14 @@ def validate(key: str, value):
         value = int(value)
         if not 0 <= value <= 365:
             raise ValueError("meeting_keep_audio_days must be 0..365")
+    if key == "jira_url":
+        value = str(value).strip().rstrip("/")
+        if value and not value.startswith("https://"):
+            raise ValueError("Jira site must start with https://")
+    if key == "jira_max_attachment_mb":
+        value = int(value)
+        if not 1 <= value <= 2000:
+            raise ValueError("jira_max_attachment_mb must be 1..2000")
     if key == "beam_size":
         value = int(value)
         if not 1 <= value <= 10:
