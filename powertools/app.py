@@ -44,6 +44,21 @@ def running_instance() -> int:
     return 0
 
 
+def open_app_window(url: str) -> bool:
+    """Edge in app mode: a plain window without tabs or address bar. False when Edge is not found."""
+    if sys.platform != "win32":
+        return False
+    import os
+    import subprocess
+
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")):
+        exe = os.path.join(base or "", "Microsoft", "Edge", "Application", "msedge.exe")
+        if base and os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1000,680"], close_fds=True)
+            return True
+    return False
+
+
 class App:
     def __init__(self, selftest: bool = False):
         from .audio import Recorder
@@ -122,6 +137,8 @@ class App:
         return f.read_text(encoding="utf-8", errors="replace").splitlines()[-n:]
 
     def open_window(self) -> None:
+        if self.settings["app_window"] and open_app_window(self.url):
+            return
         webbrowser.open(self.url)
 
     def quit(self) -> None:
@@ -223,8 +240,8 @@ class App:
         log.info("powertools %s on %s", __version__, self.url)
 
         self.overlay = make_overlay(lambda: self.recorder.level)
-        if not self.overlay.available:
-            log.warning("tkinter missing: no recording dot, the tray icon shows the state")
+        log.info("overlay: %s", type(self.overlay).__name__)
+        self._console_ctrl_c()
         self.engine.start()
         self.hotkey = Hotkey(self.dictation.toggle)
         try:
@@ -243,7 +260,16 @@ class App:
             self.open_window()
 
         try:
-            self.overlay.run()  # blocks until quit()
+            try:
+                self.overlay.run()  # blocks until quit()
+            except Exception:
+                log.exception("overlay failed; running without it")
+                from .overlay import NullOverlay
+                self.overlay = NullOverlay()
+                if not self._quit.is_set():
+                    self.overlay.run()
+        except KeyboardInterrupt:
+            log.info("Ctrl+C: quitting")
         finally:
             self._quit.set()
             if self.watcher:
@@ -263,6 +289,21 @@ class App:
                 pass
             self.store.close()
         return 0
+
+    def _console_ctrl_c(self) -> None:
+        """Ctrl+C / closing the console window quits cleanly (the main thread sits in a native message loop)."""
+        if sys.platform != "win32":
+            return
+        import ctypes
+
+        handler_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_uint)
+
+        def handler(_event) -> int:
+            self.quit()
+            return 1
+
+        self._ctrl_handler = handler_type(handler)  # keep a reference
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(self._ctrl_handler, True)
 
     def run_selftest(self) -> int:
         """No GPU, audio, hotkey or tray: starts the window server and calls the API (used by CI)."""
@@ -301,6 +342,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.selftest:
         return App(selftest=True).run_selftest()
+    if sys.platform == "win32":
+        from .winoverlay import make_dpi_aware
+        make_dpi_aware()
     port = running_instance()
     if port:
         webbrowser.open(f"http://127.0.0.1:{port}/")  # already running: just show it

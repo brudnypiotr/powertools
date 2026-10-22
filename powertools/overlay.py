@@ -40,7 +40,8 @@ class NullOverlay:
         self._stop.set()
 
     def run(self) -> None:
-        self._stop.wait()
+        while not self._stop.wait(0.5):  # short waits so Ctrl+C gets through
+            pass
 
 
 class Overlay:
@@ -202,6 +203,15 @@ class Overlay:
 
 
 def make_overlay(level: Callable[[], float] | None = None):
+    """Windows: Win32 layered windows (no tkinter needed). Elsewhere: tkinter. Last resort: no overlay."""
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            from .winoverlay import WinOverlay
+            return WinOverlay(level)
+        except Exception:
+            pass
     try:
         return Overlay(level)
     except Exception:

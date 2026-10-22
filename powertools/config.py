@@ -29,6 +29,7 @@ DEFAULTS: dict = {
     "replacements": [],          # [{"from": "merlo", "to": "Merlot"}], whole words, case-insensitive
     "beam_size": 5,
     "open_window_on_start": True,
+    "app_window": True,          # open the window as an Edge app window (no browser bars) when Edge is there
     "output_dir": "",            # "" = Documents\\powertools; point it at the wiki inbox
     "mail_attachments": True,
     "meeting_prompt": True,      # ask "Record?" when Teams starts using the microphone

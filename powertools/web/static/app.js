@@ -45,16 +45,15 @@ async function poll() {
   pill.textContent = shown;
   $("#hint").textContent = shown === "loading" ? `Loading Whisper ${e.model}...`
     : e.state === "error" && s.dictation === "idle" ? `Whisper failed: ${e.error || ""}` : (HINTS[shown] || (() => ""))(s);
-  $("#toggle").textContent = s.dictation === "recording" ? "Stop" : "Start dictation";
+  $("#toggle").classList.toggle("on", s.dictation === "recording");
+  $("#engine-foot").innerHTML = `Whisper ${esc(e.model)}${e.device ? " · " + esc(e.device) : ""}<br>${esc(s.hotkey)} · v${esc(s.version)}`;
   $("#level").style.width = Math.min(100, s.level * 600) + "%";
   const last = s.last || {};
   const box = $("#last");
-  if (last.error) { box.classList.remove("hidden"); box.innerHTML = `<span class="err">${esc(last.error)}</span>`; }
+  if (last.error) { box.innerHTML = `<span class="err">${esc(last.error)}</span>`; }
   else if (last.id && last.id !== lastId) {
     lastId = last.id;
-    box.classList.remove("hidden");
-    box.innerHTML = `<div class="meta">${last.audio_s}s audio, ${last.took_s}s to transcribe, ${esc(last.language)}</div>
-      <div class="text">${esc(last.text)}</div>`;
+    box.innerHTML = `${esc(last.text)}<span class="meta">${last.audio_s}s → ${last.took_s}s · ${esc(last.language)}</span>`;
     loadHistory();
   }
   renderPrompt(s.pending_prompt);
@@ -65,31 +64,52 @@ $("#toggle").addEventListener("click", () => api("POST", "/api/toggle"));
 // ---------------------------------------------------------------- history
 async function loadHistory() {
   const items = await api("GET", "/api/history?limit=100&q=" + encodeURIComponent($("#search").value));
+  const when = (ts) => {
+    const d = new Date(ts * 1000), today = new Date().toDateString() === d.toDateString();
+    return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString([], { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
   $("#history").innerHTML = items.map((i) => `
-    <li data-id="${i.id}">
-      <div class="meta">${new Date(i.ts * 1000).toLocaleString()} · ${esc(i.language)} · ${i.audio_s}s
-        <span class="actions"><button data-act="copy">Copy</button><button data-act="fix">Fix a word</button>
-        <button data-act="del">Delete</button></span></div>
-      <div class="text">${esc(i.text)}</div>
-    </li>`).join("") || "<li>Nothing yet.</li>";
+    <li data-id="${i.id}" title="${esc(i.language)} · ${i.audio_s}s audio · ${i.took_s}s">
+      <time>${when(i.ts)}</time>
+      <div class="body"><div class="text">${esc(i.text)}</div></div>
+      <span class="actions">
+        <button class="icon" data-act="copy" title="Copy">${ICONS.copy}</button>
+        <button class="icon" data-act="fix" title="Fix a word (adds a replacement rule)">${ICONS.fix}</button>
+        <button class="icon" data-act="del" title="Delete">${ICONS.del}</button>
+      </span>
+    </li>`).join("") || `<li class="empty">Nothing yet. Press the hotkey anywhere and speak.</li>`;
 }
 $("#search").addEventListener("input", () => loadHistory());
+const ICONS = {
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
+  fix: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
+  del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+};
+function toast(text) {
+  const t = Object.assign(document.createElement("div"), { className: "toast", textContent: text });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1400);
+}
 $("#history").addEventListener("click", async (ev) => {
-  const act = ev.target.dataset.act;
+  const btn = ev.target.closest("[data-act]");
   const li = ev.target.closest("li");
-  if (!act || !li) return;
+  if (!li) return;
+  if (!btn) { if (!ev.target.closest("form")) li.classList.toggle("open"); return; }
+  const act = btn.dataset.act;
   const text = li.querySelector(".text").textContent;
-  if (act === "copy") navigator.clipboard.writeText(text);
+  if (act === "copy") { navigator.clipboard.writeText(text); toast("Copied"); }
   if (act === "del") { await api("DELETE", "/api/history/" + li.dataset.id); loadHistory(); }
   if (act === "fix" && !li.querySelector(".fix")) {
     const sel = window.getSelection().toString().trim();
-    li.insertAdjacentHTML("beforeend", `<form class="fix"><input name="wrong" placeholder="heard" value="${esc(sel)}">
-      <input name="right" placeholder="should be"><button>Add rule</button></form>`);
+    li.querySelector(".body").insertAdjacentHTML("beforeend", `<form class="fix"><input name="wrong" placeholder="heard" value="${esc(sel)}">
+      <input name="right" placeholder="should be"><button class="primary">Add rule</button></form>`);
     li.querySelector(".fix").addEventListener("submit", async (e) => {
       e.preventDefault();
       const f = e.target;
       await api("POST", "/api/correction", { wrong: f.wrong.value, right: f.right.value });
-      f.replaceWith(Object.assign(document.createElement("div"), { className: "meta", textContent: "Rule added." }));
+      f.remove();
+      toast("Rule added");
     });
   }
 });
@@ -108,7 +128,7 @@ async function loadSettings() {
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir"]) f[k].value = s[k];
-  for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments"]) f[k].checked = s[k];
+  for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window"]) f[k].checked = s[k];
   f.vocabulary.value = s.vocabulary.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
@@ -119,7 +139,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
   const body = {
     hotkey: f.hotkey.value, model: f.model.value, language: f.language.value, input_device: f.input_device.value,
     beam_size: Number(f.beam_size.value), paste: f.paste.checked, restore_clipboard: f.restore_clipboard.checked,
-    open_window_on_start: f.open_window_on_start.checked, vocabulary: lines(f.vocabulary.value),
+    open_window_on_start: f.open_window_on_start.checked, app_window: f.app_window.checked, vocabulary: lines(f.vocabulary.value),
     output_dir: f.output_dir.value.trim(), mail_attachments: f.mail_attachments.checked,
     meeting_prompt: f.meeting_prompt.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),

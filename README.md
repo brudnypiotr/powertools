@@ -13,7 +13,9 @@ desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to ski
 - **Alt+Q** (anywhere) starts recording; **Alt+Q** again stops, transcribes locally and pastes into the
   active window. The previous clipboard comes back afterwards.
 - A small pill at the bottom of the screen shows the state: red dot + level bars while recording, amber
-  dots while transcribing. The tray icon has the same colours.
+  dots while transcribing (drawn with Win32 layered windows: no tkinter needed, never takes the focus).
+  The tray icon has the same colours.
+- Quit: tray icon > Quit, Diagnostics > Quit, or Ctrl+C in `powertools.cmd --console`.
 - The window (tray icon > Open window) has the history, "Fix a word" (adds a replacement rule and the word
   to the vocabulary) and the settings: hotkey, model, language, microphone, vocabulary, replacements.
 - Nothing leaves the laptop: audio is never saved, history is text only in

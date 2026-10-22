@@ -2,8 +2,8 @@
 .SYNOPSIS
   powertools setup for Windows, for a normal user without admin rights. Safe to run again.
 .DESCRIPTION
-  1. Finds a full Python 3.11+ with tkinter (for the recording overlay); else installs Python 3.12 per-user from
-     python.org; else falls back to any Python 3.11+ (the app then runs without the overlay).
+  1. Finds Python 3.11+ (any, the embeddable one too: the overlay uses Win32 directly, not tkinter); installs
+     Python 3.12 per-user from python.org only when there is none.
   2. Creates .venv and installs requirements.txt (faster-whisper + CUDA libraries, ~1.5 GB the first time).
   3. Creates the shortcuts (desktop, Start menu) and, unless -NoAutostart, a Startup entry.
   4. Runs the self-test. Writes setup.log; records setup\version.txt in local\setup-version.txt.
@@ -84,10 +84,10 @@ Write-Host 'powertools setup (no admin rights needed)' -ForegroundColor Cyan
 Write-Host "Repository: $Repo"
 Write-Host ''
 
-# ------------------------------------------------------------------ 1. Python with tkinter
+# ------------------------------------------------------------------ 1. Python
 $py = Find-Python
-if (-not $py -or -not $py.tk) {
-  Write-Host 'No Python with tkinter found; installing Python 3.12 for this user (python.org, no admin) ...'
+if (-not $py) {
+  Write-Host 'No Python 3.11+ found; installing Python 3.12 for this user (python.org, no admin) ...'
   try {
     $installer = Get-File $Sources.python_installer.url $Sources.python_installer.sha256 'python-installer.exe'
     $target = Join-Path $Base 'python312'
@@ -100,7 +100,7 @@ if (-not $py -or -not $py.tk) {
   }
 }
 if (-not $py) { Step 'Python' 'FAIL' 'no Python 3.11+ found or installable'; exit 2 }
-Step 'Python' ($(if ($py.tk) { 'OK' } else { 'WARN' })) ("{0} {1}{2}" -f $py.version, $py.exe, $(if ($py.tk) { '' } else { ' (no tkinter: no recording overlay)' }))
+Step 'Python' 'OK' ("{0} {1}" -f $py.version, $py.exe)
 
 # ------------------------------------------------------------------ 2. venv + packages
 $vpy = Join-Path $Venv 'Scripts\python.exe'

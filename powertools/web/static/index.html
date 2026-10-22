@@ -7,33 +7,37 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<header>
-  <h1>powertools</h1>
+<aside class="side">
+  <div class="brand"><span class="logo"></span>powertools</div>
   <nav>
-    <button data-tab="dictation" class="active">Dictation</button>
-    <button data-tab="meetings">Meetings</button>
-    <button data-tab="teams">Teams</button>
-    <button data-tab="mail">Mail</button>
-    <button data-tab="settings">Settings</button>
-    <button data-tab="diagnostics">Diagnostics</button>
+    <button data-tab="dictation" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
+    <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
+    <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
+    <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
+    <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
+    <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
   </nav>
-</header>
+  <div class="side-foot" id="engine-foot"></div>
+</aside>
 
+<main class="main">
 <div id="prompt" class="prompt hidden"></div>
-<main>
   <section id="dictation" class="tab active">
-    <div class="card status">
-      <span id="pill" class="pill">loading</span>
-      <span id="hint"></span>
+    <div class="hero">
+      <button id="toggle" class="mic" title="Start / stop dictation">
+        <svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+      <div class="hero-text">
+        <div class="hero-line"><span id="pill" class="pill">loading</span><span id="hint"></span></div>
+        <div id="last" class="last"></div>
+      </div>
       <span class="meter"><span id="level"></span></span>
-      <button id="toggle">Start dictation</button>
     </div>
-    <div id="last" class="card hidden"></div>
     <div class="row">
       <h2>History</h2>
       <input id="search" type="search" placeholder="Search">
     </div>
-    <ul id="history"></ul>
+    <ul id="history" class="rows"></ul>
   </section>
 
   <section id="meetings" class="tab">
@@ -100,6 +104,7 @@
       <label class="check"><input type="checkbox" name="paste"> Paste into the active window (off: only copy)</label>
       <label class="check"><input type="checkbox" name="restore_clipboard"> Restore the previous clipboard after pasting</label>
       <label class="check"><input type="checkbox" name="open_window_on_start"> Open this window when the app starts</label>
+      <label class="check"><input type="checkbox" name="app_window"> Open as an app window (Edge, no browser bars)</label>
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
