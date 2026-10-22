@@ -10,7 +10,11 @@ jobs:
     # Same shell as the target laptop: Windows PowerShell 5.1 started from check.cmd, a plain user process.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      # Python 3.12 first on PATH, like the private Python on the laptop; check.ps1 still has to find it itself.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: check.cmd -Dry (finds Python, builds checks\.venv, runs every check non-interactively)
         shell: cmd
@@ -34,7 +38,7 @@ jobs:
 
       - name: Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-report
           path: checks/out/report-*.txt
@@ -45,8 +49,8 @@ jobs:
       matrix:
         python: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - run: pip install requests numpy pytest
