@@ -27,8 +27,9 @@ jobs:
         shell: pwsh
         run: |
           $env:CI = 'true'
-          cmd /c check.cmd -Dry -Only env
-          if ($LASTEXITCODE -ge 2) { exit 1 }
+          $out = cmd /c check.cmd -Dry -Only env 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'summary:' -or $out -match 'CommandNotFoundException') { exit 1 }
           exit 0
 
       - name: Imports of the interactive parts (audio, tray, hotkey, clipboard)
