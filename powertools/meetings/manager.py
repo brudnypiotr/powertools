@@ -112,9 +112,10 @@ class Session:
 
 
 class MeetingManager:
-    def __init__(self, settings, engine, on_change=None):
+    def __init__(self, settings, engine, on_change=None, on_event=None):
         self.settings, self.engine = settings, engine
         self.on_change = on_change or (lambda: None)
+        self.on_event = on_event or (lambda kind, session: None)  # started | stopped | saved
         self.root = data_dir() / "meetings"
         self.root.mkdir(parents=True, exist_ok=True)
         self.current: Session | None = None
@@ -181,6 +182,7 @@ class MeetingManager:
             threading.Thread(target=self._read_events, args=(self.current, self.proc), daemon=True).start()
             log.info("meeting started: %s", meta["title"])
         self.on_change()
+        self.on_event("started", self.current)
         return self.current
 
     def _read_events(self, session: Session, proc: subprocess.Popen) -> None:
@@ -254,6 +256,7 @@ class MeetingManager:
                 self.levels = {"me": 0.0, "others": 0.0}
         if not session.meta.get("seconds"):
             session.meta["seconds"] = round(time.time() - session.meta["started"], 1)
+        self.on_event("stopped", session)
         self.finalize(session)
 
     # ------------------------------------------------------------------ final pass
@@ -307,6 +310,7 @@ class MeetingManager:
             f.unlink(missing_ok=True)
         log.info("meeting written: %s", path)
         self.on_change()
+        self.on_event("saved", session)
 
     def delete(self, sid: str) -> None:
         s = self.get(sid)

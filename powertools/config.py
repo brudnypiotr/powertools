@@ -32,6 +32,7 @@ DEFAULTS: dict = {
     "app_window": True,          # open the window as an Edge app window (no browser bars) when Edge is there
     "output_dir": "",            # "" = Documents\\powertools; point it at the wiki inbox
     "mail_attachments": True,
+    "notifications": True,       # Windows notifications for meetings (call noticed, recording, saved)
     "meeting_prompt": True,      # ask "Record?" when Teams starts using the microphone
     "meeting_mic": "",           # "" = Windows default microphone (WASAPI name)
     "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"

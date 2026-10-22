@@ -109,7 +109,7 @@ class App:
         from .meetings.manager import MeetingManager
 
         self.graph = GraphService(self.settings, self.store)
-        self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed)
+        self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed, self._meeting_event)
         self.watcher = None
         self.pending_prompt: dict = {}
         self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state)
@@ -227,6 +227,7 @@ class App:
         def no() -> None:
             self.pending_prompt = {}
 
+        self.notify("Teams call", f"Record '{title}'? ({who}) Answer in the card at the bottom right.")
         if not (self.overlay and self.overlay.ask("Teams call", f"Record '{title}'? ({who})", yes, no)):
             self.open_window()  # no tkinter: the window shows the question
 
@@ -236,6 +237,20 @@ class App:
         if s and s.meta.get("auto"):
             log.info("Teams left the microphone: stopping the recording")
             threading.Thread(target=self.meetings.stop, daemon=True).start()
+
+    def notify(self, title: str, message: str) -> None:
+        if self.tray and self.settings["notifications"]:
+            self.tray.notify(title, message)
+
+    def _meeting_event(self, kind: str, session) -> None:
+        title = session.meta.get("title", "meeting")
+        if kind == "started":
+            self.notify("Recording meeting", f"'{title}': your microphone (Me) and what you hear (Others).")
+        elif kind == "stopped":
+            mins = round(session.meta.get("seconds", 0) / 60)
+            self.notify("Meeting recorded", f"'{title}', {mins} min. Writing the transcript...")
+        elif kind == "saved":
+            self.notify("Transcript saved", session.meta.get("md", title))
 
     def _meeting_changed(self) -> None:
         if self.tray and self.dictation.state == "idle":

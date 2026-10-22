@@ -135,6 +135,7 @@ async function loadSettings() {
   f.meeting_output.innerHTML = opts(md.outputs, s.meeting_output, "Windows default output");
   for (const k of ["meeting_mic", "meeting_output", "meeting_final_model", "meeting_keep_audio_days"]) f[k].value = s[k];
   f.meeting_prompt.checked = s.meeting_prompt;
+  f.notifications.checked = s.notifications;
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir"]) f[k].value = s[k];
@@ -151,7 +152,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
     beam_size: Number(f.beam_size.value), paste: f.paste.checked, restore_clipboard: f.restore_clipboard.checked,
     open_window_on_start: f.open_window_on_start.checked, app_window: f.app_window.checked, vocabulary: lines(f.vocabulary.value),
     output_dir: f.output_dir.value.trim(), mail_attachments: f.mail_attachments.checked,
-    meeting_prompt: f.meeting_prompt.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
+    meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
       .map((l) => { const [a, ...b] = l.split("=>"); return { from: a.trim(), to: b.join("=>").trim() }; }),

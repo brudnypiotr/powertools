@@ -35,5 +35,12 @@ class Tray:
         if tooltip:
             self.icon.title = tooltip[:120]
 
+    def notify(self, title: str, message: str) -> None:
+        """A Windows notification from the tray icon."""
+        try:
+            self.icon.notify(message[:250], title[:60])
+        except Exception:
+            pass
+
     def stop(self) -> None:
         self.icon.stop()

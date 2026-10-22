@@ -125,3 +125,16 @@ def test_engine_priorities_and_model_swap(monkeypatch):
         time.sleep(0.05)
     assert [t for t, _ in order] == ["first", "dictation", "live", "final"]
     assert order[-1] == ("final", "large-v3") and loads == ["turbo", "large-v3", "turbo"]
+
+
+def test_finalize_reports_events(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+    s.update({"output_dir": str(tmp_path / "out")})
+    events = []
+    m = mm.MeetingManager(s, FakeEngine(), on_event=lambda kind, sess: events.append(kind))
+    folder = m.root / "20261022-110000"
+    folder.mkdir()
+    write_wav(folder / "me_0000.wav", np.zeros(16000, np.float32))
+    m._finish(mm.Session(folder, {"title": "x", "started": time.time(), "seconds": 5, "marks": []}))
+    assert events == ["stopped", "saved"]
