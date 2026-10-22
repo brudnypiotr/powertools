@@ -1,0 +1,14 @@
+{
+  "id": "/",
+  "name": "powertools",
+  "short_name": "powertools",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#141417",
+  "theme_color": "#141417",
+  "icons": [
+    {"src": "/dot-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/dot-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

@@ -45,8 +45,28 @@ def running_instance() -> int:
     return 0
 
 
+def web_app_id(manifest_id: str) -> str:
+    """Chromium's id of an installed web app: sha256 of the manifest id, first 32 hex digits mapped to a-p."""
+    import hashlib
+
+    return "".join(chr(ord("a") + int(c, 16)) for c in hashlib.sha256(manifest_id.encode()).hexdigest()[:32])
+
+
+def installed_profile(app_id: str) -> str:
+    """The Edge profile folder in which the window is installed as an app, or ''."""
+    import os
+    from pathlib import Path
+
+    user_data = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Edge" / "User Data"
+    for prof in sorted(user_data.glob("*")) if user_data.is_dir() else []:
+        if (prof / "Web Applications" / "Manifest Resources" / app_id).is_dir():
+            return prof.name
+    return ""
+
+
 def open_app_window(url: str) -> bool:
-    """Edge in app mode: a plain window without tabs or address bar. False when Edge is not found."""
+    """The window without browser bars: the installed app (own taskbar icon) when the user installed it,
+    else Edge in app mode. False when Edge is not found."""
     if sys.platform != "win32":
         return False
     import os
@@ -55,7 +75,14 @@ def open_app_window(url: str) -> bool:
     for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")):
         exe = os.path.join(base or "", "Microsoft", "Edge", "Application", "msedge.exe")
         if base and os.path.exists(exe):
-            subprocess.Popen([exe, f"--app={url}", "--window-size=1000,680"], close_fds=True)
+            app_id = web_app_id(f"http://127.0.0.1:{PORT}/")
+            profile = installed_profile(app_id) if url.startswith(f"http://127.0.0.1:{PORT}/") else ""
+            if profile:
+                args = [exe, f"--profile-directory={profile}", f"--app-id={app_id}"]
+            else:
+                args = [exe, f"--app={url}", "--window-size=1000,680"]
+            log.info("window: %s", " ".join(args[1:]))
+            subprocess.Popen(args, close_fds=True)
             return True
     return False
 

@@ -114,3 +114,17 @@ def test_restart_script_really_starts_the_launcher(tmp_path, monkeypatch):
             break
         time.sleep(0.5)
     assert marker.read_text().strip() == "--no-browser"
+
+
+def test_web_app_id_shape():
+    from powertools.app import web_app_id
+
+    a = web_app_id("http://127.0.0.1:48613/")
+    assert len(a) == 32 and set(a) <= set("abcdefghijklmnop") and a != web_app_id("http://127.0.0.1:1/")
+
+
+def test_manifest_served(server):
+    _, base = server
+    r = urllib.request.urlopen(base + "/manifest.webmanifest", timeout=5)
+    m = json.loads(r.read())
+    assert r.headers["Content-Type"] == "application/manifest+json" and m["display"] == "standalone"

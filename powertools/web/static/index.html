@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>powertools</title>
 <link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#141417">
 <link rel="icon" href="/dot-32.png" sizes="32x32">
 <link rel="icon" href="/dot-192.png" sizes="192x192">
 </head>
@@ -145,6 +147,8 @@
   <div id="about-info" class="about-grid"></div>
   <div class="about-update"><span id="about-status" class="muted">Checking for updates...</span>
     <button id="about-check">Check again</button><button id="about-do" class="primary hidden">Update and restart</button></div>
+  <div class="about-update" id="install-box"><span id="install-text" class="muted">Install the window as an app to get
+    its own taskbar icon and pinning.</span><button id="install-do" class="hidden">Install as app</button></div>
   <div id="about-pending"></div>
   <h3>Changelog</h3>
   <ul id="about-log" class="changelog"></ul>

@@ -35,9 +35,19 @@ const HINTS = {
   transcribing: () => "Transcribing...",
   error: () => "Something went wrong, see below.",
 };
+let failures = 0, updating = false;
+function stopped() {
+  document.body.innerHTML = `<main class="main"><p class="muted">powertools has stopped. Start it again from the
+    shortcut or the Start menu.</p></main>`;
+  window.close();  // allowed for an app window opened with one page
+}
 async function poll() {
   let s;
-  try { s = await api("GET", "/api/state"); } catch { return setTimeout(poll, 2000); }
+  try { s = await api("GET", "/api/state"); failures = 0; }
+  catch {
+    if (++failures >= 3 && !updating) return stopped();  // the app quit (tray > Quit): close this window too
+    return setTimeout(poll, 2000);
+  }
   const e = s.engine;
   const shown = e.state === "ready" || s.dictation !== "idle" ? s.dictation : e.state === "error" ? "error" : "loading";
   const pill = $("#pill");
@@ -160,7 +170,7 @@ async function loadDiagnostics() {
 $("#quit").addEventListener("click", async () => {
   if (!confirm("Quit powertools? The hotkey stops working until you start it again.")) return;
   await api("POST", "/api/quit");
-  document.body.innerHTML = "<main><p>powertools has stopped. Start it again from the desktop shortcut.</p></main>";
+  stopped();
 });
 
 // ---------------------------------------------------------------- Graph token bar (Teams + Mail)
@@ -402,10 +412,11 @@ dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
 $("#about-check").addEventListener("click", () => loadAbout(true));
 $("#about-do").addEventListener("click", async () => {
   $("#about-do").classList.add("hidden");
+  updating = true;
   $("#about-status").textContent = "Updating...";
   let r;
-  try { r = await api("POST", "/api/update"); } catch (e) { $("#about-status").textContent = e.message; return; }
-  if (!r.restarting) { loadAbout(false); return; }
+  try { r = await api("POST", "/api/update"); } catch (e) { updating = false; $("#about-status").textContent = e.message; return; }
+  if (!r.restarting) { updating = false; loadAbout(false); return; }
   $("#about-status").textContent = `Updated ${r.before} → ${r.after}. Restarting (setup may run first)...`;
   const started = Date.now();
   await new Promise((ok) => setTimeout(ok, 3000));
@@ -415,3 +426,18 @@ $("#about-do").addEventListener("click", async () => {
   };
   wait();
 });
+
+// ---------------------------------------------------------------- install as an app (own taskbar icon, pinning)
+let installEvent = null;
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+const standalone = window.matchMedia("(display-mode: standalone)").matches;
+function renderInstall() {
+  if (standalone) { $("#install-text").textContent = "Installed as an app: pin it from the taskbar."; return; }
+  $("#install-do").classList.toggle("hidden", !installEvent);
+  if (!installEvent) $("#install-text").textContent =
+    "To get its own taskbar icon: open this window in Edge, then ⋯ menu > Apps > Install this site as an app.";
+}
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; renderInstall(); });
+window.addEventListener("appinstalled", () => { $("#install-text").textContent = "Installed. Next time the app window opens with its own icon."; $("#install-do").classList.add("hidden"); });
+$("#install-do").addEventListener("click", async () => { if (installEvent) { installEvent.prompt(); installEvent = null; renderInstall(); } });
+renderInstall();
