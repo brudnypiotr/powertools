@@ -45,6 +45,17 @@ jobs:
           checks\.venv\Scripts\python.exe -m pytest -q tests
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: App setup (powertools.cmd --setup, PS 5.1) and self-test
+        shell: cmd
+        run: call powertools.cmd --setup
+
+      - name: App unit tests in the app venv
+        shell: powershell
+        run: |
+          .venv\Scripts\python.exe -m pip install --quiet --disable-pip-version-check pytest
+          .venv\Scripts\python.exe -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Report
         if: always()
         uses: actions/upload-artifact@v5

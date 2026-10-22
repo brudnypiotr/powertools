@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>powertools</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>powertools</h1>
+  <nav>
+    <button data-tab="dictation" class="active">Dictation</button>
+    <button data-tab="meetings" disabled title="next">Meetings</button>
+    <button data-tab="teams" disabled title="next">Teams</button>
+    <button data-tab="mail" disabled title="next">Mail</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="diagnostics">Diagnostics</button>
+  </nav>
+</header>
+
+<main>
+  <section id="dictation" class="tab active">
+    <div class="card status">
+      <span id="pill" class="pill">loading</span>
+      <span id="hint"></span>
+      <span class="meter"><span id="level"></span></span>
+      <button id="toggle">Start dictation</button>
+    </div>
+    <div id="last" class="card hidden"></div>
+    <div class="row">
+      <h2>History</h2>
+      <input id="search" type="search" placeholder="Search">
+    </div>
+    <ul id="history"></ul>
+  </section>
+
+  <section id="settings" class="tab">
+    <form id="settings-form" class="card form">
+      <label>Hotkey <input name="hotkey" placeholder="alt+q"><small>e.g. alt+q, ctrl+shift+space, f9</small></label>
+      <label>Model
+        <select name="model">
+          <option value="turbo">turbo (fast, recommended)</option>
+          <option value="large-v3">large-v3 (most accurate, slower)</option>
+          <option value="medium">medium</option>
+          <option value="small">small</option>
+        </select>
+      </label>
+      <label>Language
+        <select name="language">
+          <option value="">Detect (Polish + English mix)</option>
+          <option value="pl">Polish</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <label>Microphone <select name="input_device"></select></label>
+      <label class="check"><input type="checkbox" name="paste"> Paste into the active window (off: only copy)</label>
+      <label class="check"><input type="checkbox" name="restore_clipboard"> Restore the previous clipboard after pasting</label>
+      <label class="check"><input type="checkbox" name="open_window_on_start"> Open this window when the app starts</label>
+      <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
+      <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
+        <small>Whisper is nudged to spell these words this way.</small></label>
+      <label>Replacements <textarea name="replacements" rows="6" placeholder="merlo => Merlot"></textarea>
+        <small>One rule per line: <code>heard => wanted</code>. Whole words, case-insensitive.</small></label>
+      <div class="row"><button type="submit">Save</button><span id="saved"></span></div>
+    </form>
+  </section>
+
+  <section id="diagnostics" class="tab">
+    <div class="card"><pre id="diag"></pre></div>
+    <div class="row"><h2>Log</h2><button id="quit" class="danger">Quit powertools</button></div>
+    <div class="card"><pre id="log"></pre></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

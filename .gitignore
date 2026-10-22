@@ -5,3 +5,6 @@ checks/.venv/
 checks/out/
 checks/.token
 *.wav
+.venv/
+local/
+setup.log

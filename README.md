@@ -4,6 +4,23 @@ Personal Windows toolkit (work in progress): dictation with local Whisper, meeti
 transcription, and exporting Teams chats and mail (Microsoft Graph) as Markdown sources for a wiki.
 Everything runs in user space: no admin rights, PowerShell 5.1, private Python.
 
+## Dictation (step 1)
+
+Double-click `powertools.cmd`. The first start runs the setup (no admin rights): a Python with tkinter
+(found or installed per-user), `.venv`, faster-whisper with the CUDA libraries (~1.5 GB), shortcuts on the
+desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to skip that one).
+
+- **Alt+Q** (anywhere) starts recording; **Alt+Q** again stops, transcribes locally and pastes into the
+  active window. The previous clipboard comes back afterwards.
+- A small pill at the bottom of the screen shows the state: red dot + level bars while recording, amber
+  dots while transcribing. The tray icon has the same colours.
+- The window (tray icon > Open window) has the history, "Fix a word" (adds a replacement rule and the word
+  to the vocabulary) and the settings: hotkey, model, language, microphone, vocabulary, replacements.
+- Nothing leaves the laptop: audio is never saved, history is text only in
+  `%LOCALAPPDATA%\powertools\history.sqlite`.
+
+`powertools.cmd --console` runs with the log in the window; `powertools.cmd --setup` repeats the setup.
+
 ## Step 0: feasibility checker
 
 Before building, `check.cmd` tests every assumption on the target laptop and writes a report that holds
