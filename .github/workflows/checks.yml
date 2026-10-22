@@ -1,0 +1,58 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    # Same shell as the target laptop: Windows PowerShell 5.1 started from check.cmd, a plain user process.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Python 3.12 first on PATH, like the private Python on the laptop; check.ps1 still has to find it itself.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: check.cmd -Dry (finds Python, builds checks\.venv, runs every check non-interactively)
+        shell: cmd
+        run: |
+          call check.cmd -Dry
+          if %ERRORLEVEL% GEQ 2 exit /b 1
+          exit /b 0
+
+      - name: Imports of the interactive parts (audio, tray, hotkey, clipboard)
+        shell: powershell
+        run: |
+          checks\.venv\Scripts\python.exe -c 'import soundcard, pyaudiowpatch, sounddevice, pystray, keyboard, pyperclip, checks.audio_worker, checks.ui, checks.meeting; print(1)'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Unit tests
+        shell: powershell
+        run: |
+          checks\.venv\Scripts\python.exe -m pip install --quiet --disable-pip-version-check pytest
+          checks\.venv\Scripts\python.exe -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-report
+          path: checks/out/report-*.txt
+
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install requests numpy pytest
+      - run: python -m compileall -q checks tests
+      - run: python -m pytest -q tests

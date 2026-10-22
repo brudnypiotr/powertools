@@ -3,7 +3,9 @@
     python -m checks.run                     all checks (Whisper only scans for models)
     python -m checks.run --only graph,audio
     python -m checks.run --only whisper --whisper --model turbo
-    python -m checks.run --dry               non-interactive smoke run (any OS)
+    python -m checks.run --dry               non-interactive smoke run (any OS; used by CI)
+
+Exit code: 0 all fine, 1 some check failed, 2 a check crashed (a bug in the checker).
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ def main() -> int:
 
     ctx = Context(interactive=not args.dry, whisper=args.whisper, model=args.model, seconds=args.seconds)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
+    crashed = False
     for name in names:
         section(TITLES[name])
         try:
@@ -52,6 +55,7 @@ def main() -> int:
         except KeyboardInterrupt:
             ctx.add(name, FAIL, "interrupted")
         except Exception as e:  # a crashing check must not stop the others
+            crashed = True
             ctx.add(name, FAIL, f"crashed: {type(e).__name__}: {e}")
             traceback.print_exc()
 
@@ -70,7 +74,7 @@ def main() -> int:
     )
     print("\n" + "\n".join(lines))
     print(f"\nReport saved: {txt}\nPaste the .txt into the chat. It holds no message content.")
-    return 1 if counts["FAIL"] else 0
+    return 2 if crashed else 1 if counts["FAIL"] else 0
 
 
 if __name__ == "__main__":

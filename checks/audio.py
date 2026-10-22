@@ -70,8 +70,8 @@ def judge(ctx: Context, r: dict) -> bool:
 
 def run(ctx: Context) -> None:
     list_devices(ctx)
-    if not IS_WIN:
-        ctx.add("audio.record", SKIP, "loopback test is Windows only")
+    if not IS_WIN or not ctx.interactive:
+        ctx.add("audio.record", SKIP, "needs Windows and a person at the microphone")
         return
     if not ctx.confirm_start("Audio", f"Put on the headphones you use for Teams (best: during a Teams call).\n"
                                       f"For {ctx.seconds} s: talk into the microphone. You will hear quiet beeps;\n"

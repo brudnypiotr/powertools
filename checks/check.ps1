@@ -12,13 +12,15 @@
   check.cmd -Only graph,audio
   check.cmd -Only whisper -Whisper            (installs faster-whisper + CUDA libs into checks\.venv, ~1.5 GB)
   check.cmd -WhisperVenv C:\path\to\letmetalk\.venv   (reuse an existing venv for the Whisper test)
+  check.cmd -Dry                              (non-interactive smoke run, used by CI)
 #>
 [CmdletBinding()]
 param(
   [string]$Only = '',
   [switch]$Whisper,
   [string]$WhisperVenv = '',
-  [string]$Model = 'turbo'
+  [string]$Model = 'turbo',
+  [switch]$Dry
 )
 
 $ErrorActionPreference = 'Stop'
@@ -120,6 +122,7 @@ try {
   $runArgs = @('-m', 'checks.run', '--model', $Model)
   if ($Only) { $runArgs += @('--only', $Only) }
   if ($Whisper) { $runArgs += '--whisper' }
+  if ($Dry) { $runArgs += '--dry' }
   # Run Python directly on the console (not through a pipe): the checks are interactive.
   $ErrorActionPreference = 'Continue'
   & $vpy @runArgs
