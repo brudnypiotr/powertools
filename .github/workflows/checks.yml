@@ -23,6 +23,15 @@ jobs:
           if %ERRORLEVEL% GEQ 2 exit /b 1
           exit /b 0
 
+      - name: check.cmd started from PowerShell 7 (inherited PSModulePath must not break 5.1)
+        shell: pwsh
+        run: |
+          $env:CI = 'true'
+          $out = cmd /c check.cmd -Dry -Only env 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'summary:' -or $out -match 'CommandNotFoundException') { exit 1 }
+          exit 0
+
       - name: Imports of the interactive parts (audio, tray, hotkey, clipboard)
         shell: powershell
         run: |
