@@ -46,7 +46,7 @@ function Find-Python {
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python310\python.exe')
   )
-  foreach ($c in @('py', 'python')) {
+  foreach ($c in @('python', 'py')) {
     $cmd = Get-Command $c -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source -notmatch 'WindowsApps') { $candidates += $cmd.Source }
   }
