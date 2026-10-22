@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+checks/.venv/
+checks/out/
+checks/.token
+*.wav
