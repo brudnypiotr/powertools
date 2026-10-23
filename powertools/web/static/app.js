@@ -25,6 +25,7 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "teams" && !chats.length) loadChats(false);
     if (b.dataset.tab === "mail" && !foldersLoaded) loadFolders();
     if (b.dataset.tab === "meetings") loadMeetings();
+    if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); if (!orgChain.length) loadOrgChain(); }
     if (b.dataset.tab === "jira") { renderJiraBar(false); loadJiraDownloaded(); loadJobs(); loadJiraFields(); }
   }));
 
@@ -207,6 +208,7 @@ async function renderGraphBar() {
         if (r.resumed_jobs) loadJobs();
         if ($("#teams").classList.contains("active")) loadChats(true);
         if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
+        if ($("#org").classList.contains("active")) loadOrgChain();
       } catch (e) { alert(e.message); }
     };
   });
@@ -223,6 +225,7 @@ function watchGraphToken(before) {  // poll until the copied token is caught (or
       loadJobs();
       if ($("#teams").classList.contains("active")) loadChats(true);
       if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
+      if ($("#org").classList.contains("active")) loadOrgChain();
     } else if (s.watch.result && s.watch.result !== "timeout") alert(s.watch.result);
   }, 1500);
 }
@@ -454,6 +457,40 @@ function watchJira() {  // refresh the Downloaded list while a Jira job runs
     if (jobs.some((j) => j.title.startsWith("Jira") && (j.state === "running" || j.state === "queued"))) watchJira();
   }, 2000);
 }
+
+// ---------------------------------------------------------------- org chart
+let orgChain = [], orgRoot = null;
+const personLine = (p) => `<b>${esc(p.name)}</b>${p.title ? ` <span class="muted">${esc(p.title)}</span>` : ""}`;
+async function loadOrgChain() {
+  try { orgChain = await graphCall("GET", "/api/org/chain"); }
+  catch (e) { $("#org-chain").textContent = e.message; return; }
+  $("#org-chain").innerHTML = orgChain.map((p, i) =>
+    `<button type="button" data-i="${i}" title="${esc(p.department)}">${i ? "↑" + i + " " : ""}${esc(p.name)}</button>`).join(" ");
+  $("#org-chain").querySelectorAll("button").forEach((b) => (b.onclick = () => pickOrg(orgChain[Number(b.dataset.i)])));
+}
+function pickOrg(p) {
+  orgRoot = p;
+  $("#org-root").innerHTML = `From ${personLine(p)}${p.department ? ` · ${esc(p.department)}` : ""}`;
+}
+$("#org-search").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = e.target.q.value.trim();
+  if (q.length < 2) return;
+  $("#org-found").innerHTML = `<li class="muted">Searching...</li>`;
+  let found;
+  try { found = await graphCall("GET", "/api/org/search?q=" + encodeURIComponent(q)); }
+  catch (err) { $("#org-found").innerHTML = `<li>${esc(err.message)}</li>`; return; }
+  $("#org-found").innerHTML = found.map((p, i) => `<li><button type="button" data-i="${i}">Pick</button> ${personLine(p)}
+    ${p.department ? `<span class="muted">· ${esc(p.department)}</span>` : ""}</li>`).join("") || `<li class="muted">Nobody found.</li>`;
+  $("#org-found").querySelectorAll("button").forEach((b) => (b.onclick = () => pickOrg(found[Number(b.dataset.i)])));
+});
+$("#org-export").addEventListener("click", async () => {
+  if (!orgRoot) return alert("Pick a person first: one of your managers or a search result.");
+  try {
+    await graphCall("POST", "/api/org/export", { id: orgRoot.id, depth: Number($("#org-depth").value), above: $("#org-above").checked });
+    loadJobs();
+  } catch (e) { alert(e.message); }
+});
 
 // ---------------------------------------------------------------- export jobs
 let jobsTimer = null;

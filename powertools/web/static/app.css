@@ -189,3 +189,5 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .sessions .mdetail pre { white-space: pre-wrap; max-height: 200px; overflow: auto; font-size: 12px; }
 .sessions .mact { display: flex; gap: 6px; flex-wrap: wrap; }
 .sessions .warn { color: var(--rec); font-size: 12.5px; margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+#org-found li { display: flex; gap: 8px; align-items: center; }

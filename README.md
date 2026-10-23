@@ -86,6 +86,19 @@ Atlassian e-mail of the same account; Data Center: personal access token. Read-o
   frontmatter and a "Changed since the last download" note (fields, description, new/edited comments, attachments,
   custom fields, plus Jira's own history since then); `## Downloads` keeps the history. Unchanged files are not touched.
 
+## Org chart (step 5)
+
+The **Org** tab exports who reports to whom, with the Graph token of the Teams and Mail tabs (no admin rights):
+
+- **Start from** one of your managers (the whole chain comes in one request) or search anyone by name or e-mail.
+- **Levels below**: 1, 2, 3 or all; **managers above** adds the chain above that person.
+- **Export org chart** writes `org/<date>_<name>.md` (an indented tree with job title, department and office, and the
+  number of people under each manager) and `.csv` (one row per person: level, manager, job title, department, office,
+  e-mail) to the export folder. The branch is walked level by level, 20 people per request: about 80 people a second.
+
+Measured on the laptop first (`check.cmd -Only org`): the directory listed with managers returns none, and Active
+Directory is not reachable, so the tree is always walked from a chosen person.
+
 ## Step 0: feasibility checker
 
 Before building, `check.cmd` tests every assumption on the target laptop and writes a report that holds

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from .. import export
 from ..config import data_dir, output_dir
 from ..jobs import Job, Jobs
-from . import mail, teams
+from . import mail, org, teams
 from .client import Graph, TokenExpired
 from .token import TokenStore, claims
 
@@ -217,3 +217,34 @@ class GraphService:
 
         title = f"Mail: {len(items)} thread(s)" if len(items) > 1 else f"Mail: {items[0].get('subject', '')}"
         return self.jobs.submit(title, run)
+
+    # ------------------------------------------------------------------ org chart
+    def org_chain(self) -> list[dict]:
+        """You and your managers up to the top: the usual places to start a chart from."""
+        return [p.view() for p in org.chain(self.g)]
+
+    def org_search(self, text: str) -> list[dict]:
+        return [p.view() for p in org.search(self.g, text)]
+
+    def export_org(self, root_id: str, depth: int, with_above: bool = True) -> Job:
+        if not root_id:
+            raise ValueError("pick a person to start from")
+        if not 0 <= depth <= 20:
+            raise ValueError("depth must be 0 (all levels) to 20")
+        out = output_dir(self.settings)
+
+        def run(job: Job) -> None:
+            people = org.chain(self.g, root_id)          # the root with everything above it, one request
+            root, above = people[0], people[1:] if with_above else []
+            job.note(f"{len(above)} level(s) above {root.name}" if above else f"starting from {root.name}")
+
+            def progress(found: int, level: int) -> None:
+                job.done, job.total = found, 0
+            found = org.walk(self.g, root, depth, progress)
+            job.done = found
+            files = org.save(out, root, above, depth, found >= org.MAX_PEOPLE, datetime.now())
+            job.files += [str(f) for f in files]
+            job.note(f"{found} people below {root.name}")
+
+        return self.jobs.submit("Org chart", run)
+

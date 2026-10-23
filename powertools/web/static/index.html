@@ -19,6 +19,7 @@
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
     <button data-tab="jira"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 12 12 21 3 12z"/><path d="m12 8 4 4-4 4-4-4z"/></svg><span>Jira</span></button>
+    <button data-tab="org"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v5M6 17v-5h12v5"/></svg><span>Org</span></button>
     <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
   </nav>
@@ -84,6 +85,28 @@
     </tr></thead><tbody id="threads"><tr><td colspan="6">Search to list threads.</td></tr></tbody></table></div>
     <div class="row exportbar"><span class="range" data-for="mail"></span>
       <button id="mail-export" class="primary">Export selected</button></div>
+    <div class="jobs"></div>
+  </section>
+
+  <section id="org" class="tab">
+    <div class="card graphbar"></div>
+    <div class="card">
+      <h3>Start from</h3>
+      <div id="org-chain" class="chips muted">Connect above to see your managers.</div>
+      <form id="org-search" class="row">
+        <input name="q" type="search" placeholder="...or search a person by name or e-mail" autocomplete="off">
+        <button>Search</button>
+      </form>
+      <ul id="org-found" class="rows"></ul>
+    </div>
+    <div class="row exportbar">
+      <span id="org-root" class="muted">Pick a person.</span>
+      <label>Levels below <select id="org-depth"><option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="0" selected>all</option></select></label>
+      <label><input type="checkbox" id="org-above" checked> managers above</label>
+      <button id="org-export" class="primary">Export org chart</button>
+    </div>
+    <div class="muted small">Markdown tree and CSV under org/ in the export folder; about 1 s per 80 people.</div>
     <div class="jobs"></div>
   </section>
 
