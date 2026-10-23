@@ -94,7 +94,8 @@ only statuses, counts, HTTP codes and device names (no message content, names or
 ```
 check.cmd                                    all checks (Whisper: cache scan only)
 check.cmd -Only meeting                      run during a Teams call, then again outside one
-check.cmd -Only graph,audio                  pick checks: env, whisper, meeting, graph, audio, ui
+check.cmd -Only graph,audio                  pick checks: env, whisper, meeting, graph, org, audio, ui
+check.cmd -Only org                          org chart: which approach works here (Graph chain, branch walk plain vs $batch, directory with managers, Active Directory)
 check.cmd -Only whisper -Whisper             install faster-whisper + CUDA libs (~1.5 GB) and test a load
 check.cmd -WhisperVenv C:\path\to\.venv      reuse an existing venv with faster-whisper instead
 ```

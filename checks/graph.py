@@ -96,6 +96,21 @@ class Graph:
         except ValueError:
             return r.status_code, None, r.reason
 
+    def post(self, path: str, body: dict):
+        """Returns (status, json-or-None, error code + short message); used for $batch."""
+        try:
+            r = self.s.post(BASE + path, json=body, timeout=120)
+        except Exception as e:
+            return 0, None, f"network {type(e).__name__}"
+        try:
+            data = r.json()
+        except ValueError:
+            data = None
+        if r.ok:
+            return r.status_code, data, ""
+        err = (data or {}).get("error", {}) if isinstance(data, dict) else {}
+        return r.status_code, None, f"{err.get('code', '')}: {GUID.sub('<id>', str(err.get('message', '')))[:140]}"
+
 
 def report(ctx: Context, id: str, scope_key: str, status: int, err: str, ok_detail: str | None) -> bool:
     """Adds a result for a failure; for a success only when ok_detail is given (else the caller adds it)."""

@@ -20,12 +20,13 @@ from dataclasses import asdict
 
 from .common import FAIL, OUT_DIR, Context, section
 
-ORDER = ["env", "whisper", "meeting", "graph", "audio", "ui"]
+ORDER = ["env", "whisper", "meeting", "graph", "org", "audio", "ui"]
 TITLES = {
     "env": "Environment (admin, Python, GPU, network)",
     "whisper": "Whisper models (cache, download, optional load test)",
     "meeting": "Meeting detection (microphone in use, Teams process, calendar)",
     "graph": "Microsoft Graph with a Graph Explorer token (Teams, mail, calendar, files, transcripts)",
+    "org": "Org chart: managers, direct reports, a whole branch (Graph and Active Directory)",
     "audio": "Recording: microphone + system sound (loopback) at the same time",
     "ui": "Tray icon, toast, local web page, global hotkey, clipboard paste",
 }
