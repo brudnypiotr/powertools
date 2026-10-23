@@ -8,3 +8,5 @@ checks/.token
 .venv/
 local/
 setup.log
+.venv.new/
+.venv.old/

@@ -139,25 +139,104 @@ if (-not $py) { Step 'Python' 'FAIL' 'no Python 3.11+ found or installable'; exi
 Step 'Python' 'OK' ("{0} {1}" -f $py.version, $py.exe)
 
 # ------------------------------------------------------------------ 2. venv + packages
+# Never break a working install: stop the running app first, build a new venv NEXT to the old one and swap only when
+# the new one has every package. Any failure on the way leaves the old .venv as it was.
 $vpy = Join-Path $Venv 'Scripts\python.exe'
-$cfg = Join-Path $Venv 'pyvenv.cfg'
-# a venv built on another app's Python breaks when that app is removed: powertools keeps its own
-$foreign = (Test-Path $cfg) -and ((Get-Content $cfg -Raw) -match 'woynich-wiki')
-$recreate = (Test-Path $vpy) -and ($foreign -or -not (Test-Python $vpy))
-if ($recreate) { Remove-Item $Venv -Recurse -Force }
-if (-not (Test-Path $vpy)) {
-  $code = Invoke-Native $py.exe @('-m', 'venv', $Venv)
-  if ($code -ne 0 -or -not (Test-Path $vpy)) {
+$NewVenv = "$Venv.new"
+$Req = Join-Path $Repo 'requirements.txt'
+$Probe = 'import faster_whisper, numpy, requests, pystray, PIL, keyboard, pyperclip, sounddevice'
+
+function Test-Venv([string]$Dir) {
+  # $true when the venv's Python starts and the main packages import
+  $exe = Join-Path $Dir 'Scripts\python.exe'
+  if (-not (Test-Path $exe)) { return $false }
+  $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { & $exe -c $Probe 2>$null | Out-Null; return ($LASTEXITCODE -eq 0) }
+  catch { return $false }
+  finally { $ErrorActionPreference = $old }
+}
+
+function Stop-Powertools {
+  # The running app keeps .venv\Scripts\python(w).exe open: Windows then refuses to delete or rename the folder.
+  $port = 48613
+  $pf = Join-Path $Base 'port.txt'
+  if (Test-Path $pf) { $n = 0; if ([int]::TryParse((Get-Content $pf -Raw).Trim(), [ref]$n)) { $port = $n } }
+  try {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$port/api/quit" -Headers @{ 'X-Powertools' = '1' } -TimeoutSec 3 | Out-Null
+    Write-Host 'Closing the running powertools ...'
+  } catch { Write-Verbose 'powertools is not running' }
+  # A venv's python.exe is a launcher that starts the base Python as a child: that child keeps .venv\Lib files open
+  # but its path is not in .venv. Match python processes by path OR by a command line naming this repository.
+  $repoFull = [IO.Path]::GetFullPath($Repo).TrimEnd('\')
+  for ($i = 0; $i -lt 30; $i++) {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue | Where-Object {
+      ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($repoFull, [StringComparison]::OrdinalIgnoreCase)) -or
+      ($_.CommandLine -and $_.CommandLine.IndexOf($repoFull, [StringComparison]::OrdinalIgnoreCase) -ge 0) })
+    if ($procs.Count -eq 0) { return $true }
+    if ($i -eq 10) { foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
+
+function Remove-Dir([string]$Dir) {
+  if (-not (Test-Path $Dir)) { return $true }
+  try { Remove-Item $Dir -Recurse -Force -ErrorAction Stop; return $true } catch { return $false }
+}
+
+function New-Venv([string]$Dir) {
+  # Creates $Dir with $py and installs requirements.txt; $true on success
+  if (-not (Remove-Dir $Dir)) { Step 'venv' 'WARN' "could not clear $Dir"; return $false }
+  $code = Invoke-Native $py.exe @('-m', 'venv', $Dir)
+  if ($code -ne 0 -or -not (Test-Path (Join-Path $Dir 'Scripts\python.exe'))) {
     $null = Invoke-Native $py.exe @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', 'virtualenv')
-    $code = Invoke-Native $py.exe @('-m', 'virtualenv', $Venv)
-    if ($code -ne 0) { Step 'venv' 'FAIL' 'could not create .venv'; exit 2 }
+    $code = Invoke-Native $py.exe @('-m', 'virtualenv', $Dir)
+    if ($code -ne 0) { Step 'venv' 'WARN' "could not create $Dir"; return $false }
+  }
+  Write-Host 'Installing packages (first time: ~1.5 GB, a few minutes) ...'
+  $code = Invoke-Native (Join-Path $Dir 'Scripts\python.exe') @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $Req)
+  if ($code -ne 0) { Step 'packages' 'WARN' 'pip install failed (see above)'; return $false }
+  return (Test-Venv $Dir)
+}
+
+$null = Stop-Powertools
+$cfg = Join-Path $Venv 'pyvenv.cfg'
+$foreign = (Test-Path $cfg) -and ((Get-Content $cfg -Raw) -match 'woynich-wiki')  # built on another app's Python
+$healthy = Test-Venv $Venv
+
+if ($healthy -and -not $foreign) {
+  # the normal case: bring the packages up to date in place (pip only adds or upgrades, the venv keeps working)
+  Write-Host 'Updating packages ...'
+  $code = Invoke-Native $vpy @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $Req)
+  if ($code -ne 0) { Step 'packages' 'WARN' 'pip install failed (see above); the current packages stay' }
+  else { Step 'packages' 'OK' 'requirements.txt' }
+} else {
+  $why = if (-not (Test-Path $vpy)) { 'no .venv yet' } elseif ($foreign) { ".venv uses woynich-wiki's Python" } else { '.venv is broken' }
+  $ready = Test-Venv $NewVenv  # built by an earlier run that could not swap it in
+  if (-not $ready) { Write-Host "Building a new .venv ($why) next to the current one ..."; $ready = New-Venv $NewVenv }
+  if ($ready) {
+    # Swap by renaming, never by deleting: a rename of a folder with a file in use fails as a whole and changes
+    # nothing, while Remove-Item -Recurse deletes file by file and leaves a half-empty .venv behind.
+    $swapped = $false
+    $OldVenv = "$Venv.old"
+    if (Test-Path $OldVenv) { $null = Remove-Dir $OldVenv }
+    try {
+      if (Test-Path $Venv) { Rename-Item $Venv (Split-Path $OldVenv -Leaf) -ErrorAction Stop }
+      Rename-Item $NewVenv (Split-Path $Venv -Leaf) -ErrorAction Stop
+      $swapped = $true
+    } catch {
+      if (-not (Test-Path $Venv) -and (Test-Path $OldVenv)) { Rename-Item $OldVenv (Split-Path $Venv -Leaf) -ErrorAction SilentlyContinue }
+    }
+    if ($swapped -and (Test-Path $OldVenv) -and -not (Remove-Dir $OldVenv)) { Write-Host "  (old environment left in $OldVenv; delete it later)" }
+    if ($swapped) { Step 'venv' 'OK' "$Venv (Python $($py.version))" }
+    elseif ($healthy) { Step 'venv' 'WARN' "could not replace .venv (a file is in use); the current one stays, the new one waits in $NewVenv" }
+    else { Step 'venv' 'FAIL' 'could not replace the broken .venv: close powertools (tray icon > Quit) and run powertools.cmd again'; exit 2 }
+  } elseif ($healthy) {
+    Step 'venv' 'WARN' 'the new .venv failed; keeping the current one'
+  } else {
+    Step 'venv' 'FAIL' 'could not build .venv (see the messages above and setup.log)'; exit 2
   }
 }
-Step 'venv' 'OK' $Venv
-Write-Host 'Installing packages (first time: ~1.5 GB, a few minutes) ...'
-$code = Invoke-Native $vpy @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', (Join-Path $Repo 'requirements.txt'))
-if ($code -ne 0) { Step 'packages' 'FAIL' 'pip install failed (see above)'; exit 2 }
-Step 'packages' 'OK' 'requirements.txt'
 
 # ------------------------------------------------------------------ 2b. Git (for Update in the app)
 $gitDir = Join-Path $Base 'git'
