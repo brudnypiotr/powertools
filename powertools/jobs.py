@@ -27,6 +27,7 @@ class Job:
     notes: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     error: str = ""
+    result: str = ""               # what the window opens when the job is done (e.g. a saved org chart)
     started: float = 0.0
     finished: float = 0.0
 
@@ -36,7 +37,7 @@ class Job:
 
     def view(self) -> dict:
         return {k: getattr(self, k) for k in ("id", "title", "state", "done", "total", "notes", "files", "error",
-                                              "started", "finished")}
+                                              "result", "started", "finished")}
 
 
 class Jobs:

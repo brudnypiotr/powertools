@@ -25,7 +25,7 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "teams" && !chats.length) loadChats(false);
     if (b.dataset.tab === "mail" && !foldersLoaded) loadFolders();
     if (b.dataset.tab === "meetings") loadMeetings();
-    if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); if (!orgChain.length) loadOrgChain(); }
+    if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); loadOrgSaved(); if (!orgChain.length) loadOrgChain(); }
     if (b.dataset.tab === "jira") { renderJiraBar(false); loadJiraDownloaded(); loadJobs(); loadJiraFields(); }
   }));
 
@@ -487,10 +487,32 @@ $("#org-search").addEventListener("submit", async (e) => {
 $("#org-export").addEventListener("click", async () => {
   if (!orgRoot) return alert("Pick a person first: one of your managers or a search result.");
   try {
-    await graphCall("POST", "/api/org/export", { id: orgRoot.id, depth: Number($("#org-depth").value), above: $("#org-above").checked });
-    loadJobs();
+    const job = await graphCall("POST", "/api/org/export", { id: orgRoot.id, depth: Number($("#org-depth").value), above: $("#org-above").checked });
+    loadJobs(); waitOrgJob(job.id);
   } catch (e) { alert(e.message); }
 });
+function waitOrgJob(id) {  // open the chart as soon as the export is done
+  setTimeout(async () => {
+    const j = (await api("GET", "/api/jobs")).find((x) => x.id === id);
+    if (!j) return;
+    if (j.state === "running" || j.state === "queued" || j.state === "needs_token") return waitOrgJob(id);
+    if (j.state === "done" && j.result) { await loadOrgSaved(); openOrg(j.result); }
+  }, 1000);
+}
+async function loadOrgSaved() {
+  const list = await api("GET", "/api/org/saved");
+  const sel = $("#org-saved"), keep = sel.value;
+  sel.innerHTML = `<option value="">Open a saved chart...</option>` + list.map((c) =>
+    `<option value="${esc(c.name)}">${esc(c.root)} · ${c.people} people · ${esc(c.generated)}</option>`).join("");
+  sel.value = keep;
+}
+async function openOrg(name) {
+  if (!name) return;
+  $("#org-saved").value = name;
+  try { OrgChart($("#org-view"), await api("GET", "/api/org/saved/" + encodeURIComponent(name))); }
+  catch (e) { $("#org-view").textContent = e.message; }
+}
+$("#org-saved").addEventListener("change", (e) => openOrg(e.target.value));
 
 // ---------------------------------------------------------------- export jobs
 let jobsTimer = null;

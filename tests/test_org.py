@@ -91,7 +91,7 @@ def test_markdown_and_csv_with_the_managers_above(tmp_path):
     people = org.chain(g, "dir")
     root, above = people[0], people[1:]
     org.walk(g, root)
-    md, cs = org.save(tmp_path, root, above, 0, False, datetime(2026, 10, 23, 17, 0))
+    _, md, cs = org.save(tmp_path, root, above, 0, False, datetime(2026, 10, 23, 17, 0))
     assert md.name == "2026-10-23_dina-director.md" and md.parent.name == "org"
     text = md.read_text(encoding="utf-8")
     assert "people_below: 4" in text and "levels_below: 2" in text
@@ -128,3 +128,26 @@ def test_batch_sends_throttled_requests_again_and_stops_on_401(monkeypatch):
         g.batch(["/a"])
     with pytest.raises(ValueError):
         g.batch(["/x"] * 21)
+
+
+def test_the_interactive_chart_is_one_offline_file_and_can_be_opened_again(tmp_path):
+    g = FakeGraph()
+    people = org.chain(g, "vp")
+    org.walk(g, people[0])
+    files = org.save(tmp_path, people[0], people[1:], 0, False, datetime(2026, 10, 23, 17, 0))
+    assert [f.suffix for f in files] == [".html", ".md", ".csv"] and files[0].with_suffix(".json").exists()
+    page = files[0].read_text(encoding="utf-8")
+    assert "window.OrgChart = OrgChart" in page and '"name": "Bo Builder"' in page    # the script and the data inlined
+    assert "http" not in page.split("<script>")[0].replace('content="width', "")      # nothing fetched from the network
+    saved = org.saved(tmp_path)
+    assert saved == [{"name": "2026-10-23_vic-vp", "root": "Vic VP", "people": 5, "generated": "2026-10-23 17:00"}]
+    d = org.load(tmp_path, "2026-10-23_vic-vp")
+    assert d["above"][0]["name"] == "Cora CEO" and d["root"]["reports"][0]["name"] == "Dina Director"
+    with pytest.raises(ValueError):
+        org.load(tmp_path, "../../secret")
+
+
+def test_a_name_with_script_cannot_break_the_page(tmp_path):
+    root = org.Person("x", "</script><script>alert(1)</script>")
+    page = org.page(org.chart_data(root, [], datetime(2026, 1, 1)))
+    assert "</script><script>alert(1)" not in page

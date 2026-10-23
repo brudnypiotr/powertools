@@ -244,7 +244,14 @@ class GraphService:
             job.done = found
             files = org.save(out, root, above, depth, found >= org.MAX_PEOPLE, datetime.now())
             job.files += [str(f) for f in files]
+            job.result = files[0].stem               # the Org tab opens the chart when the job is done
             job.note(f"{found} people below {root.name}")
 
         return self.jobs.submit("Org chart", run)
+
+    def org_saved(self) -> list[dict]:
+        return org.saved(output_dir(self.settings))
+
+    def org_load(self, name: str) -> dict:
+        return org.load(output_dir(self.settings), name)
 

@@ -92,9 +92,14 @@ The **Org** tab exports who reports to whom, with the Graph token of the Teams a
 
 - **Start from** one of your managers (the whole chain comes in one request) or search anyone by name or e-mail.
 - **Levels below**: 1, 2, 3 or all; **managers above** adds the chain above that person.
-- **Export org chart** writes `org/<date>_<name>.md` (an indented tree with job title, department and office, and the
-  number of people under each manager) and `.csv` (one row per person: level, manager, job title, department, office,
-  e-mail) to the export folder. The branch is walked level by level, 20 people per request: about 80 people a second.
+- **Export org chart** writes to `org/` in the export folder: `<date>_<name>.html`, an **interactive chart** in one
+  file (opens in any browser, offline, can be sent to anyone), `.md` (an indented tree for the wiki), `.csv` (one row
+  per person for Excel) and `.json` (the chart's data). The branch is walked level by level, 20 people per request:
+  about 80 people a second. The chart opens in the tab when the export is done; earlier ones under **Chart**.
+- **The chart:** drag to move, wheel or +/− to zoom, click a person for their details and whom they report to, the
+  number on a card to unfold that team. **Search down** finds everyone below by name, title, department, office or
+  e-mail (all words must match), unfolds the way to them and dims the rest; Enter / ↓ ↑ go through the matches.
+  **Departments** colour the cards; click one to light it up with the way to its heads.
 
 Measured on the laptop first (`check.cmd -Only org`): the directory listed with managers returns none, and Active
 Directory is not reachable, so the tree is always walked from a chosen person.

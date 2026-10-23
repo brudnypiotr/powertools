@@ -191,3 +191,5 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .sessions .warn { color: var(--rec); font-size: 12.5px; margin-top: 4px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 #org-found li { display: flex; gap: 8px; align-items: center; }
+.orgview { height: 72vh; margin: 6px 0 14px; }
+.orgview > .muted { padding: 30px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }

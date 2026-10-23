@@ -106,7 +106,10 @@
       <label><input type="checkbox" id="org-above" checked> managers above</label>
       <button id="org-export" class="primary">Export org chart</button>
     </div>
-    <div class="muted small">Markdown tree and CSV under org/ in the export folder; about 1 s per 80 people.</div>
+    <div class="muted small">Under org/ in the export folder: an interactive chart (.html, opens anywhere, offline),
+      a Markdown tree and a CSV; about 1 s per 80 people.</div>
+    <div class="row"><h2>Chart</h2><select id="org-saved"><option value="">Open a saved chart...</option></select></div>
+    <div id="org-view" class="orgview"><div class="muted">Export a chart, or open a saved one.</div></div>
     <div class="jobs"></div>
   </section>
 
@@ -232,6 +235,7 @@
   <h3>Changelog</h3>
   <ul id="about-log" class="changelog"></ul>
 </dialog>
+<script src="/org_chart.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

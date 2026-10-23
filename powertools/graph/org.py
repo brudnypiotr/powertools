@@ -5,20 +5,26 @@ What the feasibility check showed on the laptop (check.cmd -Only org): the whole
 request per person), and the directory listed with each person's manager does not work (no manager returned), so
 the tree is always walked from a chosen person. Active Directory is not reachable from the laptop.
 
-Output for the wiki inbox: a Markdown tree (indented, with job title and department) and a CSV with one row per
-person (level, manager), both under org/ in the export folder.
+Output under org/ in the export folder: a Markdown tree (for the wiki inbox), a CSV (one row per person, for Excel),
+the data as JSON (the Org tab opens saved charts from it, no token needed) and an interactive chart as one .html file
+that works offline and can be sent to anyone (the same org_chart.js as the Org tab, inlined).
 """
 
 from __future__ import annotations
 
 import csv
+import html as htmllib
 import io
+import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
 from .. import export
+
+CHART_JS = Path(__file__).resolve().parent.parent / "web" / "static" / "org_chart.js"
 
 FIELDS = "id,displayName,jobTitle,department,officeLocation,mail"
 EVENTUAL = {"ConsistencyLevel": "eventual"}
@@ -44,6 +50,12 @@ class Person:
 
     def view(self) -> dict:
         return {"id": self.id, "name": self.name, "title": self.title, "department": self.department}
+
+    def card(self) -> dict:
+        return {**self.view(), "office": self.office, "mail": self.mail}
+
+    def tree(self) -> dict:
+        return {**self.card(), "reports": [r.tree() for r in self.reports]}
 
 
 def chain(g, uid: str = "me") -> list[Person]:
@@ -142,11 +154,58 @@ def table(root: Person, above: list[Person]) -> str:
     return buf.getvalue()
 
 
+def chart_data(root: Person, above: list[Person], when: datetime) -> dict:
+    """What org_chart.js draws."""
+    return {"root": root.tree(), "above": [p.card() for p in above], "generated": when.strftime("%Y-%m-%d %H:%M"),
+            "people": len(everyone(root)) - 1}
+
+
+def page(data: dict) -> str:
+    """One self-contained .html: the chart script and the data inlined, no network needed."""
+    title = htmllib.escape(f"Org chart: {data['root']['name']}")
+    blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")       # never closes the <script> early
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title><style>html,body{{margin:0;height:100%}}body{{display:flex;flex-direction:column;font:13px "Segoe UI",system-ui,sans-serif;
+background:#f4f4f6}}header{{padding:10px 16px}}header b{{font-size:15px}}header span{{color:#74747e;margin-left:8px}}#chart{{flex:1;padding:0 12px 12px}}
+@media (prefers-color-scheme:dark){{body{{background:#141417;color:#ececf1}}:root{{--bg:#141417;--panel:#1c1c21;--text:#ececf1;--muted:#8c8c97;--line:#2b2b33;--hover:#24242b}}}}</style>
+</head><body><header><b>{title}</b><span>{data['people']} people below · {htmllib.escape(data['generated'])} · powertools</span></header>
+<div id="chart"></div><script>{CHART_JS.read_text(encoding="utf-8")}</script>
+<script>OrgChart(document.getElementById("chart"), {blob});</script></body></html>
+"""
+
+
 def save(out_dir: Path, root: Person, above: list[Person], depth: int, cut: bool, when: datetime) -> list[Path]:
     base = out_dir / "org" / f"{when.strftime('%Y-%m-%d')}_{export.slug(root.name)}"
+    data = chart_data(root, above, when)
     md = export.write(base.with_suffix(".md"), markdown(root, above, depth, cut, when))
+    view = export.write(base.with_suffix(".html"), page(data))
+    export.write(base.with_suffix(".json"), json.dumps(data, ensure_ascii=False))
     # utf-8-sig: Excel opens the CSV with the right characters (names with accents)
     path = base.with_suffix(".csv")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(table(root, above), encoding="utf-8-sig", newline="")
-    return [md, path]
+    return [view, md, path]
+
+
+SAVED = re.compile(r"^\d{4}-\d{2}-\d{2}_[a-z0-9-]+$")
+
+
+def saved(out_dir: Path) -> list[dict]:
+    """Charts exported earlier, newest first (their JSON), for the Org tab."""
+    out = []
+    for f in sorted((out_dir / "org").glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:50]:
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+            out.append({"name": f.stem, "root": d["root"]["name"], "people": d.get("people", 0), "generated": d.get("generated", "")})
+        except (ValueError, KeyError):
+            continue
+    return out
+
+
+def load(out_dir: Path, name: str) -> dict:
+    if not SAVED.match(name):
+        raise ValueError("unknown chart")
+    f = out_dir / "org" / f"{name}.json"
+    if not f.exists():
+        raise ValueError("unknown chart")
+    return json.loads(f.read_text(encoding="utf-8"))
