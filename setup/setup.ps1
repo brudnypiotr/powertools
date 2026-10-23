@@ -252,6 +252,18 @@ else {
   } catch { Step 'Git' 'WARN' ("could not unpack Portable Git: $($_.Exception.Message); Update in the app will not work") }
 }
 
+# ------------------------------------------------------------------ 2c. Updates: a ZIP copy becomes a clone of the official repository
+# (only when it is not one yet; an existing origin is never changed). No double quotes in the code: PS 5.1 strips them.
+$attach = "import sys; sys.path.insert(0, r'$Repo'); from powertools import updater; r = updater.attach(); print(r['message'])"
+$old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+try { $out = (& $vpy -c $attach 2>&1 | ForEach-Object { "$_" }) -join ' '; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $old }
+if ($code -eq 0) { Step 'Updates' 'OK' $out }
+else {
+  $msg = 'could not connect to the repository (internet or proxy?); Update in the app stays off until the next setup: ' + ($out -replace '\s+', ' ')
+  if ($msg.Length -gt 400) { $msg = $msg.Substring(0, 400) }
+  Step 'Updates' 'WARN' $msg
+}
+
 # ------------------------------------------------------------------ 3. icon + shortcuts
 # the file name carries the setup version: Windows caches shortcut icons by path
 $setupVersion = (Get-Content (Join-Path $ScriptDir 'version.txt') -Raw).Trim()

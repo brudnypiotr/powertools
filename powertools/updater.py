@@ -6,6 +6,7 @@ when setup/version.txt changed) and this process quits.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -70,6 +71,51 @@ def about(fetch: bool = False) -> dict:
     except (GitError, subprocess.TimeoutExpired) as e:
         info["error"] = str(e)
     return info
+
+
+def update_source(root: Path = ROOT) -> dict:
+    """Official remote and branch from setup/sources.json."""
+    try:
+        u = json.loads((root / "setup" / "sources.json").read_text(encoding="utf-8")).get("update") or {}
+    except (OSError, ValueError):
+        u = {}
+    return {"remote": u.get("remote") or "https://github.com/brudnypiotr/powertools.git", "branch": u.get("branch") or "main"}
+
+
+def attach(root: Path = ROOT) -> dict:
+    """Make a ZIP copy a clone of the official remote, or add the remote when a clone has none, so Update works.
+    Never changes an existing origin (a developer's SSH remote stays). Ignored files (.venv, local/) are untouched."""
+    exe = git_exe()
+    if not exe:
+        raise GitError("git not found")
+
+    def g(*args: str, timeout: int = 60) -> str:
+        r = subprocess.run([exe, *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, creationflags=FLAGS)
+        if r.returncode != 0:
+            raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
+        return r.stdout.strip()
+
+    src = update_source(root)
+    if not (root / ".git").exists():
+        g("init", "-q")
+        g("symbolic-ref", "HEAD", f"refs/heads/{src['branch']}")  # = init -b, which git before 2.28 lacks
+        g("remote", "add", "origin", src["remote"])
+        g("fetch", "-q", "origin", src["branch"], timeout=600)
+        g("reset", "-q", "--hard", f"origin/{src['branch']}")
+        g("branch", "-q", "-u", f"origin/{src['branch']}")
+        return {"attached": True, "remote": src["remote"], "commit": g("rev-parse", "--short", "HEAD"),
+                "message": f"ZIP copy connected to {src['remote']} ({src['branch']})"}
+    if "origin" not in g("remote").split():
+        g("remote", "add", "origin", src["remote"])
+        g("fetch", "-q", "origin", src["branch"], timeout=600)
+        try:
+            g("branch", "-q", "-u", f"origin/{src['branch']}")
+        except GitError:
+            pass  # another branch is checked out: Update follows its own upstream when it has one
+        return {"attached": True, "remote": src["remote"], "message": f"origin added: {src['remote']}"}
+    url = g("remote", "get-url", "origin")
+    return {"attached": False, "remote": url, "message": f"already connected to {url}"}
 
 
 def update() -> dict:

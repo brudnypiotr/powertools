@@ -6,7 +6,7 @@ Everything runs in user space: no admin rights, PowerShell 5.1, private Python.
 
 ## Dictation (step 1)
 
-Double-click `powertools.cmd`. The first start runs the setup (no admin rights): a Python with tkinter
+Double-click `powertools.cmd` (a git clone, or the ZIP from GitHub unpacked anywhere: the setup turns a ZIP copy into a clone of github.com/brudnypiotr/powertools so Update works). The first start runs the setup (no admin rights): a Python with tkinter
 (found or installed per-user), `.venv`, faster-whisper with the CUDA libraries (~1.5 GB), shortcuts on the
 desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to skip that one).
 

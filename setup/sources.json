@@ -1,5 +1,7 @@
 {
   "_comment": "Downloads used by setup.ps1, checked against sha256.",
+  "update": {"remote": "https://github.com/brudnypiotr/powertools.git", "branch": "main",
+             "_comment": "Where a ZIP copy is attached to (setup) and Update pulls from"},
   "python_installer": {"version": "3.12.10", "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe",
                        "sha256": "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb"},
   "python_embed": {"version": "3.12.10", "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",

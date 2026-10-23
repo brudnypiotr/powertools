@@ -99,3 +99,42 @@ def test_no_speech(tmp_path):
     d, pasted, _ = make(tmp_path, text="  ")
     d.toggle(); d.toggle()
     assert pasted == [] and d.last["note"] == "no speech detected"
+
+
+def test_attach_zip_copy_and_keep_existing_origin(tmp_path):
+    import shutil
+    import subprocess
+
+    from powertools import updater
+
+    def run(*a, cwd):
+        subprocess.run(a, cwd=cwd, check=True, capture_output=True)
+
+    # the "official" repository with one commit on main
+    src = tmp_path / "src"
+    (src / "setup").mkdir(parents=True)
+    (src / "app.txt").write_text("v2\n")
+    (src / ".gitignore").write_text(".venv/\n")
+    run("git", "init", "-q", "-b", "main", cwd=src)
+    run("git", "-c", "user.name=t", "-c", "user.email=t@t", "add", ".", cwd=src)
+    run("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first", cwd=src)
+    bare = tmp_path / "remote.git"
+    run("git", "clone", "-q", "--bare", str(src), str(bare), cwd=tmp_path)
+
+    # a ZIP copy: same files, no .git, an older app.txt, a local venv
+    zipcopy = tmp_path / "zip"
+    (zipcopy / "setup").mkdir(parents=True)
+    (zipcopy / "app.txt").write_text("v1\n")
+    (zipcopy / ".venv").mkdir()
+    (zipcopy / ".venv" / "keep").write_text("x")
+    (zipcopy / "setup" / "sources.json").write_text('{"update": {"remote": "%s", "branch": "main"}}' % bare.as_posix())
+    r = updater.attach(zipcopy)
+    assert r["attached"] and (zipcopy / ".git").is_dir()
+    assert (zipcopy / "app.txt").read_text() == "v2\n" and (zipcopy / ".venv" / "keep").exists()
+    up = subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=zipcopy, capture_output=True, text=True).stdout.strip()
+    assert up == "origin/main"
+
+    # a clone with its own origin (e.g. a developer's SSH remote) is left alone
+    r = updater.attach(zipcopy)
+    assert not r["attached"] and r["remote"] == bare.as_posix()
+    shutil.rmtree(zipcopy / ".git")
