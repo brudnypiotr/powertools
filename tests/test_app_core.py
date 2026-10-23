@@ -101,6 +101,17 @@ def test_no_speech(tmp_path):
     assert pasted == [] and d.last["note"] == "no speech detected"
 
 
+
+def rmtree(path):
+    """shutil.rmtree that also removes Git's read-only object files on Windows."""
+    import os
+    import stat
+
+    def writable(func, p, _exc):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    shutil.rmtree(path, onerror=writable)
+
 def test_attach_zip_copy_and_keep_existing_origin(tmp_path):
     import shutil
     import subprocess
@@ -137,4 +148,4 @@ def test_attach_zip_copy_and_keep_existing_origin(tmp_path):
     # a clone with its own origin (e.g. a developer's SSH remote) is left alone
     r = updater.attach(zipcopy)
     assert not r["attached"] and r["remote"] == bare.as_posix()
-    shutil.rmtree(zipcopy / ".git")
+    rmtree(zipcopy / ".git")
