@@ -297,6 +297,9 @@ $("#mail-export").addEventListener("click", async () => {
 // ---------------------------------------------------------------- Jira
 async function renderJiraBar(check) {
   const bar = $(".jirabar");
+  if (check) bar.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  const busy = bar.querySelector(".token-check");
+  if (check && busy) busy.textContent = "Checking...";
   let s;
   try { s = await api("GET", "/api/jira/status" + (check ? "?check=1" : "")); }
   catch (e) { bar.textContent = e.message; return; }
@@ -304,18 +307,29 @@ async function renderJiraBar(check) {
     : !s.has_token ? `<span class="warn">No Jira token: paste one here.</span>`
     : s.error ? `<span class="warn">${esc(s.error)}</span>`
     : `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span>`;
-  bar.innerHTML = `${status} <span class="muted">${esc(s.site)}${s.token_source ? " · token: " + esc(s.token_source) : ""}</span>
-    <input type="password" placeholder="Paste a Jira API token (Cloud) or personal access token (Data Center)" class="token-input">
-    <button class="token-save">${s.has_token ? "Replace token" : "Save token"}</button><button class="token-check">Check</button>
-    ${s.token_source === "saved in powertools" ? `<button class="token-clear">Forget token</button>` : ""}`;
+  const when = s.checked_at ? ` · checked ${new Date(s.checked_at * 1000).toLocaleTimeString()}` : "";
+  const mode = s.site ? (s.cloud ? "Jira Cloud: e-mail + API token" : "Jira Data Center: personal access token") : "";
+  const rows = (s.checks || []).map((c) => `<tr><td class="${c.ok ? "ok" : c.ok === false ? "warn" : "muted"}">${
+    c.ok ? "✓" : c.ok === false ? "✗" : "·"}</td><td>${esc(c.source)}</td><td class="muted">${esc(c.token)}</td>
+    <td class="muted">${esc(c.email)}</td><td>${esc(c.detail)}</td></tr>`).join("");
+  bar.innerHTML = `<div class="jira-line">${status} <span class="muted">${esc(s.site)} · ${esc(mode)}${when}</span></div>
+    ${rows ? `<table class="list checks"><thead><tr><th></th><th>Token from</th><th>Token</th><th>E-mail</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    <div class="jira-line"><input type="password" placeholder="Paste a Jira API token (Cloud) or personal access token (Data Center)" class="token-input">
+    <button class="token-save">${s.token_source === "saved in powertools" ? "Replace token" : "Save token"}</button><button class="token-check">Check</button>
+    ${s.token_source === "saved in powertools" ? `<button class="token-clear">Forget token</button>` : ""}</div>`;
   bar.querySelector(".token-check").onclick = () => renderJiraBar(true);
   bar.querySelector(".token-save").onclick = async () => {
-    const token = bar.querySelector(".token-input").value.trim();
-    if (!token) return;
-    try { await api("POST", "/api/jira/token", { token }); renderJiraBar(false); } catch (e) { alert(e.message); }
+    const input = bar.querySelector(".token-input"), token = input.value.trim();
+    if (!token) { input.focus(); return toast("Paste a token into the box first"); }
+    const btn = bar.querySelector(".token-save");
+    btn.disabled = true; btn.textContent = "Checking...";
+    try { await api("POST", "/api/jira/token", { token }); toast("Token saved"); }
+    catch (e) { alert(e.message); }
+    renderJiraBar(false);
   };
   const clr = bar.querySelector(".token-clear");
-  if (clr) clr.onclick = async () => { await api("DELETE", "/api/jira/token"); renderJiraBar(true); };
+  if (clr) clr.onclick = async () => { await api("DELETE", "/api/jira/token"); renderJiraBar(false); };
+  if (check) toast(s.error ? "Check failed, see the table" : "Jira accepted the token");
 }
 let jiraFieldsLoaded = false, jiraLast = { jql: "", issues: [] }, jiraDone = [];
 async function loadJiraFields() {

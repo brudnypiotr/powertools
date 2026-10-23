@@ -203,3 +203,76 @@ def test_shared_credential_is_read_live(tmp_path, monkeypatch):
     assert auth.resolve(s, store).token == "rotated-tok"
     store.set("pasted-token-123")
     assert auth.resolve(s, store).token == "pasted-token-123"
+
+
+def test_check_picks_the_token_jira_accepts(tmp_path, monkeypatch):
+    from powertools.jira import service as svc_mod
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("JIRA_API_TOKEN", "env-token-old")
+    monkeypatch.setattr(auth, "shared_token", lambda: "shared-token-good")
+    monkeypatch.setattr(auth, "windows_credential", lambda target: None)
+
+    class FakeClient:
+        def __init__(self, base, email, token):
+            self.token = token
+
+        def myself(self):
+            if self.token != "shared-token-good":
+                raise JiraError(401, "the token or e-mail was refused")
+            return {"displayName": "Piotr"}
+
+    monkeypatch.setattr(svc_mod, "Jira", FakeClient)
+    s = Settings(tmp_path / "settings.json")
+    s.update({"jira_url": "https://site.atlassian.net", "jira_email": "me@example.com"})
+    service = JiraService(s, Jobs())
+    st = service.status(check=True)
+    assert st["user"] == "Piotr" and st["error"] == ""
+    assert st["token_source"] == "Windows Credential Manager (jira-token)" and st["token"] == "…good (17 chars)"
+    assert [c["ok"] for c in st["checks"]] == [False, True]
+    assert service.creds().token == "shared-token-good"  # used from now on
+    with pytest.raises(ValueError):
+        service.set_token("pasted-but-wrong")
+    assert service.creds().token == "shared-token-good" and not service.tokens.get()
+
+
+def test_client_keeps_auth_on_redirect_and_explains_401():
+    import json as _json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from powertools.jira.client import Jira
+
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            if self.path.startswith("/rest/api/2/myself"):
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{self.server.server_address[1]}/moved/myself")
+                self.end_headers()
+                return
+            if self.headers.get("Authorization") != "Bearer good-token-123":
+                body = _json.dumps({"errorMessages": ["You are not authenticated."]}).encode()
+                self.send_response(401)
+            else:
+                body = _json.dumps({"displayName": "Piotr"}).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        assert Jira(base, "", "good-token-123").myself()["displayName"] == "Piotr"
+        assert seen[-1] == ("/moved/myself", "Bearer good-token-123")  # 127.0.0.1 -> localhost kept the header
+        with pytest.raises(JiraError) as e:
+            Jira(base, "", "bad-token-1234").myself()
+        assert e.value.status == 401 and "not authenticated" in str(e.value)
+    finally:
+        srv.shutdown()

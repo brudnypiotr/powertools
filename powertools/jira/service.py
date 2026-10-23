@@ -79,10 +79,13 @@ class JiraService:
         self._me: dict = {}
         self._me_at = 0.0
         self._fields: list[dict] = []
+        self._prefer = ""          # token source that passed the last Check
+        self._checks: list[dict] = []
+        self._checked_for: tuple = ()
 
     # ------------------------------------------------------------------ connection
     def creds(self) -> auth.Credentials:
-        return auth.resolve(self.settings, self.tokens)
+        return auth.resolve(self.settings, self.tokens, self._prefer)
 
     def client(self) -> Jira:
         c = self.creds()
@@ -94,34 +97,61 @@ class JiraService:
         return d
 
     def status(self, check: bool = False) -> dict:
+        """check=True (the Check button) tries every token candidate and keeps the first one Jira accepts."""
         c = self.creds()
+        key = (c.base_url, self.settings["jira_email"], tuple((x["source"], x["token"]) for x in c.candidates))
+        if c.base_url and c.candidates and (check or key != self._checked_for or time.time() - self._me_at > 600):
+            self._checked_for = key  # a new site, e-mail or token is checked right away, not after 10 minutes
+            self._check(c)
+            c = self.creds()
         out = {"site": c.base_url, "site_source": c.site_source, "email": c.email, "token_source": c.token_source,
-               "has_token": bool(c.token), "user": "", "error": "", "downloaded": 0}
+               "token": auth.fingerprint(c.token), "has_token": bool(c.token), "cloud": "atlassian.net" in c.base_url,
+               "user": self._me.get("name", ""), "error": self._me.get("error", ""), "checks": self._checks,
+               "checked_at": self._me_at, "downloaded": 0}
         if c.base_url:
             out["downloaded"] = len(list(self.state_dir(c.base_url).glob("*.json")))
-        if c.base_url and c.token and (check or time.time() - self._me_at > 600):
-            try:
-                me = Jira(c.base_url, c.email, c.token).myself()
-                self._me = {"name": me.get("displayName") or me.get("name", "")}
-            except Exception as e:
-                self._me = {"error": str(e)}
-            self._me_at = time.time()
-        out["user"], out["error"] = self._me.get("name", ""), self._me.get("error", "")
         return out
 
+    def _check(self, c: auth.Credentials) -> None:
+        results, ok, seen = [], None, set()
+        for cand in c.candidates:
+            ident = (cand["token"], cand["email"])
+            row = {"source": cand["source"], "email": cand["email"], "token": auth.fingerprint(cand["token"])}
+            if ident in seen:
+                row.update(ok=None, detail="same token as above")
+            elif ok:
+                row.update(ok=None, detail="not tried (an earlier one works)")
+            else:
+                seen.add(ident)
+                try:
+                    me = Jira(c.base_url, cand["email"], cand["token"]).myself()
+                    ok = {"name": me.get("displayName") or me.get("name", ""), "source": cand["source"]}
+                    row.update(ok=True, detail=f"accepted: {ok['name']}")
+                except Exception as e:
+                    row.update(ok=False, detail=str(e))
+            results.append(row)
+        self._checks, self._me_at = results, time.time()
+        if ok:
+            self._prefer, self._me = ok["source"], {"name": ok["name"]}
+        else:
+            self._me = {"error": results[0]["detail"] if len(results) == 1 else "Jira refused every token below"}
+
     def set_token(self, token: str) -> dict:
+        before = (self._prefer, self._me, self._checks)
         self.tokens.set(token)
-        self._me_at = 0
+        self._prefer = "saved in powertools"
         st = self.status(check=True)
-        if st["error"]:
+        if st["token_source"] != "saved in powertools" or st["error"]:
             self.tokens.clear()
-            raise ValueError(f"Jira did not accept this token: {st['error']}")
+            self._prefer, self._me, self._checks = before  # keep using the token that worked before
+            first = next((x["detail"] for x in st["checks"] if x["source"] == "saved in powertools"), st["error"])
+            raise ValueError(f"Jira did not accept this token: {first}")
         return st
 
     def clear_token(self) -> dict:
         self.tokens.clear()
-        self._me_at = 0
-        return self.status()
+        self._prefer = ""
+        return self.status(check=True)
 
     def fields(self) -> list[dict]:
         if not self._fields:

@@ -164,8 +164,12 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .changelog.new li { color: var(--accent); }
 #about-pending h3 { margin-top: 12px; }
 /* Jira */
-.jirabar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.jirabar { display: flex; flex-direction: column; gap: 10px; }
+.jira-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .jirabar input { flex: 1; min-width: 220px; }
+.jirabar .checks { font-size: 12.5px; }
+.jirabar .checks td { padding: 4px 8px; vertical-align: top; }
+.jirabar td.ok { color: var(--ok); font-weight: 700; }
 .jirabar .ok { color: var(--ok); font-weight: 600; } .jirabar .warn { color: var(--rec); font-weight: 600; }
 .searchform label.grow { flex: 3; min-width: 260px; }
 .jira-opts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 13px; }

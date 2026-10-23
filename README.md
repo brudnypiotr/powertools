@@ -52,10 +52,11 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
 
 ## Jira (step 4)
 
-Tab **Jira**. Set the site and e-mail in Settings > Jira. Token: when the Windows Credential Manager already holds
-the entry `jira-token` (service `woynich-wiki`, e.g. from the wiki's Keys and tokens) it is read from there live, nothing
-copied; otherwise paste one in the tab (kept encrypted for your Windows user, DPAPI; a pasted token wins). Jira Cloud: API token from id.atlassian.com + e-mail; Data Center: personal access token.
-Read-only.
+Tab **Jira**. Set the site and e-mail in Settings > Jira. Token candidates, tried in this order: one pasted in the tab
+(kept encrypted for your Windows user, DPAPI), `JIRA_API_TOKEN`, the Windows Credential Manager entries `jira-token`
+(service `woynich-wiki`) and `copilot-jira`, both read live, nothing copied. **Check** tries each one, shows the result
+per token (last 4 characters, e-mail, Jira's answer) and uses the first one Jira accepts. Jira Cloud: API token +
+Atlassian e-mail of the same account; Data Center: personal access token. Read-only.
 
 - **Download** issue keys or browse links, an **epic with all its issues**, or everything matching a JQL.
 - **Search**: project, epic, labels, text, updated within N days, any number of field filters (field name with

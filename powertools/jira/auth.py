@@ -1,10 +1,12 @@
 """Where the Jira site, e-mail and token come from. Nothing here needs another app to be installed.
 
 Site and e-mail: Settings > Jira (else JIRA_BASE_URL / JIRA_EMAIL).
-Token, first found wins:
+Token candidates, in this order (the same order as woynich-wiki after the first one, so a token that works there works
+here); "Check" tries each and the first one Jira accepts is used:
   1. pasted in the Jira tab, kept encrypted with DPAPI like the Graph token,
-  2. the shared Windows Credential Manager entry `jira-token` (service `woynich-wiki`), read live when it exists,
-  3. JIRA_API_TOKEN.
+  2. JIRA_API_TOKEN (with JIRA_EMAIL),
+  3. the shared Windows Credential Manager entry `jira-token` (service `woynich-wiki`), read live,
+  4. the generic Windows credential `copilot-jira` (user = Atlassian e-mail, password = token), read live.
 Jira Cloud: API token + e-mail. Data Center: personal access token.
 """
 
@@ -12,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..config import data_dir
 from ..graph.token import TokenStore, _dpapi
@@ -25,6 +27,12 @@ class Credentials:
     token: str = ""
     token_source: str = ""
     site_source: str = ""
+    candidates: list = field(default_factory=list)  # [{source, email, token}] in order
+
+
+def fingerprint(token: str) -> str:
+    """Enough to tell two tokens apart in the window without showing them."""
+    return f"…{token[-4:]} ({len(token)} chars)" if token else ""
 
 
 class JiraTokenStore(TokenStore):
@@ -98,7 +106,9 @@ def token_store() -> JiraTokenStore:
     return JiraTokenStore(data_dir() / "jira-token.bin")
 
 
-def resolve(settings, store: JiraTokenStore | None = None) -> Credentials:
+def resolve(settings, store: JiraTokenStore | None = None, prefer: str = "") -> Credentials:
+    """Site, e-mail and every token candidate; the chosen one is `prefer` (the source that passed Check) when it is
+    still there, else the first."""
     store = store or token_store()
     c = Credentials()
     if settings["jira_url"]:
@@ -106,11 +116,22 @@ def resolve(settings, store: JiraTokenStore | None = None) -> Credentials:
     elif os.environ.get("JIRA_BASE_URL"):
         c.base_url, c.site_source = os.environ["JIRA_BASE_URL"], "JIRA_BASE_URL"
     c.base_url = c.base_url.rstrip("/")
-    c.email = settings["jira_email"] or os.environ.get("JIRA_EMAIL", "")
+    email = settings["jira_email"] or os.environ.get("JIRA_EMAIL", "")
+    cands = []
     if store.get():
-        c.token, c.token_source = store.get(), "saved in powertools"
-    elif tok := shared_token():
-        c.token, c.token_source = tok, "Windows Credential Manager (jira-token)"
-    elif os.environ.get("JIRA_API_TOKEN"):
-        c.token, c.token_source = os.environ["JIRA_API_TOKEN"], "JIRA_API_TOKEN"
+        cands.append({"source": "saved in powertools", "email": email, "token": store.get()})
+    if os.environ.get("JIRA_API_TOKEN"):
+        cands.append({"source": "JIRA_API_TOKEN", "email": email, "token": os.environ["JIRA_API_TOKEN"]})
+    tok = shared_token()
+    if tok:
+        cands.append({"source": "Windows Credential Manager (jira-token)", "email": email, "token": tok})
+    found = windows_credential("copilot-jira")
+    if found and found[1]:
+        cands.append({"source": "Windows Credential Manager (copilot-jira)", "email": email or found[0], "token": found[1]})
+    c.candidates = cands
+    pick = next((x for x in cands if x["source"] == prefer), cands[0] if cands else None)
+    if pick:
+        c.token, c.token_source, c.email = pick["token"], pick["source"], pick["email"]
+    else:
+        c.email = email
     return c
