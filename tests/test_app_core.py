@@ -105,6 +105,7 @@ def test_no_speech(tmp_path):
 def rmtree(path):
     """shutil.rmtree that also removes Git's read-only object files on Windows."""
     import os
+    import shutil
     import stat
 
     def writable(func, p, _exc):
