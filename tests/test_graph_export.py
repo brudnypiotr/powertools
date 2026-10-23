@@ -189,3 +189,33 @@ def test_job_pauses_on_expired_token(tmp_path, monkeypatch):
             break
         time.sleep(0.05)
     assert job.state == "needs_token" and svc.jobs.resume_paused() == 1
+
+
+def test_token_caught_from_clipboard(tmp_path, monkeypatch):
+    from powertools.graph import service as gs
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+
+    def jwt(aud, exp_in=3600):
+        payload = base64.urlsafe_b64encode(json.dumps({"aud": aud, "exp": time.time() + exp_in}).encode()).decode().rstrip("=")
+        return "eyJhbGciOiJub25lIn0." + payload + ".sig"
+
+    good = jwt("https://graph.microsoft.com")
+    assert gs.graph_token_in("Bearer " + good) == good
+    assert gs.graph_token_in(jwt("https://outlook.office.com")) == ""      # another API's token
+    assert gs.graph_token_in(jwt("00000003-0000-0000-c000-000000000000", -10)) == ""  # expired
+    assert gs.graph_token_in("hello world") == ""
+
+    svc = GraphService(Settings(tmp_path / "s.json"), Store(tmp_path / "db.sqlite"))
+    saved = []
+    svc.set_token = lambda t: saved.append(t) or {}
+    clip = ["some text"]
+    cleared = []
+    svc.watch_clipboard(5, read=lambda: clip[0], clear=lambda: cleared.append(1) or clip.__setitem__(0, ""), interval=0.02)
+    assert svc.watch["active"]
+    time.sleep(0.1)
+    clip[0] = good
+    for _ in range(100):
+        if not svc.watch["active"]:
+            break
+        time.sleep(0.02)
+    assert saved == [good] and svc.watch["result"] == "saved" and cleared == [1] and clip[0] == ""

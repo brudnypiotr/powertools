@@ -31,6 +31,18 @@ def graph_token(h):
     h.send(200, h.app.graph.set_token(str(h.json_body().get("token", ""))))
 
 
+@route("POST", "/api/graph/token/fetch")
+def graph_token_fetch(h):
+    """Open Graph Explorer in its own app window (Edge, same profile: already signed in) and catch the copied token."""
+    from ..app import open_app_window
+    from ..graph.service import GRAPH_EXPLORER
+
+    if not open_app_window(GRAPH_EXPLORER):
+        import webbrowser
+        webbrowser.open(GRAPH_EXPLORER)
+    h.send(200, h.app.graph.watch_clipboard())
+
+
 @route("DELETE", "/api/graph/token")
 def graph_token_clear(h):
     h.app.graph.tokens.clear()

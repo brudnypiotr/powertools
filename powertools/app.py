@@ -80,7 +80,7 @@ def open_app_window(url: str) -> bool:
             if profile:
                 args = [exe, f"--profile-directory={profile}", f"--app-id={app_id}"]
             else:
-                args = [exe, f"--app={url}", "--window-size=1000,680"]
+                args = [exe, f"--app={url}", "--window-size=1000,680" if "127.0.0.1" in url else "--window-size=1200,860"]
             log.info("window: %s", " ".join(args[1:]))
             subprocess.Popen(args, close_fds=True)
             return True

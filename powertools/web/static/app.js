@@ -186,9 +186,15 @@ async function renderGraphBar() {
     : `<span class="warn">No valid token.</span>`;
   document.querySelectorAll(".graphbar").forEach((bar) => {
     bar.innerHTML = `${status}
-      <input type="password" placeholder="Paste the access token from Graph Explorer" class="token-input">
+      <button class="token-get primary">${s.has_token ? "Get a new token" : "Get token"}</button>
+      <input type="password" placeholder="...or paste the access token here" class="token-input">
       <button class="token-save">${s.has_token ? "Replace token" : "Connect"}</button>
-      <a href="https://developer.microsoft.com/graph/graph-explorer" target="_blank" rel="noopener">Graph Explorer</a>`;
+      ${s.watch && s.watch.active ? `<div class="token-wait">Waiting for the token: in the Graph Explorer window sign in if asked,
+        open the <b>Access token</b> tab and click its copy button. It is saved here automatically.</div>` : ""}`;
+    bar.querySelector(".token-get").onclick = async () => {
+      try { await api("POST", "/api/graph/token/fetch"); watchGraphToken(s.has_token ? s.expires_min : -1); renderGraphBar(); }
+      catch (e) { alert(e.message); }
+    };
     bar.querySelector(".token-save").onclick = async () => {
       const token = bar.querySelector(".token-input").value.trim();
       if (!token) return;
@@ -201,6 +207,21 @@ async function renderGraphBar() {
       } catch (e) { alert(e.message); }
     };
   });
+}
+let graphWatch = null;
+function watchGraphToken(before) {  // poll until the copied token is caught (or the 5 minutes run out)
+  clearTimeout(graphWatch);
+  graphWatch = setTimeout(async () => {
+    const s = await api("GET", "/api/graph/status");
+    if (s.watch.active) return watchGraphToken(before);
+    renderGraphBar();
+    if (s.watch.result === "saved") {
+      toast("Token saved");
+      loadJobs();
+      if ($("#teams").classList.contains("active")) loadChats(true);
+      if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
+    } else if (s.watch.result && s.watch.result !== "timeout") alert(s.watch.result);
+  }, 1500);
 }
 async function graphCall(method, path, body) {
   try { return await api(method, path, body); }

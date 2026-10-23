@@ -180,3 +180,4 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .filter .f-field, .filter .f-value { flex: 1; }
 .list .warn, td.warn { color: var(--rec); font-weight: 600; }
 .small { font-size: 12px; margin: 4px 2px 8px; word-break: break-all; }
+.graphbar .token-wait { flex-basis: 100%; font-size: 12.5px; color: var(--muted); padding: 8px 10px; background: var(--hover); border-radius: 8px; }

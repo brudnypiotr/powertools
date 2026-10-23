@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -10,7 +12,22 @@ from ..config import data_dir, output_dir
 from ..jobs import Job, Jobs
 from . import mail, teams
 from .client import Graph, TokenExpired
-from .token import TokenStore
+from .token import TokenStore, claims
+
+log = logging.getLogger("powertools.graph")
+GRAPH_EXPLORER = "https://developer.microsoft.com/graph/graph-explorer"
+GRAPH_AUDIENCES = ("https://graph.microsoft.com", "00000003-0000-0000-c000-000000000000")
+
+
+def graph_token_in(text: str) -> str:
+    """The Graph access token in copied text ('Bearer ...' too), or ''."""
+    t = (text or "").strip()
+    if t.lower().startswith("bearer "):
+        t = t[7:].strip()
+    if not t.startswith("eyJ") or t.count(".") != 2 or len(t) > 20000 or any(c.isspace() for c in t):
+        return ""
+    c = claims(t)
+    return t if c.get("aud") in GRAPH_AUDIENCES and c.get("exp", 0) > time.time() + 60 else ""
 
 
 def resolve_since(rng: dict, cursor: str = "") -> datetime | None:
@@ -43,12 +60,13 @@ class GraphService:
         self.me: dict = {}
         self._chats: list[dict] = []
         self._chats_at = 0.0
+        self.watch: dict = {"active": False, "until": 0.0, "result": ""}
 
     # ------------------------------------------------------------------ token
     def status(self) -> dict:
         left = self.tokens.expires_in()
         scopes = self.tokens.scopes()
-        return {"has_token": left > 60, "expires_min": int(left // 60), "user": self.me.get("displayName", ""),
+        return {"watch": dict(self.watch), "has_token": left > 60, "expires_min": int(left // 60), "user": self.me.get("displayName", ""),
                 "chats": "Chat.Read" in scopes or "Chat.ReadWrite" in scopes,
                 "mail": any(s.startswith("Mail.Read") for s in scopes)}
 
@@ -61,6 +79,45 @@ class GraphService:
             raise ValueError("Graph rejected this token; copy a fresh one from Graph Explorer") from e
         resumed = self.jobs.resume_paused()
         return {**self.status(), "resumed_jobs": resumed}
+
+    def watch_clipboard(self, seconds: int = 300, read=None, clear=None, interval: float = 1.0) -> dict:
+        """Wait for a Graph token to be copied (Graph Explorer > Access token > copy) and save it; then clear the
+        clipboard if it still holds the token. Only while the window asked for it, at most `seconds`."""
+        if self.watch["active"]:
+            self.watch["until"] = time.time() + seconds
+            return dict(self.watch)
+        if read is None or clear is None:
+            import pyperclip
+            read, clear = read or pyperclip.paste, clear or (lambda: pyperclip.copy(""))
+        current = self.tokens.get()
+        self.watch = {"active": True, "until": time.time() + seconds, "result": ""}
+
+        def run() -> None:
+            try:
+                while time.time() < self.watch["until"]:
+                    try:
+                        tok = graph_token_in(read())
+                    except Exception:
+                        tok = ""
+                    if tok and tok != current:
+                        try:
+                            self.set_token(tok)
+                            self.watch["result"] = "saved"
+                        except ValueError as e:
+                            self.watch["result"] = str(e)
+                        try:
+                            if graph_token_in(read()) == tok:
+                                clear()
+                        except Exception:
+                            pass
+                        return
+                    time.sleep(interval)
+                self.watch["result"] = "timeout"
+            finally:
+                self.watch["active"] = False
+
+        threading.Thread(target=run, name="token-watch", daemon=True).start()
+        return dict(self.watch)
 
     def _me(self) -> dict:
         if not self.me:

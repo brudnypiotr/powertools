@@ -25,9 +25,12 @@ desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to ski
 
 ## Teams chats and mail (step 2)
 
-Tabs **Teams** and **Mail** in the window. Paste an access token from
-[Graph Explorer](https://developer.microsoft.com/graph/graph-explorer) (tab "Access token", valid about an
-hour); it is stored encrypted for your Windows user (DPAPI). Only what Graph Explorer can read without admin
+Tabs **Teams** and **Mail** in the window. **Get token** opens
+[Graph Explorer](https://developer.microsoft.com/graph/graph-explorer) in its own Edge window (your profile, so you are
+usually signed in already); open its "Access token" tab and click copy: powertools catches the token from the clipboard
+(for 5 minutes, only Graph tokens), saves it and clears the clipboard. Pasting by hand works too. The token is valid
+about an hour and stored encrypted for your Windows user (DPAPI). Graph Explorer cannot be shown inside the window
+itself: Microsoft forbids embedding it (X-Frame-Options). Only what Graph Explorer can read without admin
 consent: 1:1, group and meeting chats with shared files, and mail; team channels are out of scope.
 
 - Pick chats or search mail threads (folder, person, subject), choose a range (last 2/10/30 days, since a
