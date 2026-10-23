@@ -58,9 +58,21 @@ function Find-Python {
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe')
   )
+  $candidates += (Join-Path $Base 'python312-embed\python.exe')
+  $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Launcher\py.exe')
   foreach ($c in @('python', 'py')) {
     $cmd = Get-Command $c -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source -notmatch 'WindowsApps') { $candidates += $cmd.Source }
+  }
+  # every Python registered by an installer (PEP 514), wherever it was put: a reinstall of a version that is already
+  # registered keeps the old folder and ignores TargetDir
+  foreach ($root in @('HKCU:\Software\Python\PythonCore', 'HKLM:\Software\Python\PythonCore', 'HKLM:\Software\WOW6432Node\Python\PythonCore')) {
+    foreach ($ver in @(Get-ChildItem $root -ErrorAction SilentlyContinue)) {
+      $ip = Get-ItemProperty (Join-Path $ver.PSPath 'InstallPath') -ErrorAction SilentlyContinue
+      if (-not $ip) { continue }
+      if ($ip.ExecutablePath) { $candidates += $ip.ExecutablePath }
+      elseif ($ip.'(default)') { $candidates += (Join-Path $ip.'(default)' 'python.exe') }
+    }
   }
   $found = @($candidates | ForEach-Object { Test-Python $_ } | Where-Object { $_ })
   $full = $found | Where-Object { $_.tk } | Select-Object -First 1
@@ -88,15 +100,39 @@ Write-Host ''
 $py = Find-Python
 if (-not $py) {
   Write-Host 'No Python 3.11+ found; installing Python 3.12 for this user (python.org, no admin) ...'
+  $instLog = Join-Path $Base 'python-install.log'
   try {
     $installer = Get-File $Sources.python_installer.url $Sources.python_installer.sha256 'python-installer.exe'
     $target = Join-Path $Base 'python312'
-    $argList = @('/quiet', 'InstallAllUsers=0', "TargetDir=$target", 'PrependPath=0', 'Include_launcher=0', 'Include_test=0', 'Include_tcltk=1', 'Shortcuts=0', 'AssociateFiles=0')
-    $p = Start-Process -FilePath $installer -ArgumentList $argList -Wait -PassThru
-    if ($p.ExitCode -ne 0) { throw "installer exit code $($p.ExitCode)" }
+    $argList = @('/quiet', '/log', "`"$instLog`"", 'InstallAllUsers=0', "TargetDir=$target", 'PrependPath=0', 'Include_launcher=0', 'Include_test=0', 'Include_tcltk=1', 'Shortcuts=0', 'AssociateFiles=0')
+    for ($try = 1; $try -le 4; $try++) {
+      $p = Start-Process -FilePath $installer -ArgumentList $argList -Wait -PassThru
+      if ($p.ExitCode -ne 1618) { break }
+      # 1618 = another installation (Windows Update, Intune, ...) is running: wait and retry
+      Write-Host "Another installation is in progress (code 1618); waiting 45 s (attempt $try of 4) ..." -ForegroundColor Yellow
+      Start-Sleep -Seconds 45
+    }
+    if ($p.ExitCode -ne 0) { throw "installer exit code $($p.ExitCode) (log: $instLog)" }
+    $py = Find-Python
+    if (-not $py) { throw "the installer finished but no Python appeared (log: $instLog)" }
+  } catch {
+    Step 'Python' 'WARN' "per-user install: $($_.Exception.Message); trying the embeddable package"
+  }
+}
+if (-not $py) {
+  try {
+    $target = Join-Path $Base 'python312-embed'
+    $zip = Get-File $Sources.python_embed.url $Sources.python_embed.sha256 'python-embed.zip'
+    if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+    Expand-Archive -Path $zip -DestinationPath $target -Force
+    $pth = Join-Path $target 'python312._pth'
+    (Get-Content $pth) -replace '^#\s*import site', 'import site' | Set-Content $pth -Encoding ASCII
+    Add-Content $pth 'Lib\site-packages'
+    $getpip = Get-File $Sources.get_pip.url $null 'get-pip.py'
+    $null = Invoke-Native (Join-Path $target 'python.exe') @($getpip, '--no-warn-script-location')
     $py = Find-Python
   } catch {
-    Step 'Python' 'WARN' "per-user install failed: $($_.Exception.Message)"
+    Step 'Python' 'WARN' "embeddable package failed: $($_.Exception.Message)"
   }
 }
 if (-not $py) { Step 'Python' 'FAIL' 'no Python 3.11+ found or installable'; exit 2 }
