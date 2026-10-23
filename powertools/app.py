@@ -97,7 +97,7 @@ class App:
         self.selftest = selftest
         self.settings = Settings()
         self.store = Store(data_dir() / "history.sqlite")
-        self.engine = Engine(self.settings["model"])
+        self.engine = Engine(self.settings["model"], self.settings["small_on_cpu"])
         self.recorder = Recorder()
         self.overlay = None
         self.tray = None
@@ -145,8 +145,10 @@ class App:
                     self.hotkey.bind(old)
                     raise ValueError(f"hotkey '{new}' not accepted: {e}") from e
         changed = self.settings.update(changes)
-        if "model" in changed:
-            self.engine.reload(changed["model"])
+        if "small_on_cpu" in changed:
+            self.engine.small_on_cpu = changed["small_on_cpu"]
+        if "model" in changed or ("small_on_cpu" in changed and self.engine.info.get("device") == "cpu"):
+            self.engine.reload(self.settings["model"])
             self._watch_engine()
         if "hotkey" in changed and self.tray:
             self.tray.hotkey = changed["hotkey"]

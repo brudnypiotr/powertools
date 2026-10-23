@@ -181,3 +181,11 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .list .warn, td.warn { color: var(--rec); font-weight: 600; }
 .small { font-size: 12px; margin: 4px 2px 8px; word-break: break-all; }
 .graphbar .token-wait { flex-basis: 100%; font-size: 12.5px; color: var(--muted); padding: 8px 10px; background: var(--hover); border-radius: 8px; }
+/* meeting list */
+.sessions li { cursor: pointer; align-items: flex-start; }
+.sessions .mhead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sessions .mdetail { display: none; margin-top: 8px; font-size: 12.5px; line-height: 1.6; }
+.sessions li.open .mdetail { display: block; }
+.sessions .mdetail pre { white-space: pre-wrap; max-height: 200px; overflow: auto; font-size: 12px; }
+.sessions .mact { display: flex; gap: 6px; flex-wrap: wrap; }
+.sessions .warn { color: var(--rec); font-size: 12.5px; margin-top: 4px; }

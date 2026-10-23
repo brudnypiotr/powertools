@@ -28,6 +28,7 @@ DEFAULTS: dict = {
     "vocabulary": [],            # words Whisper should expect (names, systems, jargon)
     "replacements": [],          # [{"from": "merlo", "to": "Merlot"}], whole words, case-insensitive
     "beam_size": 5,
+    "small_on_cpu": True,        # without a usable GPU: turbo -> small, large-v3 -> turbo (the big ones are too slow)
     "open_window_on_start": True,
     "app_window": True,          # open the window as an Edge app window (no browser bars) when Edge is there
     "output_dir": "",            # "" = Documents\\powertools; point it at the wiki inbox

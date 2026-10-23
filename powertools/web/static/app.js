@@ -55,9 +55,11 @@ async function poll() {
   pill.className = "pill " + shown;
   pill.textContent = shown;
   $("#hint").textContent = shown === "loading" ? `Loading Whisper ${e.model}...`
-    : e.state === "error" && s.dictation === "idle" ? `Whisper failed: ${e.error || ""}` : (HINTS[shown] || (() => ""))(s);
+    : e.state === "error" && s.dictation === "idle" ? `Whisper failed: ${e.error || ""}`
+    : (HINTS[shown] || (() => ""))(s) + (shown === "idle" && e.note ? ` (${e.note})` : "");
   $("#toggle").classList.toggle("on", s.dictation === "recording");
-  $("#engine-foot").innerHTML = `Whisper ${esc(e.model)}${e.device ? " · " + esc(e.device) : ""}<br>${esc(s.hotkey)} · v${esc(s.version)}`;
+  $("#engine-foot").innerHTML = `Whisper ${esc(e.model)}${e.device ? " · " + esc(e.device === "cpu" ? "CPU" : e.compute === "int8_float16" ? "cuda (saving)" : e.device) : ""}<br>${esc(s.hotkey)} · v${esc(s.version)}`;
+  $("#engine-foot").title = e.note ? e.note : "About, changelog and updates";
   $("#level").style.width = Math.min(100, s.level * 600) + "%";
   const last = s.last || {};
   const box = $("#last");
@@ -141,7 +143,8 @@ async function loadSettings() {
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir", "jira_url", "jira_email",
     "jira_max_attachment_mb"]) f[k].value = s[k];
-  for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments"]) f[k].checked = s[k];
+  for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments",
+    "small_on_cpu"]) f[k].checked = s[k];
   f.vocabulary.value = s.vocabulary.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
@@ -152,7 +155,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
   const body = {
     hotkey: f.hotkey.value, model: f.model.value, language: f.language.value, input_device: f.input_device.value,
     beam_size: Number(f.beam_size.value), paste: f.paste.checked, restore_clipboard: f.restore_clipboard.checked,
-    open_window_on_start: f.open_window_on_start.checked, app_window: f.app_window.checked, vocabulary: lines(f.vocabulary.value),
+    open_window_on_start: f.open_window_on_start.checked, small_on_cpu: f.small_on_cpu.checked, app_window: f.app_window.checked, vocabulary: lines(f.vocabulary.value),
     output_dir: f.output_dir.value.trim(), mail_attachments: f.mail_attachments.checked,
     jira_url: f.jira_url.value.trim(), jira_email: f.jira_email.value.trim(), jira_attachments: f.jira_attachments.checked,
     jira_max_attachment_mb: Number(f.jira_max_attachment_mb.value),
@@ -483,6 +486,7 @@ function renderPrompt(p) {
 }
 const clock = (s) => [Math.floor(s / 3600), Math.floor(s / 60) % 60, Math.floor(s) % 60].map((n) => String(n).padStart(2, "0")).join(":");
 let meetTimer = null, liveCount = -1;
+const openMeetings = new Set();  // meetings whose details are unfolded (kept across refreshes)
 async function loadMeetings() {
   clearTimeout(meetTimer);
   let m;
@@ -524,18 +528,47 @@ async function loadMeetings() {
     }
   }
   const status = { done: "done", finalizing: "transcribing...", interrupted: "interrupted", recording: "recording" };
-  $("#meeting-list").innerHTML = m.sessions.map((s) => `<li data-id="${esc(s.id)}">
-      <div class="grow"><b>${esc(s.title)}</b><div class="muted">${new Date(s.started * 1000).toLocaleString()} ·
-        ${Math.round((s.seconds || 0) / 60)} min · ${status[s.status] || esc(s.status)}${s.error ? " · " + esc(s.error) : ""}</div>
-        ${s.md ? `<div class="muted">${esc(s.md)}</div>` : ""}</div>
-      ${s.status === "interrupted" || s.status === "done" ? `<button data-act="final">Transcribe again</button>` : ""}
-      <button data-act="del">Delete</button></li>`).join("") || "<li>No recordings yet.</li>";
+  const hm = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const mins = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.round(sec % 3600 / 60)} min` : `${Math.max(1, Math.round(sec / 60))} min`;
+  $("#meeting-list").innerHTML = m.sessions.map((s) => {
+    const people = s.attendees || [], st = s.stats || {}, me = st.me || {}, ot = st.others || {};
+    const talk = (me.seconds || 0) + (ot.seconds || 0);
+    const share = talk ? ` · you spoke ${Math.round(100 * (me.seconds || 0) / talk)}%` : "";
+    const open = openMeetings.has(s.id);
+    return `<li data-id="${esc(s.id)}" class="${open ? "open" : ""}">
+      <div class="grow"><div class="mhead"><b>${esc(s.title)}</b> <span class="pill ${s.status === "done" ? "ready" : s.status === "finalizing" ? "transcribing" : "error"}">${status[s.status] || esc(s.status)}</span></div>
+        <div class="muted">${new Date(s.started * 1000).toLocaleDateString()} ${hm(s.started)}–${hm(s.started + (s.seconds || 0))} · ${mins(s.seconds || 0)}
+          · ${people.length ? `${people.length} invited` : "attendees unknown"}${share}</div>
+        ${s.error ? `<div class="warn">${esc(s.error)}</div>` : ""}
+        <div class="mdetail">
+          ${s.organizer ? `<div><span class="muted">Organizer</span> ${esc(s.organizer)}</div>` : ""}
+          ${people.length ? `<div><span class="muted">Invited</span> ${people.map(esc).join(", ")}</div>`
+            : `<div class="muted">No attendees: the calendar is read only when a Graph token is set (Teams tab).</div>`}
+          ${talk ? `<div><span class="muted">Speaking</span> Me ${mins(me.seconds || 0)} (${me.words || 0} words) · Others ${mins(ot.seconds || 0)} (${ot.words || 0} words)</div>` : ""}
+          ${(s.marks || []).length ? `<div><span class="muted">Marked moments</span> ${s.marks.length}</div>` : ""}
+          ${s.transcript_model ? `<div><span class="muted">Transcript</span> ${esc(s.transcript_model)}</div>` : ""}
+          ${s.devices ? `<div><span class="muted">Devices</span> mic: ${esc(s.devices.mic || "default")} · others: ${esc(s.devices.output || "default")}</div>` : ""}
+          ${s.invite ? `<details><summary class="muted">Invitation</summary><pre>${esc(s.invite)}</pre></details>` : ""}
+          ${s.md ? `<div class="muted small">${esc(s.md)}</div>` : ""}
+        </div></div>
+      <div class="mact">
+        ${s.md ? `<button data-act="open">Open</button>` : ""}
+        ${(s.status === "interrupted" || s.status === "done") && s.audio ? `<button data-act="final">Transcribe again</button>` : ""}
+        <button data-act="del">Delete</button></div></li>`;
+  }).join("") || "<li>No recordings yet.</li>";
   document.querySelectorAll(".open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
   if ($("#meetings").classList.contains("active")) meetTimer = setTimeout(loadMeetings, cur ? 1000 : 4000);
 }
 $("#meeting-list").addEventListener("click", async (e) => {
   const act = e.target.dataset.act, li = e.target.closest("li");
-  if (!act || !li) return;
+  if (!li || !li.dataset.id) return;
+  if (!act) {  // click on the row: show / hide the details
+    if (e.target.closest("details, a")) return;
+    li.classList.toggle("open");
+    li.classList.contains("open") ? openMeetings.add(li.dataset.id) : openMeetings.delete(li.dataset.id);
+    return;
+  }
+  if (act === "open") { try { await api("POST", `/api/meetings/${li.dataset.id}/open`, {}); } catch (err) { alert(err.message); } return; }
   if (act === "del" && !confirm("Delete this recording (audio and live transcript)? The exported Markdown stays.")) return;
   try {
     await api(act === "del" ? "DELETE" : "POST", `/api/meetings/${li.dataset.id}` + (act === "final" ? "/finalize" : ""));

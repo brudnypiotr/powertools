@@ -50,6 +50,25 @@ def meeting_finalize(h, sid):
     h.send(200, {"finalizing": sid})
 
 
+@route("POST", r"/api/meetings/([\w-]+)/open")
+def meeting_open(h, sid):
+    """Open the meeting's Markdown file (or its folder) with the default app."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    md = h.app.meetings.get(sid).meta.get("md") or ""
+    if not md or not Path(md).exists():
+        raise ValueError("no transcript file yet")
+    target = str(Path(md).parent) if h.json_body().get("folder") else md
+    if sys.platform == "win32":
+        os.startfile(target)  # noqa: S606 (the user's own file)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", target])
+    h.send(200, {"opened": target})
+
+
 @route("DELETE", r"/api/meetings/([\w-]+)")
 def meeting_delete(h, sid):
     h.app.meetings.delete(sid)

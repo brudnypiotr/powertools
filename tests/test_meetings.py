@@ -138,3 +138,79 @@ def test_finalize_reports_events(tmp_path, monkeypatch):
     write_wav(folder / "me_0000.wav", np.zeros(16000, np.float32))
     m._finish(mm.Session(folder, {"title": "x", "started": time.time(), "seconds": 5, "marks": []}))
     assert events == ["stopped", "saved"]
+
+
+def test_load_wav_without_pyav(tmp_path):
+    import wave
+
+    from powertools.engine import load_wav
+    write_wav(tmp_path / "a.wav", np.full(16000, 0.5, np.float32))
+    a = load_wav(str(tmp_path / "a.wav"))
+    assert a.dtype == np.float32 and len(a) == 16000 and abs(a[0] - 0.5) < 1e-3
+    pcm = (np.full((48000, 2), 0.25) * 32767).astype("<i2")  # 48 kHz stereo
+    with wave.open(str(tmp_path / "b.wav"), "wb") as w:
+        w.setnchannels(2), w.setsampwidth(2), w.setframerate(48000), w.writeframes(pcm.tobytes())
+    b = load_wav(str(tmp_path / "b.wav"))
+    assert len(b) == 16000 and abs(b[100] - 0.25) < 1e-3
+
+
+def test_engine_steps_down_from_gpu_to_saving_mode_to_cpu(monkeypatch):
+    import sys
+    import types
+
+    loads, calls = [], []
+
+    class FakeModel:
+        def __init__(self, name, device, compute_type):
+            loads.append((name, device, compute_type))
+            if compute_type == "float16":
+                raise RuntimeError("CUDA failed with error out of memory")
+            self.device = device
+
+        def transcribe(self, audio, **kw):
+            calls.append(self.device)
+            if self.device == "cuda":
+                raise RuntimeError("CUDA failed with error out of memory")
+            seg = types.SimpleNamespace(start=0.0, end=1.0, text="hello")
+            return iter([seg]), types.SimpleNamespace(language="en", language_probability=0.9, duration=1.0)
+
+    monkeypatch.setitem(sys.modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1))
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    e = Engine("turbo")
+    out = []
+    e.submit(np.zeros(16000, np.float32), out.append)
+    e.start()  # the real worker: loads (float16 fails -> int8_float16), transcribes (CUDA OOM -> CPU), answers
+    for _ in range(100):
+        if out:
+            break
+        time.sleep(0.02)
+    e.stop()
+    assert loads[:2] == [("turbo", "cuda", "float16"), ("turbo", "cuda", "int8_float16")]
+    assert out[0].text == "hello" and not out[0].error and calls == ["cuda", "cpu"]
+    assert loads[-1] == ("small", "cpu", "int8") and e.status()["model"] == "small" and e.floor == 2
+    assert "CPU" in e.info["note"]
+    e._load("large-v3")  # stays on the CPU, with the smaller stand-in
+    assert loads[-1] == ("turbo", "cpu", "int8") and e.status()["asked_model"] == "large-v3"
+
+
+def test_transcribe_again_uses_kept_tracks_and_counts_speech(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+    s.update({"output_dir": str(tmp_path / "out")})
+    eng = FakeEngine()
+    m = mm.MeetingManager(s, eng)
+    folder = m.root / "20261023-100000"
+    folder.mkdir()
+    for t in ("me", "others"):
+        write_wav(folder / f"{t}_0000.wav", np.zeros(16000, np.float32))
+    session = mm.Session(folder, {"title": "Sync", "started": time.time(), "seconds": 60, "marks": [],
+                                  "status": "interrupted", "attendees": ["A", "B", "C"]})
+    m.finalize(session)
+    assert not list(folder.glob("*_0000.wav")) and (folder / "me.wav").exists()
+    session.meta["error"] = "old decoder error"
+    eng.jobs.clear()
+    m.finalize(session)  # "Transcribe again": only me.wav / others.wav are left
+    assert sorted(str(a).replace("\\", "/").rsplit("/", 1)[-1] for a, _, _ in eng.jobs) == ["me.wav", "others.wav"]
+    v = session.view()
+    assert v["status"] == "done" and not v.get("error") and v["audio"]
+    assert v["stats"]["me"] == {"seconds": 1.0, "words": 3} and v["attendees"] == ["A", "B", "C"]

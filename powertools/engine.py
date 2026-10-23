@@ -20,6 +20,16 @@ from typing import Callable
 
 log = logging.getLogger("powertools.engine")
 DICTATION, LIVE, FINAL = 0, 5, 9
+# Where a model runs, best first. A step down happens when loading OR transcribing fails on the GPU (too little VRAM,
+# a CUDA error), and the engine stays down there: int8_float16 needs about a third less VRAM than float16.
+LEVELS = [("cuda", "float16"), ("cuda", "int8_float16"), ("cpu", "int8")]
+# On the CPU the big models are too slow to use: a smaller one runs instead (Settings: "Smaller models on CPU").
+CPU_MODEL = {"large-v3": "turbo", "turbo": "small", "medium": "small"}
+
+
+def gpu_error(e: Exception) -> bool:
+    t = f"{type(e).__name__}: {e}".lower()
+    return any(k in t for k in ("out of memory", "cuda", "cublas", "cudnn", "gpu"))
 
 
 @dataclass
@@ -40,6 +50,26 @@ class Job:
     options: dict = field(default_factory=dict)
 
 
+def load_wav(path: str):
+    """A WAV file -> float32 mono 16 kHz for Whisper, without PyAV: faster-whisper's own decoder breaks whenever
+    PyAV changes its API (av 19 dropped `metadata_errors`). The recorder writes 16 kHz mono 16-bit PCM."""
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(path), "rb") as w:
+        rate, ch, width, raw = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.readframes(w.getnframes())
+    if width != 2:
+        raise ValueError(f"{path}: {8 * width}-bit WAV, expected 16-bit")
+    audio = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if ch > 1:
+        audio = audio.reshape(-1, ch).mean(axis=1)
+    if rate != 16000 and len(audio):
+        n = int(len(audio) * 16000 / rate)
+        audio = np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio).astype(np.float32)
+    return audio
+
+
 def add_cuda_dlls() -> None:
     """The nvidia-cublas/cudnn wheels put their DLLs in site-packages/nvidia/*/bin (as letmetalk does)."""
     if sys.platform != "win32":
@@ -53,9 +83,12 @@ def add_cuda_dlls() -> None:
 
 
 class Engine:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, small_on_cpu: bool = True):
         self.default_model = model_name
-        self.model_name = model_name
+        self.model_name = model_name    # the model asked for (settings, or a job's "model")
+        self.loaded_name = ""           # the model actually loaded (smaller on the CPU)
+        self.small_on_cpu = small_on_cpu
+        self.floor = 0                  # index in LEVELS: the best level that still works on this machine
         self.state = "idle"            # idle -> loading -> ready | error
         self.info: dict = {}
         self._model = None
@@ -67,8 +100,8 @@ class Engine:
         self._thread.start()
 
     def status(self) -> dict:
-        return {"state": self.state, "model": self.model_name, "default_model": self.default_model,
-                "queued": self._jobs.qsize(), **self.info}
+        return {"state": self.state, "model": self.loaded_name or self.model_name, "asked_model": self.model_name,
+                "default_model": self.default_model, "queued": self._jobs.qsize(), **self.info}
 
     def submit(self, audio, done: Callable[[Result], None], priority: int = DICTATION, **options) -> None:
         self._jobs.put((priority, next(self._seq), Job(audio, done, options)))
@@ -91,26 +124,49 @@ class Engine:
             self.state, self.info = "error", {"error": f"faster-whisper not installed: {e}"}
             log.exception("import failed")
             return
-        gpus = ctranslate2.get_cuda_device_count()
-        attempts = ([("cuda", "float16")] if gpus else []) + [("cpu", "int8")]
+        try:
+            gpus = ctranslate2.get_cuda_device_count()
+        except Exception:
+            gpus = 0
         last = ""
-        for device, compute in attempts:
+        for i in range(self.floor, len(LEVELS)):
+            device, compute = LEVELS[i]
+            if device == "cuda" and not gpus:
+                continue
+            real = CPU_MODEL.get(name, name) if device == "cpu" and self.small_on_cpu else name
             t0 = time.time()
             try:
-                self._model = WhisperModel(name, device=device, compute_type=compute)
-                self.info = {"device": device, "compute": compute, "load_s": round(time.time() - t0, 1)}
-                self.state = "ready"
-                log.info("model %s loaded on %s/%s in %.1f s", name, device, compute, time.time() - t0)
-                return
+                self._model = WhisperModel(real, device=device, compute_type=compute)
             except Exception as e:
-                last = f"{device}: {type(e).__name__}: {e}"
-                log.warning("load on %s failed: %s", device, e)
+                last = f"{device}/{compute}: {type(e).__name__}: {e}"
+                log.warning("load %s on %s/%s failed: %s", real, device, compute, e)
+                continue
+            self.floor, self.loaded_name = i, real
+            self.info = {"device": device, "compute": compute, "load_s": round(time.time() - t0, 1),
+                         **({"note": f"no usable GPU: {real} on the CPU (slower)"} if device == "cpu" else
+                            {"note": "GPU in the memory-saving mode (int8_float16)"} if i > 0 else {})}
+            self.state = "ready"
+            log.info("model %s loaded on %s/%s in %.1f s", real, device, compute, time.time() - t0)
+            return
         self.state, self.info = "error", {"error": last[:300]}
+
+    def _step_down(self, e: Exception) -> bool:
+        """A GPU failure while transcribing: reload one level lower. False when already on the CPU."""
+        if self.info.get("device") != "cuda" or not gpu_error(e) or self.floor >= len(LEVELS) - 1:
+            return False
+        log.warning("GPU failed while transcribing (%s); stepping down from %s", e, LEVELS[self.floor])
+        self.floor += 1
+        self._model = None
+        self._load(self.model_name)
+        return self.state == "ready"
 
     def _transcribe(self, job: Job) -> Result:
         t0 = time.time()
+        audio = job.audio
+        if isinstance(audio, (str, os.PathLike)) and str(audio).lower().endswith(".wav"):
+            audio = load_wav(audio)
         segments, info = self._model.transcribe(
-            job.audio,
+            audio,
             language=job.options.get("language") or None,
             beam_size=job.options.get("beam_size", 5),
             initial_prompt=job.options.get("initial_prompt"),
@@ -140,11 +196,15 @@ class Engine:
             if self.state != "ready":
                 job.done(Result("", error=f"model not ready ({self.state}): {self.info.get('error', '')}"))
                 continue
-            try:
-                result = self._transcribe(job)
-            except Exception as e:
-                log.exception("transcription failed")
-                result = Result("", error=f"{type(e).__name__}: {e}")
+            while True:
+                try:
+                    result = self._transcribe(job)
+                except Exception as e:
+                    if self._step_down(e):
+                        continue  # same job again, on the lower level
+                    log.exception("transcription failed")
+                    result = Result("", error=f"{type(e).__name__}: {e}")
+                break
             try:
                 job.done(result)
             except Exception:

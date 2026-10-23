@@ -23,6 +23,14 @@ desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to ski
 
 `powertools.cmd --console` runs with the log in the window; `powertools.cmd --setup` repeats the setup.
 
+### Without a (big enough) GPU
+
+Whisper tries the GPU in float16, then the GPU in the memory-saving int8_float16 mode (about a third less VRAM), then
+the CPU (int8). It steps down when loading fails and also when a transcription fails on the GPU (out of memory), and
+stays down. On the CPU the big models are too slow, so by default turbo runs as small and large-v3 as turbo
+(Settings: "Smaller models without a usable GPU"). The footer and the Dictation tab say when it runs on the CPU.
+Rough VRAM (float16): large-v3 about 4.5 GB, turbo 2-2.5 GB, small about 1 GB.
+
 ## Teams chats and mail (step 2)
 
 Tabs **Teams** and **Mail** in the window. **Get token** opens
@@ -51,6 +59,10 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
   microphone for 20 s, or Stop) the accurate model (large-v3) transcribes both tracks and writes
   `meetings/<date>_<title>.md`: invitation text, attendees, marked moments, `Me:` / `Others:` lines.
 - Dictation keeps working during a meeting and goes first in the Whisper queue.
+- The Meetings tab lists each recording with date, start-end, duration, how many were invited, your share of the
+  speaking time; click a row for the organizer, attendees, speaking time and words per track, marked moments, model,
+  devices and the invitation. **Open** opens the transcript; **Transcribe again** reruns the final pass from the kept
+  audio (kept for "Keep meeting audio" days).
 - Others is one voice track: Teams transcripts with names need admin consent, so they are out of scope.
 
 ## Jira (step 4)

@@ -60,6 +60,16 @@ def concat_wavs(paths: list[Path], dest: Path) -> float:
     return total / 16000
 
 
+def speech_stats(segments: list[dict]) -> dict:
+    """Speaking time and words per track (Me / Others) from the transcript segments."""
+    out = {t: {"seconds": 0.0, "words": 0} for t in SPEAKERS}
+    for s in segments:
+        st = out.setdefault(s["speaker"], {"seconds": 0.0, "words": 0})
+        st["seconds"] = round(st["seconds"] + max(0.0, s.get("end", s["start"]) - s["start"]), 1)
+        st["words"] += len(s["text"].split())
+    return out
+
+
 def meeting_markdown(meta: dict, segments: list[dict]) -> str:
     start = datetime.fromtimestamp(meta["started"]).astimezone()
     head = export.frontmatter({
@@ -104,8 +114,11 @@ class Session:
         tmp.replace(self.folder / "meta.json")
 
     def view(self, with_live: bool = False) -> dict:
-        keys = ("title", "status", "started", "seconds", "attendees", "marks", "md", "error", "auto")
+        keys = ("title", "status", "started", "seconds", "attendees", "organizer", "marks", "md", "error", "auto",
+                "devices", "transcript_model", "stats")
         v = {"id": self.id, **{k: self.meta.get(k) for k in keys}}
+        v["invite"] = (self.meta.get("invite") or "")[:600]
+        v["audio"] = any((self.folder / f"{t}.wav").exists() or any(self.folder.glob(f"{t}_*.wav")) for t in SPEAKERS)
         if with_live:
             v["live"] = merge(self.live)[-200:]
         return v
@@ -261,7 +274,9 @@ class MeetingManager:
 
     # ------------------------------------------------------------------ final pass
     def finalize(self, session: Session) -> None:
-        tracks = {t: sorted(session.folder.glob(f"{t}_*.wav")) for t in SPEAKERS}
+        # chunks while recording; after a transcript only the joined me.wav / others.wav are kept ("Transcribe again")
+        tracks = {t: sorted(session.folder.glob(f"{t}_*.wav")) or
+                  ([session.folder / f"{t}.wav"] if (session.folder / f"{t}.wav").exists() else []) for t in SPEAKERS}
         if not any(tracks.values()):
             session.meta.update(status="done", error=session.meta.get("error") or "no audio was recorded")
             session.save()
@@ -272,6 +287,7 @@ class MeetingManager:
             self._write(session, merge(session.live), "live (turbo)")
             return
         session.meta["status"] = "finalizing"
+        session.meta.pop("error", None)  # a new attempt: an old error (e.g. a broken decoder) no longer applies
         session.save()
         self.on_change()
         results: dict[str, list] = {}
@@ -292,7 +308,8 @@ class MeetingManager:
         for track, files in tracks.items():
             if files:
                 full = session.folder / f"{track}.wav"
-                concat_wavs(files, full)
+                if files != [full]:
+                    concat_wavs(files, full)
                 jobs[track] = full
         for track, full in jobs.items():
             self.engine.submit(str(full), done_for(track), priority=FINAL, model=model,
@@ -300,6 +317,7 @@ class MeetingManager:
 
     def _write(self, session: Session, segments: list[dict], model: str) -> None:
         session.meta["transcript_model"] = model
+        session.meta["stats"] = speech_stats(segments)
         start = datetime.fromtimestamp(session.meta["started"])
         name = f"{start:%Y-%m-%d-%H%M}_{export.slug(session.meta['title'])}.md"
         path = export.write(export.unique(output_dir(self.settings) / "meetings" / name),
