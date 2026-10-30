@@ -602,7 +602,7 @@ async function loadMeetings() {
         <div class="mdetail">
           ${s.organizer ? `<div><span class="muted">Organizer</span> ${esc(s.organizer)}</div>` : ""}
           ${people.length ? `<div><span class="muted">Invited</span> ${people.map(esc).join(", ")}</div>`
-            : `<div class="muted">No attendees: the calendar is read only when a Graph token is set (Teams tab).</div>`}
+            : `<div class="muted">No attendees yet. <button data-act="cal">Fill from calendar</button> (needs the Graph token from the Teams tab)</div>`}
           ${talk ? `<div><span class="muted">Speaking</span> Me ${mins(me.seconds || 0)} (${me.words || 0} words) · Others ${mins(ot.seconds || 0)} (${ot.words || 0} words)</div>` : ""}
           ${(s.marks || []).length ? `<div><span class="muted">Marked moments</span> ${s.marks.length}</div>` : ""}
           ${s.transcript_model ? `<div><span class="muted">Transcript</span> ${esc(s.transcript_model)}</div>` : ""}
@@ -628,12 +628,27 @@ $("#meeting-list").addEventListener("click", async (e) => {
     return;
   }
   if (act === "open") { try { await api("POST", `/api/meetings/${li.dataset.id}/open`, {}); } catch (err) { alert(err.message); } return; }
+  if (act === "cal") {
+    try { const r = await api("POST", `/api/meetings/${li.dataset.id}/calendar`, {});
+      if (!r.calendar) alert("No Teams meeting on your calendar at that time (an ad-hoc call has no attendee list)."); }
+    catch (err) { alert(err.message); }
+    loadMeetings(); return;
+  }
   if (act === "del" && !confirm("Delete this recording (audio and live transcript)? The exported Markdown stays.")) return;
   try {
     await api(act === "del" ? "DELETE" : "POST", `/api/meetings/${li.dataset.id}` + (act === "final" ? "/finalize" : ""));
   } catch (err) { alert(err.message); }
   loadMeetings();
 });
+
+$("#update-all").onclick = async () => {
+  const b = $("#update-all"); b.disabled = true;
+  try { const r = await api("POST", "/api/meetings/update-all", {});
+    alert(`${r.updated} transcripts updated, ${r.with_attendees} with attendees from the calendar.` +
+          (r.token ? "" : " Set a Graph token in the Teams tab to fill in the attendees."));
+  } catch (err) { alert(err.message); }
+  b.disabled = false; loadMeetings();
+};
 
 poll();
 loadHistory();

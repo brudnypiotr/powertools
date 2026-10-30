@@ -214,3 +214,26 @@ def test_transcribe_again_uses_kept_tracks_and_counts_speech(tmp_path, monkeypat
     v = session.view()
     assert v["status"] == "done" and not v.get("error") and v["audio"]
     assert v["stats"]["me"] == {"seconds": 1.0, "words": 3} and v["attendees"] == ["A", "B", "C"]
+
+
+def test_compact_layout_and_calendar_fill(tmp_path, monkeypatch):
+    """One line per turn, listening-only turns left out; an older file gets the calendar's attendees and the layout."""
+    meta = {"title": "Teams call", "started": time.time(), "seconds": 60, "marks": [{"t": 4, "note": ""}]}
+    md = mm.meeting_markdown(meta, [seg("me", 0, 2, "start"), seg("others", 3, 4, "Uh huh. Mm-hmm."),
+                                    seg("others", 5, 7, "Uh huh. Okay, agreed.")])
+    assert "Uh huh. Mm-hmm." not in md and "- **[00:00:05] Others:** Uh huh. Okay, agreed." in md
+    assert "\n\n- **" not in md.split("## Transcript")[1].lstrip("\n") and "- *** marked 00:00:04 ***" in md
+    old = ('---\ntitle: "Teams call"\nparticipants: []\norganizer: ""\n---\n\n# Teams call\n\n## Transcript\n\n'
+           "**[00:00:01] Me:** hello\n\n**[00:00:02] Others:** Mm-hmm.\n\n**[00:00:03] Others:** hi there\n")
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    m = mm.MeetingManager(Settings(tmp_path / "s.json"), None)
+    f = tmp_path / "old.md"; f.write_text(old, encoding="utf-8")
+    folder = m.root / "20261030-133000"; folder.mkdir()
+    s = mm.Session(folder, {"title": "Teams call", "started": time.time(), "status": "done", "md": str(f)})
+    r = m.update_file(s, {"title": "Pitch rehearsal", "attendees": ["Rodrigo", "Piotr"], "organizer": "Piotr"})
+    new = f.read_text(encoding="utf-8")
+    assert r["calendar"] and s.meta["title"] == "Pitch rehearsal" and s.meta["attendees"] == ["Rodrigo", "Piotr"]
+    assert 'participants: ["Rodrigo", "Piotr"]' in new and 'organizer: "Piotr"' in new and "# Pitch rehearsal" in new
+    assert "- **[00:00:01] Me:** hello\n- **[00:00:03] Others:** hi there" in new and "Mm-hmm" not in new
+    m.update_file(s, None)                                   # no calendar entry: only the layout, idempotent
+    assert f.read_text(encoding="utf-8") == new

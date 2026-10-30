@@ -125,11 +125,12 @@ class GraphService:
         return self.me
 
     # ------------------------------------------------------------------ calendar
-    def current_event(self) -> dict:
-        """The Teams meeting on the calendar right now (title, attendees, organizer, invite text), or {}."""
+    def current_event(self, at: datetime | None = None) -> dict:
+        """The Teams meeting on the calendar right now, or at `at` (an earlier recording): title, attendees,
+        organizer, invite text; {} if there is none."""
         if not self.tokens.get():
             return {}
-        now = datetime.now().astimezone()
+        now = (at or datetime.now()).astimezone()
         data = self.g.get("/me/calendarView",
                           {"startDateTime": (now - timedelta(minutes=20)).isoformat(timespec="seconds"),
                            "endDateTime": (now + timedelta(minutes=20)).isoformat(timespec="seconds"), "$top": "20",

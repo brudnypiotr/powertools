@@ -69,6 +69,39 @@ def meeting_open(h, sid):
     h.send(200, {"opened": target})
 
 
+def _calendar_at(h, s) -> dict:
+    from datetime import datetime
+    if not h.app.graph.tokens.get():
+        raise ValueError("set a Graph token in the Teams tab first: attendees come from your calendar")
+    return h.app.graph.current_event(datetime.fromtimestamp(s.meta["started"] + 60))
+
+
+@route("POST", r"/api/meetings/([\w-]+)/calendar")
+def meeting_calendar(h, sid):
+    """Attendees, organizer and title from the calendar for an earlier recording, and the compact layout."""
+    s = h.app.meetings.get(sid)
+    h.send(200, h.app.meetings.update_file(s, _calendar_at(h, s)))
+
+
+@route("POST", "/api/meetings/update-all")
+def meetings_update_all(h):
+    """Every finished recording: attendees from the calendar where they are missing (needs the Graph token), and
+    every transcript file in the compact layout."""
+    m, token = h.app.meetings, bool(h.app.graph.tokens.get())
+    done = []
+    for s in m.sessions(limit=1000):
+        if s is m.current or s.meta.get("status") != "done":
+            continue
+        event = None
+        if token and not s.meta.get("attendees"):
+            try:
+                event = _calendar_at(h, s)
+            except Exception:  # expired token, network: the file is still made compact
+                event = None
+        done.append(m.update_file(s, event))
+    h.send(200, {"updated": len(done), "with_attendees": sum(1 for d in done if d["calendar"]), "token": token})
+
+
 @route("DELETE", r"/api/meetings/([\w-]+)")
 def meeting_delete(h, sid):
     h.app.meetings.delete(sid)

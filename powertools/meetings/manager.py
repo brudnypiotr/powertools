@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,9 @@ from ..engine import FINAL, LIVE, Result
 
 log = logging.getLogger("powertools.meetings")
 SPEAKERS = {"me": "Me", "others": "Others"}
+# a turn made only of these is someone listening ("Uh huh. Mm-hmm."), not saying something: left out of the file
+BACKCHANNEL = {"uh", "huh", "uh-huh", "mm", "mhm", "mm-hmm", "hmm", "mmm"}
+LINE = re.compile(r"^(?:- )?(\*\*\[\d\d:\d\d:\d\d\] [^*]+:\*\*) ?(.*)$")
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -70,6 +74,11 @@ def speech_stats(segments: list[dict]) -> dict:
     return out
 
 
+def backchannel(text: str) -> bool:
+    words = re.sub(r"[^\w\s-]", " ", text.lower()).split()
+    return bool(words) and all(w in BACKCHANNEL for w in words)
+
+
 def meeting_markdown(meta: dict, segments: list[dict]) -> str:
     start = datetime.fromtimestamp(meta["started"]).astimezone()
     head = export.frontmatter({
@@ -89,13 +98,43 @@ def meeting_markdown(meta: dict, segments: list[dict]) -> str:
         out += ["## Marked moments", ""] + [f"- {fmt_offset(m['t'])} {m.get('note', '')}".rstrip() for m in meta["marks"]] + [""]
     out += ["## Transcript", ""]
     marks = sorted(m["t"] for m in meta.get("marks", []))
-    for s in segments:
+    for s in segments:  # one line per turn, no blank lines: compact on screen and in a photo of the screen
         while marks and marks[0] <= s["start"]:
-            out += [f"*** marked {fmt_offset(marks.pop(0))} ***", ""]
-        out += [f"**[{fmt_offset(s['start'])}] {SPEAKERS.get(s['speaker'], s['speaker'])}:** {s['text']}", ""]
+            out.append(f"- *** marked {fmt_offset(marks.pop(0))} ***")
+        if not backchannel(s["text"]):
+            out.append(f"- **[{fmt_offset(s['start'])}] {SPEAKERS.get(s['speaker'], s['speaker'])}:** {s['text']}")
     if not segments:
         out.append("_(no speech recognised)_")
-    return "\n".join(out)
+    return "\n".join(out) + "\n"
+
+
+def compact(md: str) -> str:
+    """An older transcript file in the compact layout: turns as list items without blank lines, listening-only
+    turns left out. Everything before "## Transcript" stays as it is."""
+    head, sep, body = md.partition("## Transcript")
+    if not sep:
+        return md
+    out = []
+    for line in body.splitlines():
+        m = LINE.match(line)
+        if m:
+            if not backchannel(m.group(2)):
+                out.append(f"- {m.group(1)} {m.group(2)}".rstrip())
+        elif line.startswith(("*** marked", "- *** marked")):
+            out.append(line if line.startswith("- ") else "- " + line)
+        elif line.strip() or not out or not out[-1].startswith("- "):
+            out.append(line)
+    return head + sep + "\n".join(out).rstrip() + "\n"
+
+
+def with_calendar(md: str, title: str, attendees: list[str], organizer: str) -> str:
+    """The file's front matter (and heading) with the calendar's title, attendees and organizer."""
+    md = re.sub(r"(?m)^participants: .*$", lambda _: "participants: " + json.dumps(attendees, ensure_ascii=False), md, count=1)
+    md = re.sub(r"(?m)^organizer: .*$", lambda _: "organizer: " + json.dumps(organizer, ensure_ascii=False), md, count=1)
+    if title:
+        md = re.sub(r'(?m)^title: .*$', lambda _: "title: " + json.dumps(title, ensure_ascii=False), md, count=1)
+        md = re.sub(r"(?m)^# .*$", lambda _: "# " + title, md, count=1)
+    return md
 
 
 class Session:
@@ -329,6 +368,28 @@ class MeetingManager:
         log.info("meeting written: %s", path)
         self.on_change()
         self.on_event("saved", session)
+
+    def update_file(self, session: Session, event: dict | None) -> dict:
+        """Bring an earlier recording up to date: attendees, organizer and (for an untitled "Teams call") the title
+        from the calendar event, and the compact transcript layout. The audio is not touched."""
+        found = bool(event and (event.get("attendees") or event.get("organizer")))
+        if found:
+            session.meta["attendees"] = event.get("attendees", [])
+            session.meta["organizer"] = event.get("organizer", "")
+            if event.get("title") and session.meta.get("title") in ("", "Teams call"):
+                session.meta["title"] = event["title"]
+            if event.get("invite") and not session.meta.get("invite"):
+                session.meta["invite"] = event["invite"]
+            session.save()
+        md = Path(session.meta.get("md") or "")
+        if md.is_file():
+            text = md.read_text(encoding="utf-8")
+            new = compact(with_calendar(text, session.meta.get("title", ""), session.meta.get("attendees", []),
+                                        session.meta.get("organizer", "")) if found else text)
+            if new != text:
+                export.write(md, new)
+        self.on_change()
+        return {"id": session.id, "calendar": found, "attendees": len(session.meta.get("attendees") or [])}
 
     def delete(self, sid: str) -> None:
         s = self.get(sid)
