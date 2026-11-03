@@ -31,6 +31,13 @@ stays down. On the CPU the big models are too slow, so by default turbo runs as 
 (Settings: "Smaller models without a usable GPU"). The footer and the Dictation tab say when it runs on the CPU.
 Rough VRAM (float16): large-v3 about 4.5 GB, turbo 2-2.5 GB, small about 1 GB.
 
+### Parakeet V3
+
+Settings → Model → Parakeet V3: NVIDIA's parakeet-tdt-0.6b-v3 (25 European languages, Polish and English among
+them) through onnx-asr, int8 on the CPU (~670 MB, downloaded from Hugging Face on the first load). Fast enough for
+dictation without the GPU, which stays free for the meeting's Whisper. It detects the language itself and takes no
+prompt: Vocabulary does nothing, Replacements still apply.
+
 ## Teams chats and mail (step 2)
 
 Tabs **Teams** and **Mail** in the window. **Get token** opens

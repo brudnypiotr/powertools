@@ -144,7 +144,7 @@ Step 'Python' 'OK' ("{0} {1}" -f $py.version, $py.exe)
 $vpy = Join-Path $Venv 'Scripts\python.exe'
 $NewVenv = "$Venv.new"
 $Req = Join-Path $Repo 'requirements.txt'
-$Probe = 'import faster_whisper, numpy, requests, pystray, PIL, keyboard, pyperclip, sounddevice'
+$Probe = 'import faster_whisper, onnx_asr, numpy, requests, pystray, PIL, keyboard, pyperclip, sounddevice'
 
 function Test-Venv([string]$Dir) {
   # $true when the venv's Python starts and the main packages import

@@ -1,8 +1,10 @@
-"""The Whisper engine: one thread owns the model (6 GB of VRAM holds one at a time) and runs jobs by priority.
+"""The speech engine: one thread owns the model (6 GB of VRAM holds one at a time) and runs jobs by priority.
 
 Priorities: dictation 0 (the user waits), live meeting chunks 5, final meeting passes 9. A job may ask for another
 model (the final pass uses large-v3): the engine swaps models, and returns to the default one when idle.
 A dictation job never forces a swap; it runs on whatever model is loaded.
+Besides Whisper (faster-whisper) the engine runs NVIDIA Parakeet through onnx-asr: int8 on the CPU, no prompt, the
+language detected by the model itself; it leaves the GPU free and is fast enough for dictation on a laptop CPU.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ DICTATION, LIVE, FINAL = 0, 5, 9
 LEVELS = [("cuda", "float16"), ("cuda", "int8_float16"), ("cpu", "int8")]
 # On the CPU the big models are too slow to use: a smaller one runs instead (Settings: "Smaller models on CPU").
 CPU_MODEL = {"large-v3": "turbo", "turbo": "small", "medium": "small"}
+# Parakeet models: settings name -> onnx-asr name (downloaded from Hugging Face on the first load).
+PARAKEET = {"parakeet-v3": "nemo-parakeet-tdt-0.6b-v3"}
 
 
 def gpu_error(e: Exception) -> bool:
@@ -116,6 +120,8 @@ class Engine:
     def _load(self, name: str) -> None:
         self.state, self.info, self._model = "loading", {}, None
         self.model_name = name
+        if name in PARAKEET:
+            return self._load_parakeet(name)
         try:
             add_cuda_dlls()
             import ctranslate2
@@ -150,6 +156,27 @@ class Engine:
             return
         self.state, self.info = "error", {"error": last[:300]}
 
+    def _load_parakeet(self, name: str) -> None:
+        try:
+            import onnx_asr
+        except Exception as e:
+            self.state, self.info = "error", {"error": f"onnx-asr not installed (run setup again): {e}"}
+            log.exception("import failed")
+            return
+        t0 = time.time()
+        try:
+            model = onnx_asr.load_model(PARAKEET[name], quantization="int8", providers=["CPUExecutionProvider"])
+            vad = onnx_asr.load_vad("silero", providers=["CPUExecutionProvider"])
+            self._model = model.with_vad(vad, min_silence_duration_ms=500, max_speech_duration_s=20)
+        except Exception as e:
+            self.state, self.info = "error", {"error": f"{name}: {type(e).__name__}: {e}"[:300]}
+            log.exception("load %s failed", name)
+            return
+        self.loaded_name = name
+        self.info = {"device": "cpu", "compute": "int8", "load_s": round(time.time() - t0, 1)}
+        self.state = "ready"
+        log.info("model %s loaded on cpu/int8 in %.1f s", name, time.time() - t0)
+
     def _step_down(self, e: Exception) -> bool:
         """A GPU failure while transcribing: reload one level lower. False when already on the CPU."""
         if self.info.get("device") != "cuda" or not gpu_error(e) or self.floor >= len(LEVELS) - 1:
@@ -165,6 +192,12 @@ class Engine:
         audio = job.audio
         if isinstance(audio, (str, os.PathLike)) and str(audio).lower().endswith(".wav"):
             audio = load_wav(audio)
+        if self.loaded_name in PARAKEET:
+            segs = [(round(s.start, 2), round(s.end, 2), s.text.strip()) for s in self._model.recognize(audio)]
+            text = " ".join(t for _, _, t in segs if t).strip()
+            # Parakeet does not report the language: the one asked for, if any
+            return Result(text, job.options.get("language") or "", 0.0, len(audio) / 16000, time.time() - t0,
+                          segments=segs)
         segments, info = self._model.transcribe(
             audio,
             language=job.options.get("language") or None,

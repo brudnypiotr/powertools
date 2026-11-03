@@ -55,11 +55,11 @@ async function poll() {
   const pill = $("#pill");
   pill.className = "pill " + shown;
   pill.textContent = shown;
-  $("#hint").textContent = shown === "loading" ? `Loading Whisper ${e.model}...`
-    : e.state === "error" && s.dictation === "idle" ? `Whisper failed: ${e.error || ""}`
+  $("#hint").textContent = shown === "loading" ? `Loading ${e.model}...`
+    : e.state === "error" && s.dictation === "idle" ? `Model failed: ${e.error || ""}`
     : (HINTS[shown] || (() => ""))(s) + (shown === "idle" && e.note ? ` (${e.note})` : "");
   $("#toggle").classList.toggle("on", s.dictation === "recording");
-  $("#engine-foot").innerHTML = `Whisper ${esc(e.model)}${e.device ? " · " + esc(e.device === "cpu" ? "CPU" : e.compute === "int8_float16" ? "cuda (saving)" : e.device) : ""}<br>${esc(s.hotkey)} · v${esc(s.version)}`;
+  $("#engine-foot").innerHTML = `${esc(e.model)}${e.device ? " · " + esc(e.device === "cpu" ? "CPU" : e.compute === "int8_float16" ? "cuda (saving)" : e.device) : ""}<br>${esc(s.hotkey)} · v${esc(s.version)}`;
   $("#engine-foot").title = e.note ? e.note : "About, changelog and updates";
   $("#level").style.width = Math.min(100, s.level * 600) + "%";
   const last = s.last || {};

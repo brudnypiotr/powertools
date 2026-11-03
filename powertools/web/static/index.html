@@ -168,6 +168,7 @@
           <option value="large-v3">large-v3 (most accurate, slower)</option>
           <option value="medium">medium</option>
           <option value="small">small</option>
+          <option value="parakeet-v3">Parakeet V3 (fast on the CPU, leaves the GPU free; no vocabulary)</option>
         </select>
       </label>
       <label>Language
@@ -203,6 +204,7 @@
         <select name="meeting_final_model">
           <option value="large-v3">large-v3 after the meeting (most accurate)</option>
           <option value="turbo">turbo after the meeting</option>
+          <option value="parakeet-v3">Parakeet V3 after the meeting (CPU)</option>
           <option value="live">keep the live transcript (fastest)</option>
         </select>
       </label>
@@ -210,7 +212,7 @@
       <h3>Dictation details</h3>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
       <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
-        <small>Whisper is nudged to spell these words this way.</small></label>
+        <small>Whisper is nudged to spell these words this way (Parakeet ignores it: use Replacements).</small></label>
       <label>Replacements <textarea name="replacements" rows="6" placeholder="merlo => Merlot"></textarea>
         <small>One rule per line: <code>heard => wanted</code>. Whole words, case-insensitive.</small></label>
       <div class="row"><button type="submit">Save</button><span id="saved"></span></div>

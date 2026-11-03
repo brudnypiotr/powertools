@@ -1,6 +1,7 @@
 """Meetings without audio hardware: merging, Markdown, the Teams watcher, the final pass, engine priorities."""
 
 import json
+import sys
 import threading
 import time
 import types
@@ -8,7 +9,7 @@ import types
 import numpy as np
 
 from powertools.config import Settings
-from powertools.engine import DICTATION, FINAL, LIVE, Engine, Result
+from powertools.engine import DICTATION, FINAL, LIVE, Engine, Job, Result
 from powertools.meetings import manager as mm
 from powertools.meetings.watcher import Watcher, teams_in_call
 from powertools.meetings.worker import to_16k_mono, write_wav
@@ -237,3 +238,26 @@ def test_compact_layout_and_calendar_fill(tmp_path, monkeypatch):
     assert "- **[00:00:01] Me:** hello\n- **[00:00:03] Others:** hi there" in new and "Mm-hmm" not in new
     m.update_file(s, None)                                   # no calendar entry: only the layout, idempotent
     assert f.read_text(encoding="utf-8") == new
+
+
+def test_parakeet_loads_on_the_cpu_and_returns_vad_segments(monkeypatch):
+    loaded = []
+
+    class FakeAsr:
+        def with_vad(self, vad, **kw):
+            loaded.append(("vad", kw["min_silence_duration_ms"]))
+            return self
+
+        def recognize(self, audio):
+            return iter([types.SimpleNamespace(start=0.0, end=1.0, text=" Dzień dobry"),
+                         types.SimpleNamespace(start=1.5, end=2.0, text="Merlot ")])
+
+    fake = types.SimpleNamespace(load_model=lambda name, **kw: loaded.append((name, kw["quantization"])) or FakeAsr(),
+                                 load_vad=lambda name, **kw: name)
+    monkeypatch.setitem(sys.modules, "onnx_asr", fake)
+    e = Engine("parakeet-v3")
+    e._load("parakeet-v3")
+    assert e.state == "ready" and e.info["device"] == "cpu"
+    assert loaded == [("nemo-parakeet-tdt-0.6b-v3", "int8"), ("vad", 500)]
+    r = e._transcribe(Job(np.zeros(32000, np.float32), lambda r: None, {"language": "pl"}))
+    assert r.text == "Dzień dobry Merlot" and r.language == "pl" and r.audio_s == 2.0 and len(r.segments) == 2

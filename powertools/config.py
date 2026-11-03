@@ -20,7 +20,7 @@ def data_dir() -> Path:
 
 DEFAULTS: dict = {
     "hotkey": "alt+q",
-    "model": "turbo",            # faster-whisper name: turbo, large-v3, medium, small
+    "model": "turbo",            # faster-whisper name (turbo, large-v3, medium, small) or parakeet-v3
     "language": "",              # "" = detect; "pl", "en"
     "input_device": "",          # "" = Windows default microphone; else a device name
     "paste": True,               # False = only copy to the clipboard
@@ -44,7 +44,7 @@ DEFAULTS: dict = {
     "jira_attachments": True,
     "jira_max_attachment_mb": 25,
 }
-MODELS = ["turbo", "large-v3", "medium", "small"]
+MODELS = ["turbo", "large-v3", "medium", "small", "parakeet-v3"]
 
 
 def output_dir(settings) -> "Path":
