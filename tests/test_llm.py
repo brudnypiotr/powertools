@@ -364,3 +364,86 @@ def test_ollama_install_handles_nested_zip_and_rejects_bad_archive(tmp_path, mon
     exe = o.install(lambda *a: None)
     assert exe == str(tmp_path / "ollama" / "ollama.exe")
     assert (tmp_path / "ollama" / "lib" / "ollama" / "cuda.dll").read_bytes() == b"CUDA"
+
+
+def test_ollama_pull_downloads_gemma_from_huggingface_and_registers_locally(tmp_path, monkeypatch):
+    import hashlib
+    import io
+
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "models"))
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    monkeypatch.setattr(o, "ensure_running", lambda: True)
+
+    gguf = b"GGUF\x03\x00\x00\x00fake-gemma-weights"
+    digest = "sha256:" + hashlib.sha256(gguf).hexdigest()
+    manifest = json.dumps({
+        "schemaVersion": 2,
+        "layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": digest, "size": len(gguf)}],
+    }).encode()
+
+    http_calls = []
+    create_calls = []
+
+    def fake_urlopen(req, timeout=0):
+        url = req.full_url
+        http_calls.append((req.get_method(), url))
+        if url.endswith("/manifests/Q4_K_M"):
+            return _fake_urlopen(manifest)(req, timeout)
+        if "/blobs/sha256:" in url and "huggingface.co" in url:
+            return _fake_urlopen(gguf)(req, timeout)
+        if "/api/blobs/" in url and req.get_method() == "HEAD":
+            return _fake_urlopen(b"")(req, timeout)
+        raise AssertionError(f"unexpected URL: {req.get_method()} {url}")
+
+    def fake_req(method, path, body=None, timeout=10):
+        create_calls.append((method, path, dict(body) if body else body))
+        if len(create_calls) == 1:
+            raise llm.LLMError("Ollama HTTP 400: unknown field renderer")
+        return {"status": "success"}
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(o, "_req", fake_req)
+
+    events = []
+    o.pull("gemma4:e2b", lambda st, done, total: events.append((st, done, total)))
+    blob_file = tmp_path / "models" / "blobs" / f"sha256-{digest.split(':')[1]}"
+    assert blob_file.exists() and blob_file.read_bytes() == gguf
+    assert any("huggingface.co" in u for _, u in http_calls)
+    assert not any("/api/pull" in u for _, u in http_calls)
+    assert len(create_calls) == 2
+    assert create_calls[0][2]["model"] == "gemma4:e2b"
+    assert create_calls[0][2]["renderer"] == "gemma4"
+    assert "renderer" not in create_calls[1][2]
+    assert events[-1] == ("success", len(gguf), len(gguf))
+
+    # Second pull uses the cached blob on disk without re-downloading the GGUF from Hugging Face
+    http_calls.clear()
+    o.pull("gemma4:e4b", lambda *a: None)
+    assert not any("/blobs/sha256:" in u and "huggingface.co" in u for _, u in http_calls)
+
+
+def test_ollama_pull_rejects_bad_gguf_or_sha256_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "models"))
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    monkeypatch.setattr(o, "ensure_running", lambda: True)
+
+    # HTML error page instead of GGUF
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(b"<html>blocked</html>"))
+    with pytest.raises(llm.LLMError, match="not a valid GGUF"):
+        o.pull("gemma4:e2b", lambda *a: None)
+
+    # Valid GGUF header, but SHA-256 does not match the manifest digest
+    bad_gguf = b"GGUF\x03\x00\x00\x00tampered"
+    manifest = json.dumps({
+        "schemaVersion": 2,
+        "layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:" + "0" * 64, "size": len(bad_gguf)}],
+    }).encode()
+
+    def fake_urlopen(req, timeout=0):
+        if req.full_url.endswith("/manifests/Q4_K_M"):
+            return _fake_urlopen(manifest)(req, timeout)
+        return _fake_urlopen(bad_gguf)(req, timeout)
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(llm.LLMError, match="SHA-256"):
+        o.pull("gemma4:e2b", lambda *a: None)

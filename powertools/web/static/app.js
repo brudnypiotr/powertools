@@ -782,7 +782,10 @@ async function loadAI() {
   const loaded = (s.loaded || []).map((m) => `${esc(m.name)}: ${m.gpu_share}% on the GPU (${m.vram_gb} of ${m.size_gb} GB)`).join("; ");
   const missing = s.running ? s.suggested.filter((m) => !(s.models || []).some((x) => x.name === m)) : [];
   const p = s.pull || {};
-  const pull = p.state === "running" ? `<div>Downloading ${esc(p.model)}: ${esc(p.status)}${p.total ? ` ${Math.round(100 * p.completed / p.total)}%` : ""}</div>`
+  const pullProg = p.total
+    ? ` ${Math.round(100 * p.completed / p.total)}% (${(p.completed / 1e9).toFixed(2)} / ${(p.total / 1e9).toFixed(2)} GB)`
+    : p.completed ? ` ${(p.completed / 1e9).toFixed(2)} GB` : "";
+  const pull = p.state === "running" ? `<div>Downloading ${esc(p.model)}: ${esc(p.status)}${pullProg}</div>`
     : p.state === "error" ? `<div class="err">Download of ${esc(p.model)} failed: ${esc(p.error)}</div>`
     : p.state === "done" ? `<div class="ok">${esc(p.model)} downloaded.</div>` : "";
   $("#ai-status").innerHTML = `<h3>GPU</h3><div>${gpu}</div><div class="muted small">${whisper}</div>

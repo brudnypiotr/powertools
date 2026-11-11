@@ -12,6 +12,7 @@ while an interactive call is running.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -30,7 +31,32 @@ from .config import data_dir
 log = logging.getLogger("powertools.llm")
 URL = os.environ.get("POWERTOOLS_OLLAMA", "http://127.0.0.1:11434")
 DOWNLOAD = "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip"
+HF_BASE = "https://huggingface.co"
 SUGGESTED = ["gemma4:e2b", "gemma4:e4b"]
+HF_MODELS: dict[str, dict] = {
+    "gemma4:e2b": {
+        "repo": "unsloth/gemma-4-E2B-it-GGUF",
+        "tag": "Q4_K_M",
+        "file": "gemma-4-E2B-it-Q4_K_M.gguf",
+        "digest": "sha256:740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+        "size": 3106738272,
+        "template": "{{ .Prompt }}",
+        "renderer": "gemma4",
+        "parser": "gemma4",
+        "parameters": {"temperature": 1, "top_k": 64, "top_p": 0.95},
+    },
+    "gemma4:e4b": {
+        "repo": "unsloth/gemma-4-E4B-it-GGUF",
+        "tag": "Q4_K_M",
+        "file": "gemma-4-E4B-it-Q4_K_M.gguf",
+        "digest": "sha256:85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
+        "size": 4977171584,
+        "template": "{{ .Prompt }}",
+        "renderer": "gemma4",
+        "parser": "gemma4",
+        "parameters": {"temperature": 1, "top_k": 64, "top_p": 0.95},
+    },
+}
 INTERACTIVE, BACKGROUND = 0, 1
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 NS = 1e9
@@ -47,6 +73,26 @@ class LLMError(RuntimeError):
 
 def ollama_dir() -> Path:
     return data_dir() / "ollama"
+
+
+def models_dir() -> Path:
+    custom = os.environ.get("OLLAMA_MODELS", "").strip()
+    return Path(custom) if custom else Path.home() / ".ollama" / "models"
+
+
+def _hf_spec(model: str) -> dict | None:
+    m = (model or "").strip()
+    if m in HF_MODELS:
+        return dict(HF_MODELS[m])
+    for prefix in ("hf.co/", "huggingface.co/"):
+        if m.startswith(prefix):
+            m = m[len(prefix):]
+            break
+    if "/" not in m:
+        return None
+    repo, _, tag = m.partition(":")
+    tag = tag or "Q4_K_M"
+    return {"repo": repo, "tag": tag, "file": f"{repo.split('/')[-1]}-{tag}.gguf"}
 
 
 def find_exe() -> str:
@@ -140,6 +186,8 @@ class Ollama:
             return False
         env = dict(os.environ)
         env.setdefault("OLLAMA_GPU_OVERHEAD", str(1024 ** 3))  # leave 1 GB of VRAM for Whisper
+        env.setdefault("OLLAMA_MODELS", str(models_dir()))
+        env.setdefault("GODEBUG", "tlskyber=0,tlsmlkem=0")
         log.info("starting %s serve", exe)
         subprocess.Popen([exe, "serve"], cwd=str(Path(exe).parent), env=env,
                          creationflags=FLAGS | getattr(subprocess, "DETACHED_PROCESS", 0),
@@ -358,12 +406,143 @@ class Ollama:
                 "vram_gb": loaded.get("vram_gb", 0), "gpu_before": before, "gpu_after": after, "json_ok": ok_json,
                 "issues": len(answer.get("issues") or []), "improved": answer.get("improved", ""), "verdict": verdict}
 
+    def _ensure_blob(self, blob_path: Path, digest: str) -> None:
+        """Make sure Ollama sees the downloaded blob even if OLLAMA_MODELS points elsewhere."""
+        req = urllib.request.Request(f"{self.url}/api/blobs/{digest}", method="HEAD")
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                return
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise LLMError(f"Ollama blob check HTTP {e.code}") from e
+        except (urllib.error.URLError, OSError) as e:
+            raise LLMError(f"Ollama is not running ({type(e).__name__})") from e
+        with blob_path.open("rb") as f:
+            up = urllib.request.Request(
+                f"{self.url}/api/blobs/{digest}", method="POST", data=f,
+                headers={"Content-Length": str(blob_path.stat().st_size), "Content-Type": "application/octet-stream"},
+            )
+            try:
+                with urllib.request.urlopen(up, timeout=3600):
+                    pass
+            except urllib.error.HTTPError as e:
+                raise LLMError(f"Ollama blob upload HTTP {e.code}") from e
+            except (urllib.error.URLError, OSError) as e:
+                raise LLMError(f"Ollama blob upload failed ({type(e).__name__})") from e
+
+    def _pull_hf(self, model: str, spec: dict, progress) -> None:
+        """Download a GGUF model in Python from Hugging Face and register it locally in Ollama."""
+        repo, tag = spec["repo"], spec["tag"]
+        manifest_digest = ""
+        manifest_size = 0
+        mreq = urllib.request.Request(
+            f"{HF_BASE}/v2/{repo}/manifests/{tag}",
+            headers={"Accept": "application/vnd.docker.distribution.manifest.v2+json", "User-Agent": "powertools"},
+        )
+        try:
+            with urllib.request.urlopen(mreq, timeout=30) as r:
+                manifest = json.loads(r.read() or b"{}")
+            layer = next((x for x in (manifest.get("layers") or [])
+                          if x.get("mediaType") == "application/vnd.ollama.image.model"), {})
+            manifest_digest = layer.get("digest", "")
+            manifest_size = int(layer.get("size") or 0)
+        except Exception as e:
+            log.info("HF v2 manifest lookup for %s:%s skipped (%s)", repo, tag, e)
+        digest = manifest_digest or spec.get("digest", "")
+        expected_hex = digest.split(":", 1)[-1] if digest.startswith("sha256:") else ""
+        total = manifest_size or int(spec.get("size") or 0)
+        urls: list[str] = []
+        if digest:
+            urls.append(f"{HF_BASE}/v2/{repo}/blobs/{digest}")
+        if spec.get("file"):
+            urls.append(f"{HF_BASE}/{repo}/resolve/main/{spec['file']}")
+        if not urls:
+            raise LLMError(f"Could not resolve a Hugging Face download URL for {model}")
+        blobs = models_dir() / "blobs"
+        blobs.mkdir(parents=True, exist_ok=True)
+        existing = blobs / f"sha256-{expected_hex}" if expected_hex else None
+        if existing and existing.exists() and (not total or existing.stat().st_size == total):
+            actual_hex = expected_hex
+            blob_path = existing
+            total = existing.stat().st_size
+            progress("verifying cached model", total, total)
+        else:
+            part = blobs / f"sha256-{expected_hex or 'download'}.part"
+            last_err: Exception | None = None
+            actual_hex = ""
+            for url in urls:
+                req = urllib.request.Request(url, headers={"User-Agent": "powertools"})
+                try:
+                    with urllib.request.urlopen(req, timeout=3600) as r, part.open("wb") as f:
+                        total = int(r.headers.get("Content-Length") or total or 0)
+                        done = 0
+                        h = hashlib.sha256()
+                        magic = b""
+                        progress("downloading from Hugging Face", 0, total)
+                        while True:
+                            chunk = r.read(256 * 1024)
+                            if not chunk:
+                                break
+                            if len(magic) < 4:
+                                magic += chunk[: 4 - len(magic)]
+                            f.write(chunk)
+                            h.update(chunk)
+                            done += len(chunk)
+                            progress("downloading from Hugging Face", done, total)
+                    if magic != b"GGUF":
+                        part.unlink(missing_ok=True)
+                        raise LLMError("Downloaded file is not a valid GGUF model")
+                    if total and done != total:
+                        part.unlink(missing_ok=True)
+                        raise LLMError(f"Incomplete model download ({done} of {total} bytes)")
+                    actual_hex = h.hexdigest()
+                    if manifest_digest.startswith("sha256:") and actual_hex != manifest_digest.split(":", 1)[-1]:
+                        part.unlink(missing_ok=True)
+                        raise LLMError("Downloaded model failed SHA-256 verification")
+                    last_err = None
+                    break
+                except LLMError as e:
+                    last_err = e
+                except urllib.error.HTTPError as e:
+                    part.unlink(missing_ok=True)
+                    last_err = LLMError(f"Hugging Face HTTP {e.code}: {e.reason}")
+                except (urllib.error.URLError, OSError) as e:
+                    part.unlink(missing_ok=True)
+                    last_err = LLMError(f"Hugging Face download failed ({type(e).__name__}: {e})")
+            if last_err is not None or not actual_hex:
+                raise last_err if isinstance(last_err, LLMError) else LLMError("Hugging Face download failed")
+            blob_path = blobs / f"sha256-{actual_hex}"
+            os.replace(part, blob_path)
+        progress("registering model in Ollama", total, total)
+        self._ensure_blob(blob_path, f"sha256:{actual_hex}")
+        body: dict = {
+            "model": model,
+            "files": {spec.get("file") or "model.gguf": f"sha256:{actual_hex}"},
+            "stream": False,
+        }
+        for k in ("template", "renderer", "parser", "parameters"):
+            if spec.get(k):
+                body[k] = spec[k]
+        try:
+            self._req("POST", "/api/create", body, timeout=600)
+        except LLMError as e:
+            if "renderer" not in str(e).lower() and "parser" not in str(e).lower():
+                raise
+            body.pop("renderer", None)
+            body.pop("parser", None)
+            self._req("POST", "/api/create", body, timeout=600)
+        progress("success", total, total)
+
     def pull(self, model: str, progress) -> None:
         """Download a model; progress(status, completed_bytes, total_bytes)."""
         if not self.ensure_running():
             raise LLMError("Ollama is not installed or not running")
+        spec = _hf_spec(model)
+        if spec:
+            self._pull_hf(model, spec, progress)
+            return
         req = urllib.request.Request(self.url + "/api/pull", method="POST",
-                                     data=json.dumps({"model": model, "stream": True}).encode(),
+                                     data=json.dumps({"model": model, "insecure": True, "stream": True}).encode(),
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=3600) as r:
