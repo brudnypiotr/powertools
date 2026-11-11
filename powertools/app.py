@@ -181,6 +181,7 @@ class App:
             "wording_hotkey": self.settings["wording_hotkey"],
             "wording": {k: self.wording.last.get(k) for k in ("id", "state")},
             "focus": self.focus,
+            "llm": self.llm.available(),
             "overlay": bool(self.overlay and self.overlay.available),
             "meeting": self.meetings.current.view() if self.meetings.current else None,
             "pending_prompt": self.pending_prompt,

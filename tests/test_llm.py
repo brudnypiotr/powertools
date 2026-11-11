@@ -95,14 +95,16 @@ ANSWER = {"language": "English", "improved": "Regarding our meeting yesterday, I
 TEXT = "Regarding to our yesterday meeting I send you the rules."
 
 
-def make_wording(tmp_path, answer=ANSWER, copied=TEXT, mode="review"):
+def make_wording(tmp_path, answer=ANSWER, copied=TEXT, mode="review", installed=True):
     s = Settings(tmp_path / "s.json")
     s.update({"wording_mode": mode})
     out = {"pasted": [], "states": [], "shown": 0}
 
     def show():
         out["shown"] += 1
-    w = wording.Wording(s, FakeLLM(answer), lambda t, paste, restore: out["pasted"].append(t), out["states"].append,
+    model = FakeLLM(answer)
+    model.available = lambda: {"installed": installed, "running": installed}
+    w = wording.Wording(s, model, lambda t, paste, restore: out["pasted"].append(t), out["states"].append,
                         show, copy=lambda: copied)
     return w, out
 
@@ -131,6 +133,23 @@ def test_wording_nothing_selected_and_not_english(tmp_path):
     assert r["issues"] == [] and not r["changed"]
     with pytest.raises(ValueError):
         w.check("  ")
+
+
+def test_wording_hotkey_without_ollama_stays_quiet(tmp_path):
+    w, out = make_wording(tmp_path, installed=False, copied="should not be copied")
+    w.hotkey()
+    assert w.last["state"] == "error" and "Ollama" in w.last["error"]
+    assert out["shown"] == 0 and out["states"] == ["error"] and w.llm.calls == []
+
+
+def test_available_is_cached(tmp_path, monkeypatch):
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    calls = []
+    monkeypatch.setattr(llm, "find_exe", lambda: "")
+    monkeypatch.setattr(o, "running", lambda: calls.append(1) or False)
+    assert o.available() == {"installed": False, "running": False}
+    o.available(); o.available()
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------- recap

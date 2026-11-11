@@ -74,6 +74,7 @@ async function poll() {
     loadHistory();
   }
   renderPrompt(s.pending_prompt);
+  gateLocalAI(s.llm);
   followFocus(s);
   setTimeout(poll, s.dictation === "recording" ? 150 : 700);
 }
@@ -661,6 +662,15 @@ $("#update-all").onclick = async () => {
 
 // ---------------------------------------------------------------- writing (wording hotkey + pasted text)
 let focusSeq = null, wordingSeen = null;
+function gateLocalAI(llm) {  // Writing and Recap need Ollama: greyed out until it is installed
+  const ok = !llm || llm.installed || llm.running;
+  for (const tab of ["writing", "recap"]) {
+    const b = document.querySelector(`nav button[data-tab="${tab}"]`);
+    b.disabled = !ok;
+    b.title = ok ? "" : "Needs Ollama: see the Local AI tab";
+    if (!ok && b.classList.contains("active")) showTab("ai");
+  }
+}
 function showTab(name) { const b = document.querySelector(`nav button[data-tab="${name}"]`); if (b && !b.classList.contains("active")) b.click(); }
 function followFocus(s) {
   const f = s.focus || {}, w = s.wording || {};

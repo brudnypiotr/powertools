@@ -88,6 +88,13 @@ class Wording:
         if not self._lock.acquire(blocking=False):
             return  # one check at a time
         try:
+            a = self.llm.available()
+            if not (a["installed"] or a["running"]):
+                # no Ollama on this laptop: only the red pill, no window and no Ctrl+C into the focused app
+                self.last = {"id": next(_ids), "state": "error", "original": "",
+                             "error": "Wording needs Ollama (Local AI tab)."}
+                self.on_state("error")
+                return
             text = self.copy().strip()
             mode = self.settings["wording_mode"]
             if not text:

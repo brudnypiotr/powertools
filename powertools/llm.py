@@ -95,6 +95,8 @@ class Ollama:
         self._cond = threading.Condition()
         self._interactive = 0
         self._started = False
+        self._avail = {"installed": False, "running": False, "at": 0.0}
+        self._avail_lock = threading.Lock()
 
     # ------------------------------------------------------------------ HTTP
     def _req(self, method: str, path: str, body: dict | None = None, timeout: float = 10):
@@ -140,9 +142,24 @@ class Ollama:
             time.sleep(0.5)
         return False
 
+    def available(self, max_age: float = 20) -> dict:
+        """{installed, running}, refreshed in the background at most every `max_age` s (the window polls often)."""
+        if time.time() - self._avail["at"] > max_age and self._avail_lock.acquire(blocking=False):
+            def refresh() -> None:
+                try:
+                    self._avail = {"installed": bool(find_exe()), "running": self.running(), "at": time.time()}
+                finally:
+                    self._avail_lock.release()
+            if self._avail["at"]:
+                threading.Thread(target=refresh, name="ollama-check", daemon=True).start()
+            else:
+                refresh()  # the first answer is real, not a default
+        return {"installed": self._avail["installed"], "running": self._avail["running"]}
+
     # ------------------------------------------------------------------ status
     def status(self) -> dict:
         exe = find_exe()
+        self._avail = {"installed": bool(exe), "running": self.running(), "at": time.time()}
         out: dict = {"installed": bool(exe), "exe": exe, "running": False, "model": self.settings["llm_model"],
                      "download": DOWNLOAD, "suggested": SUGGESTED, "gpu": gpu_info()}
         try:
