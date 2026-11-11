@@ -35,22 +35,22 @@ HF_BASE = "https://huggingface.co"
 SUGGESTED = ["gemma4:e2b", "gemma4:e4b"]
 HF_MODELS: dict[str, dict] = {
     "gemma4:e2b": {
-        "repo": "unsloth/gemma-4-E2B-it-GGUF",
-        "tag": "Q4_K_M",
-        "file": "gemma-4-E2B-it-Q4_K_M.gguf",
-        "digest": "sha256:740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
-        "size": 3106738272,
+        "repo": "google/gemma-4-E2B-it-qat-q4_0-gguf",
+        "tag": "latest",
+        "file": "gemma-4-E2B_q4_0-it.gguf",
+        "digest": "sha256:fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634",
+        "size": 3349516256,
         "template": "{{ .Prompt }}",
         "renderer": "gemma4",
         "parser": "gemma4",
         "parameters": {"temperature": 1, "top_k": 64, "top_p": 0.95},
     },
     "gemma4:e4b": {
-        "repo": "unsloth/gemma-4-E4B-it-GGUF",
-        "tag": "Q4_K_M",
-        "file": "gemma-4-E4B-it-Q4_K_M.gguf",
-        "digest": "sha256:85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
-        "size": 4977171584,
+        "repo": "google/gemma-4-E4B-it-qat-q4_0-gguf",
+        "tag": "latest",
+        "file": "gemma-4-E4B_q4_0-it.gguf",
+        "digest": "sha256:676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee",
+        "size": 5154941280,
         "template": "{{ .Prompt }}",
         "renderer": "gemma4",
         "parser": "gemma4",
@@ -187,7 +187,6 @@ class Ollama:
         env = dict(os.environ)
         env.setdefault("OLLAMA_GPU_OVERHEAD", str(1024 ** 3))  # leave 1 GB of VRAM for Whisper
         env.setdefault("OLLAMA_MODELS", str(models_dir()))
-        env.setdefault("GODEBUG", "tlskyber=0,tlsmlkem=0")
         log.info("starting %s serve", exe)
         subprocess.Popen([exe, "serve"], cwd=str(Path(exe).parent), env=env,
                          creationflags=FLAGS | getattr(subprocess, "DETACHED_PROCESS", 0),
@@ -448,9 +447,10 @@ class Ollama:
             manifest_size = int(layer.get("size") or 0)
         except Exception as e:
             log.info("HF v2 manifest lookup for %s:%s skipped (%s)", repo, tag, e)
-        digest = manifest_digest or spec.get("digest", "")
+        pinned = spec.get("digest", "")
+        digest = pinned or manifest_digest
         expected_hex = digest.split(":", 1)[-1] if digest.startswith("sha256:") else ""
-        total = manifest_size or int(spec.get("size") or 0)
+        total = int(spec.get("size") or manifest_size or 0)
         urls: list[str] = []
         if digest:
             urls.append(f"{HF_BASE}/v2/{repo}/blobs/{digest}")
@@ -496,7 +496,7 @@ class Ollama:
                         part.unlink(missing_ok=True)
                         raise LLMError(f"Incomplete model download ({done} of {total} bytes)")
                     actual_hex = h.hexdigest()
-                    if manifest_digest.startswith("sha256:") and actual_hex != manifest_digest.split(":", 1)[-1]:
+                    if expected_hex and actual_hex != expected_hex:
                         part.unlink(missing_ok=True)
                         raise LLMError("Downloaded model failed SHA-256 verification")
                     last_err = None
@@ -542,7 +542,7 @@ class Ollama:
             self._pull_hf(model, spec, progress)
             return
         req = urllib.request.Request(self.url + "/api/pull", method="POST",
-                                     data=json.dumps({"model": model, "insecure": True, "stream": True}).encode(),
+                                     data=json.dumps({"model": model, "stream": True}).encode(),
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=3600) as r:
