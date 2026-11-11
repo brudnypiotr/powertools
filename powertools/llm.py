@@ -1,6 +1,6 @@
 """Local language model through Ollama (http://127.0.0.1:11434): nothing leaves the laptop.
 
-Ollama is unpacked per user into %LOCALAPPDATA%\\powertools\\ollama from the official GitHub release ZIP (no installer,
+Ollama is unpacked per user into %LOCALAPPDATA%\\powertools\\ollama from a pinned GitHub release ZIP checked against its SHA-256 (no installer,
 no admin rights) and runs its own server; powertools only talks HTTP to it (stdlib, no new
 packages). The GPU is shared with Whisper (6 GB holds both only when the model is small), so:
 - Whisper asks the model to unload before it loads a model on the GPU (Engine.before_gpu),
@@ -30,7 +30,10 @@ from .config import data_dir
 
 log = logging.getLogger("powertools.llm")
 URL = os.environ.get("POWERTOOLS_OLLAMA", "http://127.0.0.1:11434")
-DOWNLOAD = "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip"
+# a pinned release, checked against its sha256sum.txt (to update: new version, size and hash from that release)
+OLLAMA_VERSION = "0.40.16"
+DOWNLOAD = f"https://github.com/ollama/ollama/releases/download/v{OLLAMA_VERSION}/ollama-windows-amd64.zip"
+DOWNLOAD_SHA256 = "50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e"
 HF_BASE = "https://huggingface.co"
 SUGGESTED = ["gemma4:e2b", "gemma4:e4b"]
 HF_MODELS: dict[str, dict] = {
@@ -81,18 +84,20 @@ def models_dir() -> Path:
 
 
 def _hf_spec(model: str) -> dict | None:
+    """Only models with a pinned file and SHA-256 (any other GGUF from any repo would go straight into llama.cpp)."""
     m = (model or "").strip()
-    if m in HF_MODELS:
-        return dict(HF_MODELS[m])
-    for prefix in ("hf.co/", "huggingface.co/"):
-        if m.startswith(prefix):
-            m = m[len(prefix):]
-            break
-    if "/" not in m:
-        return None
-    repo, _, tag = m.partition(":")
-    tag = tag or "Q4_K_M"
-    return {"repo": repo, "tag": tag, "file": f"{repo.split('/')[-1]}-{tag}.gguf"}
+    return dict(HF_MODELS[m]) if m in HF_MODELS else None
+
+
+def sha256_file(path: Path, progress=None) -> str:
+    h, done, total = hashlib.sha256(), 0, path.stat().st_size
+    with path.open("rb") as f:
+        while chunk := f.read(1024 * 1024):
+            h.update(chunk)
+            done += len(chunk)
+            if progress:
+                progress("verifying", done, total)
+    return h.hexdigest()
 
 
 def find_exe() -> str:
@@ -233,6 +238,9 @@ class Ollama:
             os.replace(part, archive)
         else:
             total = archive.stat().st_size
+        if sha256_file(archive, progress) != DOWNLOAD_SHA256:
+            archive.unlink(missing_ok=True)
+            raise LLMError(f"The Ollama ZIP does not match the SHA-256 of release {OLLAMA_VERSION}: not unpacked")
         progress("unpacking", total, total)
         stage = dest.with_name("ollama.new")
         old = dest.with_name("ollama.old")
@@ -461,11 +469,11 @@ class Ollama:
         blobs = models_dir() / "blobs"
         blobs.mkdir(parents=True, exist_ok=True)
         existing = blobs / f"sha256-{expected_hex}" if expected_hex else None
-        if existing and existing.exists() and (not total or existing.stat().st_size == total):
-            actual_hex = expected_hex
-            blob_path = existing
-            total = existing.stat().st_size
-            progress("verifying cached model", total, total)
+        if existing and existing.exists() and sha256_file(existing, progress) != expected_hex:
+            log.warning("cached %s does not match its SHA-256: downloading again", existing.name)
+            existing.unlink()
+        if existing and existing.exists():
+            actual_hex, blob_path, total = expected_hex, existing, existing.stat().st_size
         else:
             part = blobs / f"sha256-{expected_hex or 'download'}.part"
             last_err: Exception | None = None
@@ -540,26 +548,10 @@ class Ollama:
         self._req("DELETE", "/api/delete", {"model": model}, timeout=30)
 
     def pull(self, model: str, progress) -> None:
-        """Download a model; progress(status, completed_bytes, total_bytes)."""
+        """Download one of the pinned models; progress(status, completed_bytes, total_bytes)."""
         if not self.ensure_running():
             raise LLMError("Ollama is not installed or not running")
         spec = _hf_spec(model)
-        if spec:
-            self._pull_hf(model, spec, progress)
-            return
-        req = urllib.request.Request(self.url + "/api/pull", method="POST",
-                                     data=json.dumps({"model": model, "stream": True}).encode(),
-                                     headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=3600) as r:
-                for line in r:
-                    if not line.strip():
-                        continue
-                    d = json.loads(line)
-                    if d.get("error"):
-                        raise LLMError(d["error"])
-                    progress(d.get("status", ""), d.get("completed", 0), d.get("total", 0))
-        except urllib.error.HTTPError as e:
-            raise LLMError(f"Ollama HTTP {e.code}") from e
-        except (urllib.error.URLError, OSError) as e:
-            raise LLMError(f"Ollama is not running ({type(e).__name__})") from e
+        if not spec:
+            raise LLMError(f"only {', '.join(HF_MODELS)} can be downloaded here (pinned files with a checked SHA-256)")
+        self._pull_hf(model, spec, progress)

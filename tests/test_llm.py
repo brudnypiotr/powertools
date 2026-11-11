@@ -1,5 +1,6 @@
 """Local model features against a fake Ollama and a fake Graph: clean-up guard, wording, recap, test verdict."""
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -329,6 +330,7 @@ def test_ollama_install_downloads_github_zip_and_unpacks_locally(tmp_path, monke
     monkeypatch.setattr(o, "ensure_running", lambda: started.append(llm.find_exe()) or True)
     payload = _zip_bytes({"ollama.exe": b"MZ-fake", "lib/ollama/ggml-base.dll": b"DLL"})
     monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(payload))
+    monkeypatch.setattr(llm, "DOWNLOAD_SHA256", hashlib.sha256(payload).hexdigest())
     events = []
     exe = o.install(lambda st, done, total: events.append((st, done, total)))
     assert exe == str(tmp_path / "ollama" / "ollama.exe")
@@ -352,8 +354,16 @@ def test_ollama_install_handles_nested_zip_and_rejects_bad_archive(tmp_path, mon
         o.install(lambda *a: None)
     assert not (tmp_path / "ollama").exists()
 
+    # Zip that does not match the pinned release
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(_zip_bytes({"ollama.exe": b"MZ-other"})))
+    with pytest.raises(llm.LLMError, match="SHA-256"):
+        o.install(lambda *a: None)
+    assert not (tmp_path / "ollama").exists() and not list((tmp_path / "downloads").glob("*.zip"))
+
     # Zip without ollama.exe
-    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(_zip_bytes({"readme.txt": b"hi"})))
+    readme = _zip_bytes({"readme.txt": b"hi"})
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(readme))
+    monkeypatch.setattr(llm, "DOWNLOAD_SHA256", hashlib.sha256(readme).hexdigest())
     with pytest.raises(llm.LLMError, match="ollama.exe"):
         o.install(lambda *a: None)
     assert not (tmp_path / "ollama").exists()
@@ -361,6 +371,7 @@ def test_ollama_install_handles_nested_zip_and_rejects_bad_archive(tmp_path, mon
     # Zip with a wrapper directory
     nested = _zip_bytes({"ollama-win/ollama.exe": b"MZ-nested", "ollama-win/lib/ollama/cuda.dll": b"CUDA"})
     monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(nested))
+    monkeypatch.setattr(llm, "DOWNLOAD_SHA256", hashlib.sha256(nested).hexdigest())
     exe = o.install(lambda *a: None)
     assert exe == str(tmp_path / "ollama" / "ollama.exe")
     assert (tmp_path / "ollama" / "lib" / "ollama" / "cuda.dll").read_bytes() == b"CUDA"
@@ -425,6 +436,18 @@ def test_ollama_pull_downloads_gemma_from_huggingface_and_registers_locally(tmp_
     http_calls.clear()
     o.pull("gemma4:e2b", lambda *a: None)
     assert not any("/blobs/sha256:" in u and "huggingface.co" in u for _, u in http_calls)
+
+    # A cached blob that does not match its SHA-256 is downloaded again
+    blob_file.write_bytes(b"GGUF tampered")
+    http_calls.clear()
+    o.pull("gemma4:e2b", lambda *a: None)
+    assert blob_file.read_bytes() == gguf
+    assert any("/blobs/sha256:" in u and "huggingface.co" in u for _, u in http_calls)
+
+    # Only the pinned models
+    for name in ("hf.co/someone/evil-GGUF:Q4_K_M", "someone/evil", "llama3"):
+        with pytest.raises(llm.LLMError, match="only gemma4:e2b, gemma4:e4b"):
+            o.pull(name, lambda *a: None)
 
 
 def test_ollama_pull_rejects_bad_gguf_or_sha256_mismatch(tmp_path, monkeypatch):
