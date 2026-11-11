@@ -1,7 +1,8 @@
 # powertools
 
 Personal Windows toolkit (work in progress): dictation with local Whisper, meeting recording with
-transcription, and exporting Teams chats and mail (Microsoft Graph) and Jira issues as Markdown sources for a wiki.
+transcription, exporting Teams chats and mail (Microsoft Graph) and Jira issues as Markdown sources for a wiki, and a
+local language model (Ollama) for dictation clean-up, English corrections and a recap of mail and chats.
 Everything runs in user space: no admin rights, PowerShell 5.1, private Python.
 
 ## Dictation (step 1)
@@ -137,3 +138,29 @@ check.cmd -WhisperVenv C:\path\to\.venv      reuse an existing venv with faster-
 Needs Python 3.10+ (a per-user install or one installed earlier by another setup). Packages go to
 `checks\.venv`; the Graph token is kept in `checks\.token`; recordings and reports in `checks\out\`
 (all git-ignored). Reports: `checks\out\report-<time>.txt`.
+
+## Local AI (step 5)
+
+A small local model through [Ollama](https://ollama.com/download/windows) (installs per user, no admin rights).
+Nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
+
+- **Local AI tab**: the NVIDIA GPU and its VRAM (total, free now), whether Ollama is installed and running (Start it /
+  download link), the installed models, Download buttons for `gemma4:e2b` and `gemma4:e4b`, and **Test the model**: it
+  loads the model, corrects a short English message once and reports tokens/s, load time, how much of the model sits
+  on the GPU and the VRAM before/after, with a verdict (fast / usable / slow).
+- **GPU sharing** (6 GB): before Whisper loads a model on the GPU it asks Ollama to unload; a server started by
+  powertools keeps 1 GB of VRAM free (`OLLAMA_GPU_OVERHEAD`); Settings > Local AI > "CPU only" leaves the GPU to
+  Whisper; Parakeet V3 for dictation leaves the GPU to the model. "Keep the model loaded" (default 5 min).
+- **Dictation clean-up** (Settings, off by default): after Whisper the model removes fillers and repetitions and fixes
+  punctuation. An answer much shorter or longer than the transcript, an error or a timeout keeps the transcript. The
+  raw transcript stays in the history (click a row).
+- **Wording** (**Alt+W**, Settings > Wording hotkey): select an English text anywhere and press it. The selection is
+  copied (the clipboard comes back), the window opens on the **Writing** tab with the mistakes (wrong → better · why)
+  and a better version to edit and copy. "Replace the selection right away" pastes the better version over the
+  selection instead. The Writing tab also checks pasted text. Ctrl+W works too, but then it no longer closes tabs.
+- **Recap** tab: mail (Inbox) and Teams chats of the last day / 2 days / week / 2 weeks / 30 days or since a date,
+  sorted by the model into **To do**, **To answer**, **Good to know** and **Ignore**, each with a one-line summary, the
+  next step, a deadline when one is mentioned, and a link to Outlook/Teams. Automatic senders (no-reply, notifications)
+  go to Ignore without the model. An experiment: move an item to the right group when the model is wrong, and the tab
+  counts how often it was right. Results stay in `%LOCALAPPDATA%\powertools\recap.json`; a conversation is classified
+  again only when it has a new message.

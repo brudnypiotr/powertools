@@ -193,3 +193,20 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 #org-found li { display: flex; gap: 8px; align-items: center; }
 .orgview { height: 72vh; margin: 6px 0 14px; }
 .orgview > .muted { padding: 30px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+
+/* writing, recap, local AI */
+#w-text { margin-top: 8px; }
+.issues { margin: 0; padding-left: 18px; } .issues li { margin: 3px 0; }
+.issues .wrong { text-decoration: line-through; color: var(--rec); } .issues .better { color: var(--ok); font-weight: 600; }
+.err { color: var(--rec); } .ok { color: var(--ok); } .warn { color: var(--busy); }
+.rows .raw { margin-top: 3px; display: none; } .rows li.open .raw { display: block; }
+.recap-group summary { cursor: pointer; } .recap-group.todo summary b { color: var(--rec); } .recap-group.reply summary b { color: var(--accent); }
+.recap-items { list-style: none; margin: 8px 0 0; padding: 0; }
+.recap-items li { padding: 8px 0; border-top: 1px solid var(--line); }
+.recap-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.recap-head select { width: auto; margin-left: auto; font-size: 12px; padding: 2px 6px; }
+.recap-head a { color: var(--text); font-weight: 600; }
+.recap-items .src { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--hover); color: var(--muted); }
+.recap-items .action { font-weight: 600; margin-top: 2px; }
+.searchform label.check { flex: none; min-width: 0; display: flex; gap: 6px; align-items: center; }
+#ai .row select { width: auto; } .plain { margin: 0; padding-left: 18px; } .verdict { margin: 10px 0 6px; }

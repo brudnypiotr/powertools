@@ -12,7 +12,7 @@ from .client import Graph, GraphError
 log = logging.getLogger("powertools.mail")
 TEXT = {"Prefer": 'outlook.body-content-type="text"'}
 LIST_FIELDS = "id,subject,conversationId,receivedDateTime,from,toRecipients,hasAttachments"
-FULL_FIELDS = LIST_FIELDS + ",ccRecipients,sentDateTime,uniqueBody,body,isDraft"
+FULL_FIELDS = LIST_FIELDS + ",ccRecipients,sentDateTime,uniqueBody,body,isDraft,webLink"
 MAX_FILE_BYTES = 50 * 1024 * 1024
 
 

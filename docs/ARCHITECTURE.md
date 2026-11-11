@@ -29,7 +29,8 @@ hotkey thread ...... keyboard: toggle dictation
 whisper worker ..... owns the GPU model; a queue of jobs (dictation first, then live meeting chunks, then final passes)
 meeting watcher .... every 5 s: registry (Teams on the mic?) + cached calendar event with a Teams link overlapping now
 recorder (subproc) . PyAudioWPatch: mic.wav + others.wav in 30 s chunks; a crash never takes the app down
-sync jobs .......... Graph exports, one at a time, on demand from the window
+sync jobs .......... Graph exports and the recap, one at a time, on demand from the window
+local model ........ Ollama (own process, 127.0.0.1:11434): clean-up, wording, recap over HTTP; interactive calls first
 ```
 
 Modules (`powertools/`): `app` (wiring, tray, popup), `web` (routes + static UI), `dictation`, `meetings`
@@ -90,3 +91,5 @@ Each step ships with unit tests that run on CI (`windows-latest`, dry) and a sho
 ## Out of scope
 
 Team channels, official Teams transcripts and recordings, anything needing admin consent or IT, cloud LLMs.
+The language model is local only (Ollama, step 5): the GPU is shared with Whisper, which unloads the model before it
+loads its own.

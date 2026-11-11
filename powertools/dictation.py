@@ -14,9 +14,11 @@ MIN_AUDIO_S = 0.4
 
 
 class Dictation:
-    def __init__(self, settings, engine, recorder, store, deliver: Callable, on_state: Callable[[str], None]):
+    def __init__(self, settings, engine, recorder, store, deliver: Callable, on_state: Callable[[str], None],
+                 cleaner: Callable[[str], tuple[str, str]] | None = None):
         self.settings, self.engine, self.recorder, self.store = settings, engine, recorder, store
         self.deliver = deliver
+        self.cleaner = cleaner        # the local model's clean-up (Settings > dictation_cleanup); text -> (text, note)
         self.on_state = on_state      # "idle" | "recording" | "transcribing" | "error"
         self.state = "idle"
         self.last: dict = {}
@@ -64,17 +66,27 @@ class Dictation:
         return self.state
 
     def _done(self, r: Result) -> None:
-        with self._lock:
-            self.pending -= 1
-            still_busy = self.state == "recording" or self.pending > 0
+        if not r.error and r.text and self.cleaner and self.settings["dictation_cleanup"]:
+            # the model may take seconds: not on the Whisper thread (meeting chunks wait behind it)
+            threading.Thread(target=self._finish, args=(r,), name="cleanup", daemon=True).start()
+        else:
+            self._finish(r)
+
+    def _finish(self, r: Result) -> None:
         if r.error:
+            with self._lock:
+                self.pending -= 1
+                still_busy = self.state == "recording" or self.pending > 0
             self.last = {"error": r.error}
             log.warning("dictation failed: %s", r.error)
             if not still_busy:
                 self._set("error")
             return
         raw = textproc.tidy(r.text)
-        text = textproc.apply_replacements(raw, self.settings["replacements"])
+        text, note = raw, ""
+        if raw and self.cleaner and self.settings["dictation_cleanup"]:
+            text, note = self.cleaner(raw)
+        text = textproc.apply_replacements(text, self.settings["replacements"])
         if text:
             try:
                 self.deliver(text, paste=self.settings["paste"], restore=self.settings["restore_clipboard"])
@@ -83,8 +95,11 @@ class Dictation:
                 self.last = {"error": f"paste: {e}"}
             item_id = self.store.add(raw, text, r.language, r.audio_s, r.took_s)
             self.last = {"id": item_id, "text": text, "language": r.language, "audio_s": round(r.audio_s, 1),
-                         "took_s": round(r.took_s, 2)}
+                         "took_s": round(r.took_s, 2), **({"note": note} if note else {})}
         else:
             self.last = {"text": "", "note": "no speech detected"}
+        with self._lock:
+            self.pending -= 1
+            still_busy = self.state == "recording" or self.pending > 0
         if not still_busy:
             self._set("idle")

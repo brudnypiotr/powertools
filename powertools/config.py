@@ -43,6 +43,12 @@ DEFAULTS: dict = {
     "jira_email": "",            # Atlassian e-mail (Jira Cloud sign-in)
     "jira_attachments": True,
     "jira_max_attachment_mb": 25,
+    "llm_model": "gemma4:e4b",   # Ollama model for clean-up, wording and recap (Local AI tab: test, download)
+    "llm_gpu": "auto",           # "auto" = as much on the GPU as fits; "cpu" = leave the GPU to Whisper
+    "llm_keep_alive_min": 5,     # minutes the model stays loaded after a call (0 = unload right away)
+    "dictation_cleanup": False,  # the local model removes fillers and fixes punctuation after Whisper
+    "wording_hotkey": "alt+w",   # English corrections for the selected text
+    "wording_mode": "review",    # "review" = show mistakes and a better version; "replace" = paste it over the selection
 }
 MODELS = ["turbo", "large-v3", "medium", "small", "parakeet-v3"]
 
@@ -62,10 +68,22 @@ def validate(key: str, value):
         raise ValueError(f"model must be one of {', '.join(MODELS)}")
     if key == "language" and value not in ("", "pl", "en"):
         raise ValueError("language must be '', 'pl' or 'en'")
-    if key == "hotkey":
+    if key in ("hotkey", "wording_hotkey"):
         value = str(value).strip().lower()
         if not value:
-            raise ValueError("hotkey cannot be empty")
+            raise ValueError(f"{key} cannot be empty")
+    if key == "llm_model":
+        value = str(value).strip()
+        if not value or any(c.isspace() for c in value):
+            raise ValueError("llm_model must be an Ollama model name, e.g. gemma4:e4b")
+    if key == "llm_gpu" and value not in ("auto", "cpu"):
+        raise ValueError("llm_gpu must be 'auto' or 'cpu'")
+    if key == "llm_keep_alive_min":
+        value = int(value)
+        if not 0 <= value <= 120:
+            raise ValueError("llm_keep_alive_min must be 0..120")
+    if key == "wording_mode" and value not in ("review", "replace"):
+        raise ValueError("wording_mode must be 'review' or 'replace'")
     if key == "vocabulary":
         if not isinstance(value, list):
             raise ValueError("vocabulary must be a list")

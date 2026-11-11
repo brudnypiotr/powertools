@@ -26,6 +26,9 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "mail" && !foldersLoaded) loadFolders();
     if (b.dataset.tab === "meetings") loadMeetings();
     if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); loadOrgSaved(); if (!orgChain.length) loadOrgChain(); }
+    if (b.dataset.tab === "writing") loadWording();
+    if (b.dataset.tab === "recap") { renderGraphBar(); loadRecap(); loadJobs(); }
+    if (b.dataset.tab === "ai") loadAI();
     if (b.dataset.tab === "jira") { renderJiraBar(false); loadJiraDownloaded(); loadJobs(); loadJiraFields(); }
   }));
 
@@ -71,6 +74,7 @@ async function poll() {
     loadHistory();
   }
   renderPrompt(s.pending_prompt);
+  followFocus(s);
   setTimeout(poll, s.dictation === "recording" ? 150 : 700);
 }
 $("#toggle").addEventListener("click", () => api("POST", "/api/toggle"));
@@ -86,7 +90,8 @@ async function loadHistory() {
   $("#history").innerHTML = items.map((i) => `
     <li data-id="${i.id}" title="${esc(i.language)} · ${i.audio_s}s audio · ${i.took_s}s">
       <time>${when(i.ts)}</time>
-      <div class="body"><div class="text">${esc(i.text)}</div></div>
+      <div class="body"><div class="text">${esc(i.text)}</div>${i.raw && i.raw !== i.text
+        ? `<div class="raw muted small">Whisper: ${esc(i.raw)}</div>` : ""}</div>
       <span class="actions">
         <button class="icon" data-act="copy" title="Copy">${ICONS.copy}</button>
         <button class="icon" data-act="fix" title="Fix a word (adds a replacement rule)">${ICONS.fix}</button>
@@ -143,9 +148,11 @@ async function loadSettings() {
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir", "jira_url", "jira_email",
-    "jira_max_attachment_mb"]) f[k].value = s[k];
+    "jira_max_attachment_mb", "llm_model", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
   for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments",
-    "small_on_cpu"]) f[k].checked = s[k];
+    "small_on_cpu", "dictation_cleanup"]) f[k].checked = s[k];
+  api("GET", "/api/llm/status").then((st) => { $("#llm-models").innerHTML = [...new Set([...(st.models || []).map((m) => m.name),
+    ...st.suggested])].map((m) => `<option value="${esc(m)}">`).join(""); }).catch(() => {});
   f.vocabulary.value = s.vocabulary.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
@@ -162,6 +169,8 @@ $("#settings-form").addEventListener("submit", async (e) => {
     jira_max_attachment_mb: Number(f.jira_max_attachment_mb.value),
     meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
+    llm_model: f.llm_model.value.trim(), llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
+    dictation_cleanup: f.dictation_cleanup.checked, wording_hotkey: f.wording_hotkey.value, wording_mode: f.wording_mode.value,
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
       .map((l) => { const [a, ...b] = l.split("=>"); return { from: a.trim(), to: b.join("=>").trim() }; }),
   };
@@ -649,6 +658,151 @@ $("#update-all").onclick = async () => {
   } catch (err) { alert(err.message); }
   b.disabled = false; loadMeetings();
 };
+
+// ---------------------------------------------------------------- writing (wording hotkey + pasted text)
+let focusSeq = null, wordingSeen = null;
+function showTab(name) { const b = document.querySelector(`nav button[data-tab="${name}"]`); if (b && !b.classList.contains("active")) b.click(); }
+function followFocus(s) {
+  const f = s.focus || {}, w = s.wording || {};
+  if (focusSeq === null ? w.state === "working" : f.seq !== focusSeq) { if (f.tab) showTab(f.tab); }
+  focusSeq = f.seq;
+  const seen = `${w.id}:${w.state}`;
+  if (w.id && seen !== wordingSeen) { wordingSeen = seen; if ($("#writing").classList.contains("active")) loadWording(); }
+}
+async function loadWording() {
+  const st = await api("GET", "/api/state");
+  $("#w-hint").innerHTML = `Select an English text anywhere and press <b>${esc(st.wording_hotkey)}</b>, or paste it here.`;
+  renderWording(await api("GET", "/api/wording"));
+}
+function renderWording(w) {
+  const box = $("#w-result");
+  if (!w || !w.state) { box.innerHTML = ""; return; }
+  if (w.original && w.original !== $("#w-text").value && w.mode !== "window") $("#w-text").value = w.original;
+  if (w.state === "working") { $("#w-status").textContent = "Checking with the local model..."; box.innerHTML = ""; return; }
+  $("#w-status").textContent = w.stats ? `${w.stats.model} · ${w.stats.total_s} s` : "";
+  if (w.state === "error") { box.innerHTML = `<div class="card"><span class="err">${esc(w.error)}</span></div>`; return; }
+  const issues = w.issues.length ? `<ul class="issues">${w.issues.map((i) => `<li><span class="wrong">${esc(i.wrong)}</span> →
+      <span class="better">${esc(i.better)}</span><span class="muted"> · ${esc(i.why)}</span></li>`).join("")}</ul>`
+    : `<div class="ok">${w.language && !/^en/i.test(w.language) ? `Not English (${esc(w.language)}): nothing to correct.` : "No mistakes found."}</div>`;
+  box.innerHTML = `<div class="card"><h3>Mistakes</h3>${issues}
+    ${w.changed ? `<h3>Better version</h3><textarea id="w-better" rows="6">${esc(w.improved)}</textarea>
+    <div class="row"><span class="muted small">${w.replaced ? "Already pasted over the selection." : "Edit if needed, then copy."}</span>
+      <button id="w-copy" class="primary">Copy</button></div>` : ""}</div>`;
+  const copy = $("#w-copy");
+  if (copy) copy.onclick = () => { navigator.clipboard.writeText($("#w-better").value); toast("Copied"); };
+}
+$("#w-check").addEventListener("click", async () => {
+  const text = $("#w-text").value.trim();
+  if (!text) return $("#w-text").focus();
+  $("#w-check").disabled = true; $("#w-status").textContent = "Checking with the local model..."; $("#w-result").innerHTML = "";
+  try { renderWording(await api("POST", "/api/wording", { text })); }
+  catch (e) { $("#w-status").textContent = ""; $("#w-result").innerHTML = `<div class="card"><span class="err">${esc(e.message)}</span></div>`; }
+  $("#w-check").disabled = false;
+});
+
+// ---------------------------------------------------------------- recap
+const GROUPS = [["todo", "To do"], ["reply", "To answer"], ["fyi", "Good to know"], ["ignore", "Ignore"]];
+let recapTimer = null;
+async function loadRecap() {
+  const r = await api("GET", "/api/recap");
+  const running = r.job && (r.job.state === "running" || r.job.state === "queued");
+  const rng = r.range || {};
+  const when = r.created ? new Date(r.created * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "";
+  $("#recap-status").textContent = !r.items.length && !running ? "No recap yet: pick a range and press Recap."
+    : `${when ? "Made " + when : ""}${rng.kind === "days" ? `, last ${rng.days} day(s)` : rng.date ? `, since ${rng.date}` : ""}` +
+      `${r.model ? " · " + r.model : ""}${running ? ` · sorting ${r.job.done}/${r.job.total || "?"}...` : ""}` +
+      (r.reviewed ? ` · you checked ${r.reviewed}: the model was right in ${r.agreed}` : " · move an item to the right group when the model is wrong");
+  $("#recap-list").innerHTML = GROUPS.map(([cat, label]) => {
+    const items = r.items.filter((i) => (i.user_category || i.category) === cat);
+    if (!items.length) return "";
+    return `<details class="card recap-group ${cat}" ${cat === "ignore" ? "" : "open"}><summary><b>${label}</b> <span class="muted">${items.length}</span></summary>
+      <ul class="recap-items">${items.map((i) => `<li>
+        <div class="recap-head"><span class="src">${i.source === "mail" ? "Mail" : "Teams"}</span>
+          ${i.link ? `<a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : `<b>${esc(i.title)}</b>`}
+          <span class="muted">${esc(i.people)} · ${ago(i.last)}${i.last_from_me ? " · last message yours" : ""}</span>
+          <select data-key="${esc(i.key)}" title="Move to the right group">${GROUPS.map(([c, l]) =>
+            `<option value="${c}" ${c === (i.user_category || i.category) ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+        ${i.summary ? `<div>${esc(i.summary)}</div>` : ""}
+        ${i.action ? `<div class="action">→ ${esc(i.action)}${i.due ? ` <span class="warn">(${esc(i.due)})</span>` : ""}</div>` : ""}
+        ${i.error ? `<div class="err small">${esc(i.error)}</div>` : ""}
+        ${i.user_category && i.user_category !== i.category ? `<div class="muted small">model said: ${esc(i.category)}</div>` : ""}</li>`).join("")}</ul></details>`;
+  }).join("");
+  clearTimeout(recapTimer);
+  if (running) recapTimer = setTimeout(() => { if ($("#recap").classList.contains("active")) loadRecap(); }, 2000);
+}
+$("#recap-form").days.addEventListener("change", (e) => $("#recap-form .since").classList.toggle("hidden", e.target.value !== "since"));
+$("#recap-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const range = f.days.value === "since" ? { kind: "since", date: f.since.value } : { kind: "days", days: Number(f.days.value) };
+  const sources = [f.mail.checked && "mail", f.teams.checked && "teams"].filter(Boolean);
+  try { await graphCall("POST", "/api/recap", { range, sources }); loadRecap(); loadJobs(); }
+  catch (err) { alert(err.message); }
+});
+$("#recap-list").addEventListener("change", async (e) => {
+  const sel = e.target.closest("select[data-key]");
+  if (!sel) return;
+  await api("POST", "/api/recap/correct", { key: sel.dataset.key, category: sel.value });
+  loadRecap();
+});
+
+// ---------------------------------------------------------------- local AI: GPU, Ollama, models, test
+let aiTimer = null;
+const mb = (v) => (v / 1024).toFixed(1) + " GB";
+async function loadAI() {
+  const s = await api("GET", "/api/llm/status");
+  const g = s.gpu || {}, e = s.engine || {};
+  const gpu = g.name ? `<b>${esc(g.name)}</b> · ${mb(g.total_mb)} VRAM, ${mb(g.free_mb)} free now (${mb(g.used_mb)} in use)`
+    : `<span class="warn">No NVIDIA GPU found${g.error ? ": " + esc(g.error) : ""}.</span> The model can still run on the CPU, slowly.`;
+  const whisper = `Whisper: ${esc(e.model || "?")}${e.device ? " on " + esc(e.device) : ""} (${esc(e.state || "?")})` +
+    (e.device === "cuda" ? ". Choosing Parakeet V3 for dictation leaves the whole GPU to the model." : "");
+  const ollama = !s.installed && !s.running
+    ? `<span class="warn">Ollama is not installed.</span> <a href="${esc(s.download)}" target="_blank" rel="noopener">Download the Windows installer</a>
+       (installs per user, no admin rights), then press Check again.`
+    : !s.running ? `<span class="warn">Ollama is installed but not running.</span> <button id="ai-start">Start it</button>`
+    : `<span class="ok">Ollama ${esc(s.version)} is running.</span>`;
+  const models = (s.models || []).map((m) => `<li><b>${esc(m.name)}</b> <span class="muted">${m.size_gb} GB · ${esc(m.params)} · ${esc(m.quant)}</span></li>`).join("");
+  const loaded = (s.loaded || []).map((m) => `${esc(m.name)}: ${m.gpu_share}% on the GPU (${m.vram_gb} of ${m.size_gb} GB)`).join("; ");
+  const missing = s.running ? s.suggested.filter((m) => !(s.models || []).some((x) => x.name === m)) : [];
+  const p = s.pull || {};
+  const pull = p.state === "running" ? `<div>Downloading ${esc(p.model)}: ${esc(p.status)}${p.total ? ` ${Math.round(100 * p.completed / p.total)}%` : ""}</div>`
+    : p.state === "error" ? `<div class="err">Download of ${esc(p.model)} failed: ${esc(p.error)}</div>`
+    : p.state === "done" ? `<div class="ok">${esc(p.model)} downloaded.</div>` : "";
+  $("#ai-status").innerHTML = `<h3>GPU</h3><div>${gpu}</div><div class="muted small">${whisper}</div>
+    <h3>Ollama</h3><div>${ollama} <button id="ai-refresh">Check again</button></div>
+    ${s.running ? `<h3>Models</h3>${models ? `<ul class="plain">${models}</ul>` : `<div class="muted">No models yet.</div>`}
+      ${loaded ? `<div class="muted small">Loaded now: ${loaded}</div>` : ""}
+      <div class="row">${missing.map((m) => `<button class="ai-pull" data-model="${esc(m)}">Download ${esc(m)}</button>`).join("")}</div>${pull}` : ""}`;
+  $("#ai-refresh").onclick = loadAI;
+  const start = $("#ai-start");
+  if (start) start.onclick = async () => { start.disabled = true; try { await api("POST", "/api/llm/start"); } catch (err) { alert(err.message); } loadAI(); };
+  document.querySelectorAll(".ai-pull").forEach((b) => (b.onclick = async () => {
+    try { await api("POST", "/api/llm/pull", { model: b.dataset.model }); } catch (err) { alert(err.message); } loadAI();
+  }));
+  const sel = $("#ai-model"), cur = sel.value || s.model;
+  sel.innerHTML = [...new Set([s.model, ...(s.models || []).map((m) => m.name)])].map((m) => `<option>${esc(m)}</option>`).join("");
+  sel.value = cur;
+  clearTimeout(aiTimer);
+  if (p.state === "running" && $("#ai").classList.contains("active")) aiTimer = setTimeout(loadAI, 1500);
+}
+$("#ai-test").addEventListener("click", async () => {
+  const btn = $("#ai-test");
+  btn.disabled = true;
+  $("#ai-result").innerHTML = `<div class="muted">Loading ${esc($("#ai-model").value)} and running the test (up to a minute on the first run)...</div>`;
+  try {
+    const t = await api("POST", "/api/llm/test", { model: $("#ai-model").value });
+    const vram = (x) => x && x.total_mb ? `${mb(x.free_mb)} free` : "?";
+    $("#ai-result").innerHTML = `<div class="verdict"><b>${esc(t.verdict)}</b></div>
+      <div class="about-grid"><span>Speed</span><span>${t.tok_s} tokens/s writing, ${t.prompt_tok_s} tokens/s reading</span>
+      <span>Took</span><span>${t.took_s} s (loading ${t.load_s} s)</span>
+      <span>On the GPU</span><span>${t.gpu_share}% of ${t.size_gb} GB (${t.vram_gb} GB in VRAM)</span>
+      <span>VRAM</span><span>before ${vram(t.gpu_before)}, after ${vram(t.gpu_after)}</span>
+      <span>Answer</span><span>${t.json_ok ? `valid, ${t.issues} mistake(s) found` : '<span class="warn">not in the expected format</span>'}</span></div>
+      ${t.improved ? `<div class="muted small">Better version: ${esc(t.improved)}</div>` : ""}`;
+  } catch (e) { $("#ai-result").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  btn.disabled = false;
+  loadAI();
+});
 
 poll();
 loadHistory();

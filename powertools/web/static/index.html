@@ -15,11 +15,14 @@
   <div class="brand"><img src="/dot-192.png" alt="" class="logo">powertools</div>
   <nav>
     <button data-tab="dictation" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
+    <button data-tab="writing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4M14 20h6"/></svg><span>Writing</span></button>
+    <button data-tab="recap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Recap</span></button>
     <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
     <button data-tab="jira"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 12 12 21 3 12z"/><path d="m12 8 4 4-4 4-4-4z"/></svg><span>Jira</span></button>
     <button data-tab="org"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v5M6 17v-5h12v5"/></svg><span>Org</span></button>
+    <button data-tab="ai"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>Local AI</span></button>
     <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
   </nav>
@@ -44,6 +47,32 @@
       <input id="search" type="search" placeholder="Search">
     </div>
     <ul id="history" class="rows"></ul>
+  </section>
+
+  <section id="writing" class="tab">
+    <div class="card">
+      <div class="muted small" id="w-hint">Select an English text anywhere and press the wording hotkey, or paste it here.</div>
+      <textarea id="w-text" rows="6" placeholder="Paste an e-mail or a message"></textarea>
+      <div class="row"><span id="w-status" class="muted"></span><button id="w-check" class="primary">Check</button></div>
+    </div>
+    <div id="w-result"></div>
+  </section>
+
+  <section id="recap" class="tab">
+    <div class="card graphbar"></div>
+    <form id="recap-form" class="card searchform">
+      <label>Range <select name="days">
+        <option value="1">Last day</option><option value="2" selected>Last 2 days</option><option value="3">Last 3 days</option>
+        <option value="7">Last 7 days</option><option value="14">Last 2 weeks</option><option value="30">Last 30 days</option>
+        <option value="since">Since date...</option></select></label>
+      <label class="since hidden">Since <input type="date" name="since"></label>
+      <label class="check"><input type="checkbox" name="mail" checked> Mail (Inbox)</label>
+      <label class="check"><input type="checkbox" name="teams" checked> Teams chats</label>
+      <button class="primary">Recap</button>
+    </form>
+    <div id="recap-status" class="muted small"></div>
+    <div id="recap-list"></div>
+    <div class="jobs"></div>
   </section>
 
   <section id="meetings" class="tab">
@@ -159,6 +188,17 @@
     </tr></thead><tbody id="jira-downloaded"></tbody></table></div>
   </section>
 
+  <section id="ai" class="tab">
+    <div class="card" id="ai-status"><span class="muted">Checking the GPU and Ollama...</span></div>
+    <div class="card">
+      <h3>Can this laptop run it?</h3>
+      <div class="row"><select id="ai-model"></select><button id="ai-test" class="primary">Test the model</button></div>
+      <div class="muted small">Loads the model, corrects a short English message once and measures the speed and how much of the
+        model fits on the GPU next to Whisper. The first run includes loading from disk.</div>
+      <div id="ai-result"></div>
+    </div>
+  </section>
+
   <section id="settings" class="tab">
     <form id="settings-form" class="card form">
       <label>Hotkey <input name="hotkey" placeholder="alt+q"><small>e.g. alt+q, ctrl+shift+space, f9</small></label>
@@ -188,6 +228,19 @@
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
+      <h3>Local AI (Ollama)</h3>
+      <label>Model <input name="llm_model" list="llm-models" placeholder="gemma4:e4b"><datalist id="llm-models"></datalist>
+        <small>Test and download models in the Local AI tab.</small></label>
+      <label>Where it runs <select name="llm_gpu"><option value="auto">GPU as far as it fits, the rest on the CPU</option>
+        <option value="cpu">CPU only (the GPU stays with Whisper)</option></select></label>
+      <label>Keep the model loaded (minutes) <input name="llm_keep_alive_min" type="number" min="0" max="120">
+        <small>Longer = faster next call, but it holds memory. Whisper unloads it anyway before it loads a model on the GPU.</small></label>
+      <label class="check"><input type="checkbox" name="dictation_cleanup"> Clean up dictation with the local model (fillers,
+        repetitions, punctuation); the raw transcript stays in the history</label>
+      <label>Wording hotkey <input name="wording_hotkey" placeholder="alt+w"><small>Select a text, press it: English corrections.
+        Ctrl+W is possible, but then it no longer closes tabs anywhere.</small></label>
+      <label>Wording result <select name="wording_mode"><option value="review">Show mistakes and a better version (Writing tab)</option>
+        <option value="replace">Replace the selection with the better version right away</option></select></label>
       <h3>Jira</h3>
       <label>Jira site <input name="jira_url" placeholder="https://yoursite.atlassian.net">
         <small>Token: the Windows Credential Manager entry jira-token when it exists, else paste one in the Jira tab.</small></label>

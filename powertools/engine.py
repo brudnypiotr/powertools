@@ -95,6 +95,7 @@ class Engine:
         self.floor = 0                  # index in LEVELS: the best level that still works on this machine
         self.state = "idle"            # idle -> loading -> ready | error
         self.info: dict = {}
+        self.before_gpu = None          # called before a model loads on the GPU (the local LLM frees its VRAM)
         self._model = None
         self._jobs: queue.PriorityQueue = queue.PriorityQueue()
         self._seq = itertools.count()
@@ -134,6 +135,11 @@ class Engine:
             gpus = ctranslate2.get_cuda_device_count()
         except Exception:
             gpus = 0
+        if gpus and self.before_gpu and LEVELS[self.floor][0] == "cuda":
+            try:
+                self.before_gpu()
+            except Exception:
+                log.exception("before_gpu failed")
         last = ""
         for i in range(self.floor, len(LEVELS)):
             device, compute = LEVELS[i]

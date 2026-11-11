@@ -1,6 +1,7 @@
 """Wiring: settings, history, Whisper engine, recorder, dictation, hotkey, tray, overlay and the window.
 
 Threads: tkinter overlay on the main thread, tray detached, web server, hotkey hook, Whisper worker.
+The local model (Ollama) runs in its own process; dictation clean-up, wording and recap call it over HTTP.
 """
 
 from __future__ import annotations
@@ -87,6 +88,42 @@ def open_app_window(url: str) -> bool:
     return False
 
 
+def focus_window(title: str = "powertools") -> bool:
+    """Bring the open window (an Edge app window titled 'powertools') to the front. False when none is open."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+    buf = ctypes.create_unicode_buffer(256)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            user32.GetWindowTextW(hwnd, buf, 256)
+            if buf.value == title:
+                user32.GetClassNameW(hwnd, buf, 256)
+                if buf.value.startswith("Chrome_WidgetWin"):
+                    found.append(hwnd)
+                    return False
+        return True
+
+    user32.EnumWindows(each, 0)
+    if not found:
+        return False
+    hwnd = found[0]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    if not user32.SetForegroundWindow(hwnd):
+        # Windows lets a background process take the focus right after a key event: tap Alt, then try again
+        user32.keybd_event(0x12, 0, 0, 0)
+        user32.keybd_event(0x12, 0, 2, 0)
+        user32.SetForegroundWindow(hwnd)
+    return True
+
+
 class App:
     def __init__(self, selftest: bool = False):
         from .audio import Recorder
@@ -95,9 +132,15 @@ class App:
         from .paste import deliver
 
         self.selftest = selftest
+        from . import cleanup
+        from .llm import Ollama
+        from .wording import Wording
+
         self.settings = Settings()
         self.store = Store(data_dir() / "history.sqlite")
         self.engine = Engine(self.settings["model"], self.settings["small_on_cpu"])
+        self.llm = Ollama(self.settings)
+        self.engine.before_gpu = self.llm.unload_all  # 6 GB: Whisper first, the model reloads when needed
         self.recorder = Recorder()
         self.overlay = None
         self.tray = None
@@ -115,7 +158,15 @@ class App:
         self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed, self._meeting_event)
         self.watcher = None
         self.pending_prompt: dict = {}
-        self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state)
+        self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state,
+                                   cleaner=lambda text: cleanup.clean(self.llm, text, self.settings["vocabulary"]))
+        self.wording = Wording(self.settings, self.llm, deliver, self._on_wording_state, self.show_writing)
+        self.wording_hotkey = None
+        from .recap import Recap
+
+        self.recap = Recap(self.settings, self.graph, self.llm)
+        self.focus: dict = {"tab": "", "seq": 0}   # the window switches to this tab when seq changes
+        self.last_poll = 0.0                       # when an open window last asked for the state
         self._quit = threading.Event()
 
     # ------------------------------------------------------------------ used by the API
@@ -127,6 +178,9 @@ class App:
             "level": round(self.recorder.level, 4),
             "engine": self.engine.status(),
             "hotkey": self.settings["hotkey"],
+            "wording_hotkey": self.settings["wording_hotkey"],
+            "wording": {k: self.wording.last.get(k) for k in ("id", "state")},
+            "focus": self.focus,
             "overlay": bool(self.overlay and self.overlay.available),
             "meeting": self.meetings.current.view() if self.meetings.current else None,
             "pending_prompt": self.pending_prompt,
@@ -135,15 +189,19 @@ class App:
         }
 
     def apply_settings(self, changes: dict) -> dict:
-        if "hotkey" in changes and self.hotkey is not None:
-            new = str(changes["hotkey"]).strip().lower()
-            old = self.settings["hotkey"]
-            if new != old:
-                try:
-                    self.hotkey.bind(new)
-                except Exception as e:
-                    self.hotkey.bind(old)
-                    raise ValueError(f"hotkey '{new}' not accepted: {e}") from e
+        dictation = str(changes.get("hotkey", self.settings["hotkey"])).strip().lower()
+        wording = str(changes.get("wording_hotkey", self.settings["wording_hotkey"])).strip().lower()
+        if dictation == wording:
+            raise ValueError("the dictation and the wording hotkeys must differ")
+        for key, hk in (("hotkey", self.hotkey), ("wording_hotkey", self.wording_hotkey)):
+            if key in changes and hk is not None:
+                new, old = str(changes[key]).strip().lower(), self.settings[key]
+                if new != old:
+                    try:
+                        hk.bind(new)
+                    except Exception as e:
+                        hk.bind(old)
+                        raise ValueError(f"hotkey '{new}' not accepted: {e}") from e
         changed = self.settings.update(changes)
         if "small_on_cpu" in changed:
             self.engine.small_on_cpu = changed["small_on_cpu"]
@@ -178,6 +236,17 @@ class App:
         if not f.exists():
             return []
         return f.read_text(encoding="utf-8", errors="replace").splitlines()[-n:]
+
+    def show_writing(self) -> None:
+        """The wording result: switch the window to the Writing tab and bring it up (open it when closed)."""
+        self.focus = {"tab": "writing", "seq": self.focus["seq"] + 1}
+        if time.time() - self.last_poll < 3 and focus_window():
+            return
+        self.open_window()
+
+    def _on_wording_state(self, state: str) -> None:
+        if self.dictation.state == "idle":   # dictation owns the pill while it runs
+            self._on_state(state)
 
     def open_window(self) -> None:
         if self.settings["app_window"] and open_app_window(self.url):
@@ -309,6 +378,11 @@ class App:
             self.hotkey.bind(self.settings["hotkey"])
         except Exception as e:
             log.error("hotkey %s failed: %s", self.settings["hotkey"], e)
+        self.wording_hotkey = Hotkey(self.wording.hotkey)
+        try:
+            self.wording_hotkey.bind(self.settings["wording_hotkey"])
+        except Exception as e:
+            log.error("wording hotkey %s failed: %s", self.settings["wording_hotkey"], e)
         self.tray = Tray("powertools", self.settings["hotkey"], self.dictation.toggle, self.open_window, self.quit,
                          meeting=(lambda: bool(self.meetings.current), self.toggle_meeting, self.meetings.mark))
         self.tray.start()
@@ -339,6 +413,8 @@ class App:
                 self.meetings.stop()
             if self.hotkey:
                 self.hotkey.unbind()
+            if self.wording_hotkey:
+                self.wording_hotkey.unbind()
             if self.recorder.active:
                 self.recorder.stop()
             self.tray.stop()

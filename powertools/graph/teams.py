@@ -46,6 +46,7 @@ def list_chats(g: Graph, me_id: str, limit: int = 400) -> list[dict]:
             "title": chat_title(c, me_id),
             "members": [m.get("displayName") for m in c.get("members", []) if m.get("displayName")],
             "last": last,
+            "web": c.get("webUrl", ""),
         })
     chats.sort(key=lambda c: c["last"], reverse=True)
     return chats

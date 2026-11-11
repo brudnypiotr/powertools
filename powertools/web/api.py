@@ -12,6 +12,9 @@ def ping(h):
 
 @route("GET", "/api/state")
 def state(h):
+    import time
+
+    h.app.last_poll = time.time()
     h.send(200, h.app.state())
 
 
