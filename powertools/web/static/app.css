@@ -209,5 +209,6 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .recap-items .src { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--hover); color: var(--muted); }
 .recap-items .action { font-weight: 600; margin-top: 2px; }
 .searchform label.check { flex: none; min-width: 0; display: flex; gap: 6px; align-items: center; }
-#ai .row select { width: auto; } .plain { margin: 0; padding-left: 18px; } .verdict { margin: 10px 0 6px; }
+#ai .row select { width: auto; } .plain { margin: 0; padding-left: 18px; }
+.ai-delete { padding: 1px 8px; font-size: 12px; margin-left: 6px; } .verdict { margin: 10px 0 6px; }
 .side nav button:disabled { opacity: .4; cursor: not-allowed; } .side nav button:disabled:hover { background: none; color: var(--muted); }

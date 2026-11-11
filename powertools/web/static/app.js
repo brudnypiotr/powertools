@@ -783,7 +783,8 @@ async function loadAI() {
     : !s.running ? `<span class="warn">Ollama is installed${s.exe ? ` (${esc(s.exe)})` : ""} but not running.</span> <button id="ai-start" class="primary">Start it</button>`
     : `<span class="ok">Ollama ${esc(s.version)} is running</span>${s.exe ? ` <span class="muted small">(${esc(s.exe)})</span>` : ""}.`;
   const instErr = inst.state === "error" ? `<div class="err">Ollama setup failed: ${esc(inst.error)}</div>` : "";
-  const models = (s.models || []).map((m) => `<li><b>${esc(m.name)}</b> <span class="muted">${m.size_gb} GB · ${esc(m.params)} · ${esc(m.quant)}</span></li>`).join("");
+  const models = (s.models || []).map((m) => `<li><b>${esc(m.name)}</b> <span class="muted">${m.size_gb} GB · ${esc(m.params)} · ${esc(m.quant)}</span>
+    <button class="ai-delete" data-model="${esc(m.name)}">Delete</button></li>`).join("");
   const loaded = (s.loaded || []).map((m) => `${esc(m.name)}: ${m.gpu_share}% on the GPU (${m.vram_gb} of ${m.size_gb} GB)`).join("; ");
   const missing = s.running ? s.suggested.filter((m) => !(s.models || []).some((x) => x.name === m)) : [];
   const p = s.pull || {};
@@ -805,6 +806,11 @@ async function loadAI() {
   if (start) start.onclick = async () => { start.disabled = true; try { await api("POST", "/api/llm/start"); } catch (err) { alert(err.message); } loadAI(); };
   document.querySelectorAll(".ai-pull").forEach((b) => (b.onclick = async () => {
     try { await api("POST", "/api/llm/pull", { model: b.dataset.model }); } catch (err) { alert(err.message); } loadAI();
+  }));
+  document.querySelectorAll(".ai-delete").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Delete ${b.dataset.model}? You can download it again here.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/llm/delete", { model: b.dataset.model }); } catch (err) { alert(err.message); } loadAI();
   }));
   const sel = $("#ai-model"), cur = sel.value || s.model;
   sel.innerHTML = [...new Set([s.model, ...(s.models || []).map((m) => m.name)])].map((m) => `<option>${esc(m)}</option>`).join("");

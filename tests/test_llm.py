@@ -445,3 +445,19 @@ def test_ollama_pull_rejects_bad_gguf_or_sha256_mismatch(tmp_path, monkeypatch):
     monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(bad_gguf))
     with pytest.raises(llm.LLMError, match="SHA-256"):
         o.pull("gemma4:e2b", lambda *a: None)
+
+
+def test_ollama_delete_unloads_then_removes(tmp_path, monkeypatch):
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    calls = []
+
+    def fake_req(method, path, body=None, timeout=10):
+        calls.append((method, path, dict(body) if body else body))
+        return {"models": [{"name": "gemma4:e4b", "size": 1, "size_vram": 1}]} if path == "/api/ps" else {}
+    monkeypatch.setattr(o, "_req", fake_req)
+    o.delete("gemma4:e4b")
+    assert calls[1:] == [("POST", "/api/generate", {"model": "gemma4:e4b", "keep_alive": 0}),
+                         ("DELETE", "/api/delete", {"model": "gemma4:e4b"})]
+    calls.clear()
+    o.delete("gemma4:e2b")                     # not loaded: nothing to unload
+    assert [p for m, p, b in calls] == ["/api/ps", "/api/delete"]

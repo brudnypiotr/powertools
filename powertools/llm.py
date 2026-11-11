@@ -533,6 +533,12 @@ class Ollama:
             self._req("POST", "/api/create", body, timeout=600)
         progress("success", total, total)
 
+    def delete(self, model: str) -> None:
+        """Unload and remove a downloaded model (Ollama drops its files unless another model shares them)."""
+        if model in {m["name"] for m in self.loaded()}:
+            self._req("POST", "/api/generate", {"model": model, "keep_alive": 0}, timeout=10)
+        self._req("DELETE", "/api/delete", {"model": model}, timeout=30)
+
     def pull(self, model: str, progress) -> None:
         """Download a model; progress(status, completed_bytes, total_bytes)."""
         if not self.ensure_running():

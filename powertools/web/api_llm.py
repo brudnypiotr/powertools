@@ -76,6 +76,22 @@ def llm_pull(h):
     h.send(200, dict(PULL))
 
 
+@route("POST", "/api/llm/delete")
+def llm_delete(h):
+    model = str(h.json_body().get("model", "")).strip()
+    if not model:
+        raise ValueError("which model?")
+    if PULL["state"] == "running" and PULL["model"] == model:
+        raise ValueError(f"{model} is downloading now")
+    try:
+        h.app.llm.delete(model)
+    except LLMError as e:
+        raise ValueError(str(e)) from e
+    if PULL["model"] == model:
+        PULL.update(model="", state="", status="", error="")
+    h.send(200, h.app.llm.status())
+
+
 @route("GET", "/api/wording")
 def wording_last(h):
     h.send(200, h.app.wording.last)
