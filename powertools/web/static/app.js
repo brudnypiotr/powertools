@@ -766,11 +766,18 @@ async function loadAI() {
     : `<span class="warn">No NVIDIA GPU found${g.error ? ": " + esc(g.error) : ""}.</span> The model can still run on the CPU, slowly.`;
   const whisper = `Whisper: ${esc(e.model || "?")}${e.device ? " on " + esc(e.device) : ""} (${esc(e.state || "?")})` +
     (e.device === "cuda" ? ". Choosing Parakeet V3 for dictation leaves the whole GPU to the model." : "");
-  const ollama = !s.installed && !s.running
-    ? `<span class="warn">Ollama is not installed.</span> <a href="${esc(s.download)}" target="_blank" rel="noopener">Download the Windows installer</a>
-       (installs per user, no admin rights), then press Check again.`
-    : !s.running ? `<span class="warn">Ollama is installed but not running.</span> <button id="ai-start">Start it</button>`
-    : `<span class="ok">Ollama ${esc(s.version)} is running.</span>`;
+  const inst = s.install || {};
+  const instProg = inst.total
+    ? ` ${Math.round(100 * inst.completed / inst.total)}% (${(inst.completed / 1e9).toFixed(2)} / ${(inst.total / 1e9).toFixed(2)} GB)`
+    : inst.completed ? ` ${(inst.completed / 1e9).toFixed(2)} GB` : "";
+  const ollama = inst.state === "running"
+    ? `<span class="warn">Setting up Ollama locally (${esc(inst.status)}${instProg})...</span>`
+    : !s.installed && !s.running
+    ? `<span class="warn">Ollama is not installed.</span> <button id="ai-install" class="primary">Download &amp; set up Ollama</button>
+       <span class="muted small">(GitHub ZIP → %LOCALAPPDATA%\\powertools\\ollama, no installer, no admin rights)</span>`
+    : !s.running ? `<span class="warn">Ollama is installed${s.exe ? ` (${esc(s.exe)})` : ""} but not running.</span> <button id="ai-start" class="primary">Start it</button>`
+    : `<span class="ok">Ollama ${esc(s.version)} is running</span>${s.exe ? ` <span class="muted small">(${esc(s.exe)})</span>` : ""}.`;
+  const instErr = inst.state === "error" ? `<div class="err">Ollama setup failed: ${esc(inst.error)}</div>` : "";
   const models = (s.models || []).map((m) => `<li><b>${esc(m.name)}</b> <span class="muted">${m.size_gb} GB · ${esc(m.params)} · ${esc(m.quant)}</span></li>`).join("");
   const loaded = (s.loaded || []).map((m) => `${esc(m.name)}: ${m.gpu_share}% on the GPU (${m.vram_gb} of ${m.size_gb} GB)`).join("; ");
   const missing = s.running ? s.suggested.filter((m) => !(s.models || []).some((x) => x.name === m)) : [];
@@ -779,11 +786,13 @@ async function loadAI() {
     : p.state === "error" ? `<div class="err">Download of ${esc(p.model)} failed: ${esc(p.error)}</div>`
     : p.state === "done" ? `<div class="ok">${esc(p.model)} downloaded.</div>` : "";
   $("#ai-status").innerHTML = `<h3>GPU</h3><div>${gpu}</div><div class="muted small">${whisper}</div>
-    <h3>Ollama</h3><div>${ollama} <button id="ai-refresh">Check again</button></div>
+    <h3>Ollama</h3><div>${ollama} <button id="ai-refresh">Check again</button></div>${instErr}
     ${s.running ? `<h3>Models</h3>${models ? `<ul class="plain">${models}</ul>` : `<div class="muted">No models yet.</div>`}
       ${loaded ? `<div class="muted small">Loaded now: ${loaded}</div>` : ""}
       <div class="row">${missing.map((m) => `<button class="ai-pull" data-model="${esc(m)}">Download ${esc(m)}</button>`).join("")}</div>${pull}` : ""}`;
   $("#ai-refresh").onclick = loadAI;
+  const install = $("#ai-install");
+  if (install) install.onclick = async () => { install.disabled = true; try { await api("POST", "/api/llm/install"); } catch (err) { alert(err.message); } loadAI(); };
   const start = $("#ai-start");
   if (start) start.onclick = async () => { start.disabled = true; try { await api("POST", "/api/llm/start"); } catch (err) { alert(err.message); } loadAI(); };
   document.querySelectorAll(".ai-pull").forEach((b) => (b.onclick = async () => {
@@ -792,8 +801,9 @@ async function loadAI() {
   const sel = $("#ai-model"), cur = sel.value || s.model;
   sel.innerHTML = [...new Set([s.model, ...(s.models || []).map((m) => m.name)])].map((m) => `<option>${esc(m)}</option>`).join("");
   sel.value = cur;
+  gateLocalAI(s);
   clearTimeout(aiTimer);
-  if (p.state === "running" && $("#ai").classList.contains("active")) aiTimer = setTimeout(loadAI, 1500);
+  if ((p.state === "running" || inst.state === "running") && $("#ai").classList.contains("active")) aiTimer = setTimeout(loadAI, 1500);
 }
 $("#ai-test").addEventListener("click", async () => {
   const btn = $("#ai-test");

@@ -1,6 +1,7 @@
 """Local language model through Ollama (http://127.0.0.1:11434): nothing leaves the laptop.
 
-Ollama installs per user (no admin rights) and runs its own server; powertools only talks HTTP to it (stdlib, no new
+Ollama is unpacked per user into %LOCALAPPDATA%\\powertools\\ollama from the official GitHub release ZIP (no installer,
+no admin rights) and runs its own server; powertools only talks HTTP to it (stdlib, no new
 packages). The GPU is shared with Whisper (6 GB holds both only when the model is small), so:
 - Whisper asks the model to unload before it loads a model on the GPU (Engine.before_gpu),
 - a server started by powertools keeps 1 GB of VRAM free for Whisper (OLLAMA_GPU_OVERHEAD),
@@ -21,11 +22,14 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
+
+from .config import data_dir
 
 log = logging.getLogger("powertools.llm")
 URL = os.environ.get("POWERTOOLS_OLLAMA", "http://127.0.0.1:11434")
-DOWNLOAD = "https://ollama.com/download/windows"
+DOWNLOAD = "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip"
 SUGGESTED = ["gemma4:e2b", "gemma4:e4b"]
 INTERACTIVE, BACKGROUND = 0, 1
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -41,13 +45,18 @@ class LLMError(RuntimeError):
     pass
 
 
+def ollama_dir() -> Path:
+    return data_dir() / "ollama"
+
+
 def find_exe() -> str:
-    found = shutil.which("ollama")
-    if found:
-        return found
     local = os.environ.get("LOCALAPPDATA", "")
-    p = Path(local) / "Programs" / "Ollama" / "ollama.exe"
-    return str(p) if local and p.exists() else ""
+    for p in (ollama_dir() / "ollama.exe",
+              Path(local) / "powertools" / "ollama" / "ollama.exe" if local else None,
+              Path(local) / "Programs" / "Ollama" / "ollama.exe" if local else None):
+        if p and p.exists():
+            return str(p)
+    return shutil.which("ollama") or ""
 
 
 def gpu_info() -> dict:
@@ -132,7 +141,8 @@ class Ollama:
         env = dict(os.environ)
         env.setdefault("OLLAMA_GPU_OVERHEAD", str(1024 ** 3))  # leave 1 GB of VRAM for Whisper
         log.info("starting %s serve", exe)
-        subprocess.Popen([exe, "serve"], env=env, creationflags=FLAGS | getattr(subprocess, "DETACHED_PROCESS", 0),
+        subprocess.Popen([exe, "serve"], cwd=str(Path(exe).parent), env=env,
+                         creationflags=FLAGS | getattr(subprocess, "DETACHED_PROCESS", 0),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
         self._started = True
         t0 = time.time()
@@ -141,6 +151,78 @@ class Ollama:
                 return True
             time.sleep(0.5)
         return False
+
+    def install(self, progress, url: str = DOWNLOAD) -> str:
+        """Download the official Windows ZIP from GitHub, unpack to %LOCALAPPDATA%\\powertools\\ollama and start it."""
+        dest = ollama_dir()
+        dl_dir = data_dir() / "downloads"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        part = dl_dir / "ollama-windows-amd64.zip.part"
+        archive = dl_dir / "ollama-windows-amd64.zip"
+        total = 0
+        if not (archive.exists() and zipfile.is_zipfile(archive)):
+            req = urllib.request.Request(url, headers={"User-Agent": "powertools"})
+            try:
+                with urllib.request.urlopen(req, timeout=3600) as r, part.open("wb") as f:
+                    total = int(r.headers.get("Content-Length") or 0)
+                    done = 0
+                    progress("downloading", 0, total)
+                    while True:
+                        chunk = r.read(256 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        progress("downloading", done, total)
+            except urllib.error.HTTPError as e:
+                part.unlink(missing_ok=True)
+                raise LLMError(f"GitHub HTTP {e.code}: {e.reason}") from e
+            except (urllib.error.URLError, OSError) as e:
+                part.unlink(missing_ok=True)
+                raise LLMError(f"Download failed ({type(e).__name__}: {e})") from e
+            if not zipfile.is_zipfile(part):
+                part.unlink(missing_ok=True)
+                raise LLMError("Downloaded file is not a valid ZIP archive")
+            os.replace(part, archive)
+        else:
+            total = archive.stat().st_size
+        progress("unpacking", total, total)
+        stage = dest.with_name("ollama.new")
+        old = dest.with_name("ollama.old")
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+        try:
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(stage)
+        except (zipfile.BadZipFile, OSError) as e:
+            shutil.rmtree(stage, ignore_errors=True)
+            archive.unlink(missing_ok=True)
+            raise LLMError(f"Could not unpack Ollama ZIP: {e}") from e
+        archive.unlink(missing_ok=True)
+        if not (stage / "ollama.exe").exists():
+            found = next(stage.rglob("ollama.exe"), None)
+            if not found:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise LLMError("ollama.exe was not found in the ZIP archive")
+            inner = dest.with_name("ollama.inner")
+            shutil.rmtree(inner, ignore_errors=True)
+            os.replace(found.parent, inner)
+            shutil.rmtree(stage, ignore_errors=True)
+            os.replace(inner, stage)
+        try:
+            if dest.exists():
+                os.replace(dest, old)
+            os.replace(stage, dest)
+        except OSError as e:
+            if not dest.exists() and old.exists():
+                os.replace(old, dest)
+            shutil.rmtree(stage, ignore_errors=True)
+            raise LLMError(f"Could not replace {dest}: close Ollama if it is running ({e})") from e
+        shutil.rmtree(old, ignore_errors=True)
+        progress("starting", total, total)
+        running = self.ensure_running()
+        self._avail = {"installed": True, "running": running, "at": time.time()}
+        return str(dest / "ollama.exe")
 
     def available(self, max_age: float = 20) -> dict:
         """{installed, running}, refreshed in the background at most every `max_age` s (the window polls often)."""

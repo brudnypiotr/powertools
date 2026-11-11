@@ -141,13 +141,14 @@ Needs Python 3.10+ (a per-user install or one installed earlier by another setup
 
 ## Local AI (step 5)
 
-A small local model through [Ollama](https://ollama.com/download/windows) (installs per user, no admin rights).
+A small local model through [Ollama](https://github.com/ollama/ollama/releases/latest): the Local AI tab downloads the
+official Windows ZIP from GitHub and unpacks it to `%LOCALAPPDATA%\powertools\ollama` (no installer, no admin rights).
 Nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
 
-- **Local AI tab**: the NVIDIA GPU and its VRAM (total, free now), whether Ollama is installed and running (Start it /
-  download link), the installed models, Download buttons for `gemma4:e2b` and `gemma4:e4b`, and **Test the model**: it
-  loads the model, corrects a short English message once and reports tokens/s, load time, how much of the model sits
-  on the GPU and the VRAM before/after, with a verdict (fast / usable / slow).
+- **Local AI tab**: the NVIDIA GPU and its VRAM (total, free now), one-click local Ollama setup from the GitHub ZIP
+  (or Start it when already unpacked), the installed models, Download buttons for `gemma4:e2b` and `gemma4:e4b`, and
+  **Test the model**: it loads the model, corrects a short English message once and reports tokens/s, load time, how
+  much of the model sits on the GPU and the VRAM before/after, with a verdict (fast / usable / slow).
 - **GPU sharing** (6 GB): before Whisper loads a model on the GPU it asks Ollama to unload; a server started by
   powertools keeps 1 GB of VRAM free (`OLLAMA_GPU_OVERHEAD`); Settings > Local AI > "CPU only" leaves the GPU to
   Whisper; Parakeet V3 for dictation leaves the GPU to the model. "Keep the model loaded" (default 5 min).

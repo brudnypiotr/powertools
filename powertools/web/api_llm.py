@@ -8,18 +8,39 @@ from ..llm import LLMError
 from .api_graph import guarded
 from .server import route
 
+INSTALL: dict = {"state": "", "status": "", "completed": 0, "total": 0, "error": ""}
 PULL: dict = {"model": "", "state": "", "status": "", "completed": 0, "total": 0, "error": ""}
 
 
 @route("GET", "/api/llm/status")
 def llm_status(h):
-    h.send(200, {**h.app.llm.status(), "pull": dict(PULL), "engine": h.app.engine.status()})
+    h.send(200, {**h.app.llm.status(), "install": dict(INSTALL), "pull": dict(PULL), "engine": h.app.engine.status()})
+
+
+@route("POST", "/api/llm/install")
+def llm_install(h):
+    if INSTALL["state"] == "running":
+        raise ValueError("already setting up Ollama")
+    INSTALL.update(state="running", status="downloading", completed=0, total=0, error="")
+
+    def progress(status: str, completed: int, total: int) -> None:
+        INSTALL.update(status=status, completed=completed or INSTALL["completed"], total=total or INSTALL["total"])
+
+    def run() -> None:
+        try:
+            h.app.llm.install(progress)
+            INSTALL.update(state="done", status="installed")
+        except LLMError as e:
+            INSTALL.update(state="error", error=str(e))
+
+    threading.Thread(target=run, name="ollama-install", daemon=True).start()
+    h.send(200, dict(INSTALL))
 
 
 @route("POST", "/api/llm/start")
 def llm_start(h):
     if not h.app.llm.ensure_running():
-        raise ValueError("Ollama is not installed: download it (per-user, no admin rights), then try again")
+        raise ValueError("Ollama is not installed: set it up in the Local AI tab, then try again")
     h.send(200, h.app.llm.status())
 
 

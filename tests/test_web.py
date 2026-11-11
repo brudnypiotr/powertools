@@ -128,3 +128,18 @@ def test_manifest_served(server):
     r = urllib.request.urlopen(base + "/manifest.webmanifest", timeout=5)
     m = json.loads(r.read())
     assert r.headers["Content-Type"] == "application/manifest+json" and m["display"] == "standalone"
+
+
+def test_llm_install_endpoint(server, monkeypatch):
+    import time
+
+    app, base = server
+    monkeypatch.setattr(app.llm, "install", lambda progress: (progress("downloading", 50, 100), "ollama.exe")[1])
+    r = call(base, "POST", "/api/llm/install", {})
+    assert r["state"] in ("running", "done")
+    for _ in range(50):
+        st = call(base, "GET", "/api/llm/status")
+        if st["install"]["state"] == "done":
+            break
+        time.sleep(0.02)
+    assert st["install"]["state"] == "done" and st["install"]["completed"] == 50 and st["install"]["total"] == 100

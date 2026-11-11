@@ -230,6 +230,9 @@ class App:
             return "a meeting is being recorded"
         if any(j.state in ("queued", "running") for j in self.graph.jobs.all):
             return "an export is running"
+        from .web.api_llm import INSTALL, PULL
+        if INSTALL["state"] == "running" or PULL["state"] == "running":
+            return "a Local AI download is running"
         return ""
 
     def log_tail(self, n: int) -> list[str]:

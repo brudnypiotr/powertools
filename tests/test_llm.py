@@ -289,7 +289,78 @@ def test_ollama_not_running(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "find_exe", lambda: "")
     monkeypatch.setattr(llm, "gpu_info", lambda: {})
     st = o.status()
-    assert not st["running"] and not st["installed"] and st["download"].startswith("https://ollama.com")
+    assert not st["running"] and not st["installed"]
+    assert st["download"].startswith("https://github.com/ollama/ollama/") and st["download"].endswith(".zip")
     with pytest.raises(llm.LLMError):
         o.chat("s", "u")
     o.unload_all()  # no-op, no exception
+
+
+def _zip_bytes(files: dict[str, bytes]) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _fake_urlopen(payload: bytes):
+    import io
+
+    class Resp(io.BytesIO):
+        headers = {"Content-Length": str(len(payload))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    return lambda req, timeout=0: Resp(payload)
+
+
+def test_ollama_install_downloads_github_zip_and_unpacks_locally(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    started = []
+    monkeypatch.setattr(o, "ensure_running", lambda: started.append(llm.find_exe()) or True)
+    payload = _zip_bytes({"ollama.exe": b"MZ-fake", "lib/ollama/ggml-base.dll": b"DLL"})
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(payload))
+    events = []
+    exe = o.install(lambda st, done, total: events.append((st, done, total)))
+    assert exe == str(tmp_path / "ollama" / "ollama.exe")
+    assert (tmp_path / "ollama" / "ollama.exe").read_bytes() == b"MZ-fake"
+    assert (tmp_path / "ollama" / "lib" / "ollama" / "ggml-base.dll").read_bytes() == b"DLL"
+    assert not (tmp_path / "downloads" / "ollama-windows-amd64.zip").exists()
+    assert [e[0] for e in events][0] == "downloading" and ("unpacking", len(payload), len(payload)) in events
+    assert events[-1] == ("starting", len(payload), len(payload))
+    assert started == [exe] and llm.find_exe() == exe
+    assert o.available() == {"installed": True, "running": True}
+
+
+def test_ollama_install_handles_nested_zip_and_rejects_bad_archive(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    monkeypatch.setattr(o, "ensure_running", lambda: True)
+
+    # Not a zip at all
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(b"not a zip"))
+    with pytest.raises(llm.LLMError, match="not a valid ZIP"):
+        o.install(lambda *a: None)
+    assert not (tmp_path / "ollama").exists()
+
+    # Zip without ollama.exe
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(_zip_bytes({"readme.txt": b"hi"})))
+    with pytest.raises(llm.LLMError, match="ollama.exe"):
+        o.install(lambda *a: None)
+    assert not (tmp_path / "ollama").exists()
+
+    # Zip with a wrapper directory
+    nested = _zip_bytes({"ollama-win/ollama.exe": b"MZ-nested", "ollama-win/lib/ollama/cuda.dll": b"CUDA"})
+    monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen(nested))
+    exe = o.install(lambda *a: None)
+    assert exe == str(tmp_path / "ollama" / "ollama.exe")
+    assert (tmp_path / "ollama" / "lib" / "ollama" / "cuda.dll").read_bytes() == b"CUDA"
