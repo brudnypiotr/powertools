@@ -149,11 +149,16 @@ async function loadSettings() {
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir", "jira_url", "jira_email",
-    "jira_max_attachment_mb", "llm_model", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
+    "jira_max_attachment_mb", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
   for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments",
     "small_on_cpu", "dictation_cleanup"]) f[k].checked = s[k];
-  api("GET", "/api/llm/status").then((st) => { $("#llm-models").innerHTML = [...new Set([...(st.models || []).map((m) => m.name),
-    ...st.suggested])].map((m) => `<option value="${esc(m)}">`).join(""); }).catch(() => {});
+  const llmModels = (installed, suggested) => {
+    const names = [...new Set([...installed, ...suggested, s.llm_model].filter(Boolean))];
+    f.llm_model.innerHTML = names.map((m) => `<option value="${esc(m)}">${esc(m)}${installed.includes(m) ? "" : " (not downloaded)"}</option>`).join("");
+    f.llm_model.value = s.llm_model;
+  };
+  llmModels([s.llm_model], []);
+  api("GET", "/api/llm/status").then((st) => llmModels((st.models || []).map((m) => m.name), st.suggested || [])).catch(() => {});
   f.vocabulary.value = s.vocabulary.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
@@ -170,7 +175,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
     jira_max_attachment_mb: Number(f.jira_max_attachment_mb.value),
     meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
-    llm_model: f.llm_model.value.trim(), llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
+    llm_model: f.llm_model.value, llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
     dictation_cleanup: f.dictation_cleanup.checked, wording_hotkey: f.wording_hotkey.value, wording_mode: f.wording_mode.value,
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
       .map((l) => { const [a, ...b] = l.split("=>"); return { from: a.trim(), to: b.join("=>").trim() }; }),

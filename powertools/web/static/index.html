@@ -229,7 +229,7 @@
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
       <h3>Local AI (Ollama)</h3>
-      <label>Model <input name="llm_model" list="llm-models" placeholder="gemma4:e4b"><datalist id="llm-models"></datalist>
+      <label>Model <select name="llm_model"></select>
         <small>Test and download models in the Local AI tab.</small></label>
       <label>Where it runs <select name="llm_gpu"><option value="auto">GPU as far as it fits, the rest on the CPU</option>
         <option value="cpu">CPU only (the GPU stays with Whisper)</option></select></label>
