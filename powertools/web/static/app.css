@@ -212,3 +212,5 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 #ai .row select { width: auto; } .plain { margin: 0; padding-left: 18px; }
 .ai-delete { padding: 1px 8px; font-size: 12px; margin-left: 6px; } .verdict { margin: 10px 0 6px; }
 .side nav button:disabled { opacity: .4; cursor: not-allowed; } .side nav button:disabled:hover { background: none; color: var(--muted); }
+.recap-now .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
+.recap-now .bar span { display: block; height: 100%; background: var(--accent); }

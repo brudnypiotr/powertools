@@ -99,7 +99,8 @@ def wording_last(h):
 
 @route("POST", "/api/wording")
 def wording_check(h):
-    h.send(200, h.app.wording.check(str(h.json_body().get("text", ""))))
+    b = h.json_body()
+    h.send(200, h.app.wording.check(str(b.get("text", "")), str(b.get("style", ""))))
 
 
 @route("GET", "/api/recap")

@@ -19,14 +19,29 @@ log = logging.getLogger("powertools.wording")
 MAX_CHARS = 6000
 _ids = itertools.count(1)
 
-SYSTEM = """You are an English writing coach for a non-native speaker (Polish) who writes work e-mails and chat messages.
-Find grammar, spelling, article, preposition, tense and word-choice mistakes, and phrasings that sound unnatural to a
-native speaker. For each one give the fragment exactly as written ("wrong"), the better fragment ("better") and a
-short reason, at most 12 words ("why").
-Then write "improved": the whole text corrected, with the same meaning, tone, register, length, formatting and line
-breaks; keep names, codes, numbers, links and greetings unchanged. Do not add new content.
-If the text is already correct and natural, return no issues and the text unchanged.
+SYSTEM = """You proofread English written by a non-native speaker (Polish): work e-mails and chat messages.
+Fix only real mistakes: grammar, spelling, articles, prepositions, tenses, word order, and words or phrases that a
+native speaker would find wrong or confusing (for example calques from Polish).
+Do NOT rewrite for style. Keep the author's words, tone, register, sentence structure and length wherever they are
+correct, even if you would phrase them differently. Do not make the text more formal, more polite or more fluent, do
+not change what happened or when, and do not drop or add content.
+For each mistake give the fragment exactly as written ("wrong"), the corrected fragment ("better") and a short reason,
+at most 12 words ("why").
+"improved": the original text with only those fixes applied; everything else stays exactly as written, including
+names, codes, numbers, links, greetings, formatting and line breaks.
+If there are no mistakes, return no issues and the text unchanged.
 If the text is not in English, set "language" to its language, return no issues and the text unchanged."""
+
+# Rewrites on request (Writing tab buttons): here changing the style is the point.
+STYLES = {
+    "professional": "more professional: clear, polite and confident, as in a work e-mail to a colleague in another team",
+    "casual": "more casual: friendly and relaxed, as in a Teams chat with a colleague you know well",
+    "shorter": "shorter: keep every fact, request and deadline, drop the rest",
+}
+STYLE_SYSTEM = """You rewrite an English work message by a non-native speaker (Polish) so that it is {goal}.
+Keep the meaning, the facts, names, codes, numbers, links and the language (English). Fix any mistakes on the way.
+Do not invent content. Keep the greeting and the sign-off if there are any.
+Return the rewritten text as "improved", "issues" empty, "language" "English"."""
 
 SCHEMA = {
     "type": "object",
@@ -113,20 +128,23 @@ class Wording:
         finally:
             self._lock.release()
 
-    def check(self, text: str) -> dict:
-        """From the Writing tab: runs here and returns the result."""
+    def check(self, text: str, style: str = "") -> dict:
+        """From the Writing tab: runs here and returns the result. `style` asks for a rewrite (STYLES) instead."""
         text = (text or "").strip()
         if not text:
             raise ValueError("paste a text first")
+        if style and style not in STYLES:
+            raise ValueError(f"style must be one of {', '.join(STYLES)}")
         with self._lock:
-            self._run(text, "window")
+            self._run(text, "window", style)
         return self.last
 
-    def _run(self, text: str, mode: str) -> None:
+    def _run(self, text: str, mode: str, style: str = "") -> None:
         item = {"id": self.last.get("id") if self.last.get("state") == "working" else next(_ids),
-                "original": text[:MAX_CHARS], "mode": mode}
+                "original": text[:MAX_CHARS], "mode": mode, "style": style}
+        system = STYLE_SYSTEM.format(goal=STYLES[style]) if style else SYSTEM
         try:
-            content, stats = self.llm.chat(SYSTEM, text[:MAX_CHARS], SCHEMA, max_tokens=max(400, len(text) // 2))
+            content, stats = self.llm.chat(system, text[:MAX_CHARS], SCHEMA, max_tokens=max(400, len(text) // 2))
             item.update(clean_answer(text, parse_json(content)), state="done", stats=stats)
         except LLMError as e:
             log.warning("wording failed: %s", e)

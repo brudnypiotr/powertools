@@ -62,10 +62,13 @@ def _short(text: str, n: int = 1500) -> str:
     return text if len(text) <= n else text[:n] + " [...]"
 
 
-def mail_items(g, me: dict, since: datetime) -> list[dict]:
+def mail_items(g, me: dict, since: datetime, step=lambda text: None) -> list[dict]:
     addresses = {a.lower() for a in (me.get("mail"), me.get("userPrincipalName")) if a}
     items = []
-    for t in mail.search_threads(g, "inbox", since=since, limit=400):
+    step("reading mail: finding threads")
+    threads = mail.search_threads(g, "inbox", since=since, limit=400)
+    for n, t in enumerate(threads, 1):
+        step(f"reading mail: thread {n}/{len(threads)}")
         msgs = mail.fetch_thread(g, t["id"])   # received and sent: shows whether it was answered
         if not msgs:
             continue
@@ -91,10 +94,13 @@ def mail_items(g, me: dict, since: datetime) -> list[dict]:
     return items
 
 
-def chat_items(g, me: dict, since: datetime, until: datetime) -> list[dict]:
+def chat_items(g, me: dict, since: datetime, until: datetime, step=lambda text: None) -> list[dict]:
     items = []
+    step("reading Teams: listing chats")
     chats = [c for c in teams.list_chats(g, me.get("id", "")) if c["last"] and export.parse_time(c["last"]) >= since]
-    for c in chats[:MAX_CHATS]:
+    chats = chats[:MAX_CHATS]
+    for n, c in enumerate(chats, 1):
+        step(f"reading Teams: chat {n}/{len(chats)}")
         msgs = teams.fetch_messages(g, c["id"], since, until)
         if not msgs:
             continue
@@ -120,6 +126,7 @@ class Recap:
         self._lock = threading.Lock()
         self.data = self._load()
         self.job = None
+        self.current = ""          # what the running recap does now (shown in the tab)
 
     def _load(self) -> dict:
         try:
@@ -139,6 +146,8 @@ class Recap:
         reviewed = [i for i in items if i.get("user_category")]
         return {"items": items, "range": self.data.get("range", {}), "created": self.data.get("created", 0),
                 "model": self.data.get("model", ""), "job": self.job.view() if self.job else None,
+                "current": self.current if self.job and self.job.state in ("queued", "running") else "",
+                "ahead": [j.title for j in self.graph.jobs.all if j.state == "running" and j is not self.job],
                 "reviewed": len(reviewed), "agreed": sum(i["user_category"] == i.get("category") for i in reviewed)}
 
     def correct(self, key: str, category: str) -> dict:
@@ -170,23 +179,32 @@ class Recap:
         sources = [s for s in sources if s in ("mail", "teams")] or ["mail", "teams"]
         if self.job and self.job.state in ("queued", "running"):
             raise ValueError("a recap is already running")
+        # the old recap goes at once: the tab then fills with the new one as the model sorts it
+        self.data = {"items": [], "cache": self.data.get("cache", {}), "range": {**rng, "sources": sources},
+                     "created": time.time(), "model": self.settings["llm_model"]}
+        self._save()
+        self.current = "waiting for the export that is running now"
+
+        def step(text: str) -> None:
+            self.current = text
 
         def run(job) -> None:
             until = datetime.now().astimezone()
             g = self.graph.g
+            step("reading your profile")
             me = g.get("/me", {"$select": "id,displayName,mail,userPrincipalName"})
             name = me.get("displayName") or "the user"
             job.note("collecting mail and chats ...")
-            items = (mail_items(g, me, since) if "mail" in sources else []) + \
-                    (chat_items(g, me, since, until) if "teams" in sources else [])
+            items = (mail_items(g, me, since, step) if "mail" in sources else []) + \
+                    (chat_items(g, me, since, until, step) if "teams" in sources else [])
             items.sort(key=lambda i: i["last"], reverse=True)
-            cache = self.data.get("cache", {})
-            self.data = {"items": items, "cache": cache, "range": {**rng, "sources": sources},
-                         "created": time.time(), "model": self.settings["llm_model"]}
+            self.data["items"] = items
+            cache = self.data["cache"]
             job.total, job.done = len(items), 0
             job.note(f"{len(items)} conversation(s); the model sorts them now")
             system = system_prompt(name)
-            for item in items:
+            for n, item in enumerate(items, 1):
+                step(f"sorting {n}/{len(items)}: {item['title'][:80]}")
                 ck = self._cache_key(item)
                 if ck in cache:
                     item.update(cache[ck])
@@ -201,6 +219,7 @@ class Recap:
             if len(cache) > 3000:   # keep the newest entries
                 self.data["cache"] = dict(list(cache.items())[-2000:])
             self._save()
+            self.current = ""
             job.note(f"done: {sum(i.get('category') in ('todo', 'reply') for i in items)} to act on")
 
         self.job = self.graph.jobs.submit("Recap", run)

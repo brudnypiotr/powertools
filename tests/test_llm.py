@@ -484,3 +484,31 @@ def test_ollama_delete_unloads_then_removes(tmp_path, monkeypatch):
     calls.clear()
     o.delete("gemma4:e2b")                     # not loaded: nothing to unload
     assert [p for m, p, b in calls] == ["/api/ps", "/api/delete"]
+
+
+def test_recap_start_clears_the_old_one_and_shows_the_step(tmp_path):
+    s = Settings(tmp_path / "s.json")
+    r = recap.Recap(s, FakeService(recap_graph()), FakeLLM(lambda u: {"category": "fyi"}), tmp_path / "recap.json")
+    r.start({"kind": "days", "days": 2}, ["mail"])
+    assert r.view()["items"] and r.view()["current"] == ""                       # finished: no step shown
+
+    class Waiting(FakeJobs):
+        def submit(self, title, run):
+            from powertools.jobs import Job
+            self.all.append(Job(title, run))                                     # queued behind an export
+            return self.all[-1]
+    r.graph.jobs = Waiting()
+    r.start({"kind": "days", "days": 7}, ["teams"])
+    v = r.view()
+    assert v["items"] == [] and v["range"]["days"] == 7 and "waiting" in v["current"]
+    assert r.data["cache"]                                                        # the cache stays
+
+
+def test_wording_style_rewrite_uses_its_own_prompt(tmp_path):
+    w, out = make_wording(tmp_path)
+    w.check("Hi Mark, regarding to our meeting.", "shorter")
+    assert w.last["style"] == "shorter" and "shorter" in w.llm.calls[-1]["system"]
+    w.check("Hi Mark, regarding to our meeting.")
+    assert w.last["style"] == "" and "Do NOT rewrite for style" in w.llm.calls[-1]["system"]
+    with pytest.raises(ValueError):
+        w.check("text", "poetic")

@@ -53,7 +53,11 @@
     <div class="card">
       <div class="muted small" id="w-hint">Select an English text anywhere and press the wording hotkey, or paste it here.</div>
       <textarea id="w-text" rows="6" placeholder="Paste an e-mail or a message"></textarea>
-      <div class="row"><span id="w-status" class="muted"></span><button id="w-check" class="primary">Check</button></div>
+      <div class="row"><span id="w-status" class="muted"></span>
+        <button class="w-style" data-style="professional" title="Rewrite: clear and polite, for a work e-mail">More professional</button>
+        <button class="w-style" data-style="casual" title="Rewrite: friendly, for a chat">More casual</button>
+        <button class="w-style" data-style="shorter" title="Rewrite: same facts, fewer words">Shorter</button>
+        <button id="w-check" class="primary" title="Only fixes mistakes, keeps your style">Check</button></div>
     </div>
     <div id="w-result"></div>
   </section>
@@ -71,6 +75,7 @@
       <button class="primary">Recap</button>
     </form>
     <div id="recap-status" class="muted small"></div>
+    <div id="recap-now"></div>
     <div id="recap-list"></div>
     <div class="jobs"></div>
   </section>
