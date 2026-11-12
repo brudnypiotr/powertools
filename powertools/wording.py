@@ -144,7 +144,10 @@ class Wording:
                 "original": text[:MAX_CHARS], "mode": mode, "style": style}
         system = STYLE_SYSTEM.format(goal=STYLES[style]) if style else SYSTEM
         try:
-            content, stats = self.llm.chat(system, text[:MAX_CHARS], SCHEMA, max_tokens=max(400, len(text) // 2))
+            # the answer holds the whole text again plus every faulty fragment twice: about a token per character
+            n = len(text[:MAX_CHARS])
+            content, stats = self.llm.chat(system, text[:MAX_CHARS], SCHEMA, max_tokens=400 + n,
+                                           num_ctx=max(4096, 1000 + n // 3 + 400 + n))
             item.update(clean_answer(text, parse_json(content)), state="done", stats=stats)
         except LLMError as e:
             log.warning("wording failed: %s", e)

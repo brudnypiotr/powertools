@@ -1,4 +1,4 @@
-"""Recap: mail (Inbox) and Teams chats of the last N days, sorted by the local model into
+"""Recap: mail (Inbox with its subfolders) and Teams chats of the last N days, sorted by the local model into
 todo / reply / fyi / ignore, with a one-line summary and the next step.
 
 An experiment: the user can move an item to the right group, and the tab counts how often the model was right.
@@ -66,7 +66,7 @@ def mail_items(g, me: dict, since: datetime, step=lambda text: None) -> list[dic
     addresses = {a.lower() for a in (me.get("mail"), me.get("userPrincipalName")) if a}
     items = []
     step("reading mail: finding threads")
-    threads = mail.search_threads(g, "inbox", since=since, limit=400)
+    threads = mail.search_threads(g, folder_ids=mail.folder_tree(g, "inbox"), since=since, limit=400)
     for n, t in enumerate(threads, 1):
         step(f"reading mail: thread {n}/{len(threads)}")
         msgs = mail.fetch_thread(g, t["id"])   # received and sent: shows whether it was answered

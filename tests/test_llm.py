@@ -197,7 +197,13 @@ def recap_graph():
             if f"'{cid}'" in f:
                 return {"value": msgs}
         raise AssertionError(f)
-    inbox = {"value": asks + news + answered[:1]}
+    inbox = {"value": news + answered[:1]}
+    folders = {"/me/mailFolders/inbox/childFolders": {"value": [{"id": "f-rules", "childFolderCount": 1},
+                                                                {"id": "f-empty", "childFolderCount": 0}]},
+               "/me/mailFolders/f-rules/childFolders": {"value": [{"id": "f-deep", "childFolderCount": 0}]},
+               "/me/mailFolders/f-rules/messages": {"value": []},
+               "/me/mailFolders/f-empty/messages": {"value": []},
+               "/me/mailFolders/f-deep/messages": {"value": asks}}
     chat = {"value": [{"id": "c1", "chatType": "oneOnOne", "members": [{"displayName": "Jan", "userId": "u-jan"}],
                        "lastMessagePreview": {"createdDateTime": iso(2)}, "webUrl": "https://t/c1"},
                       {"id": "c2", "chatType": "group", "topic": "Old", "members": [],
@@ -205,7 +211,7 @@ def recap_graph():
     chat_msgs = {"value": [{"id": "t1", "messageType": "message", "createdDateTime": iso(2),
                             "from": {"user": {"id": "u-jan", "displayName": "Jan"}},
                             "body": {"contentType": "text", "content": "Do you have a minute to answer my question?"}}]}
-    return FakeGraph({"/me/mailFolders/inbox/messages": inbox, "/me/messages": messages, "/me/chats": chat,
+    return FakeGraph({"/me/mailFolders/inbox/messages": inbox, **folders, "/me/messages": messages, "/me/chats": chat,
                       "/chats/c1/messages": chat_msgs, "/me": ME})
 
 
@@ -283,6 +289,16 @@ def test_ollama_test_reports_speed_and_gpu_share(tmp_path, monkeypatch):
     s.update({"llm_gpu": "cpu"})
     o.chat("sys", "hi")
     assert [b for m, p, b in calls if p == "/api/chat"][-1]["options"]["num_gpu"] == 0
+
+
+def test_a_cut_off_json_answer_says_so(tmp_path, monkeypatch):
+    o = llm.Ollama(Settings(tmp_path / "s.json"))
+    monkeypatch.setattr(o, "running", lambda: True)
+    monkeypatch.setattr(o, "_req", lambda m, p, b=None, timeout=10: {
+        "message": {"content": '{"language": "english", "issues": [{"wrong": "4651 is supposedly'},
+        "done_reason": "length", "eval_count": 400})
+    with pytest.raises(llm.LLMError, match="cut off after 400 tokens"):
+        o.chat("sys", "text", {"type": "object"}, max_tokens=400)
 
 
 def test_ollama_not_running(tmp_path, monkeypatch):
@@ -512,3 +528,11 @@ def test_wording_style_rewrite_uses_its_own_prompt(tmp_path):
     assert w.last["style"] == "" and "Do NOT rewrite for style" in w.llm.calls[-1]["system"]
     with pytest.raises(ValueError):
         w.check("text", "poetic")
+
+
+def test_wording_leaves_room_for_the_whole_text_and_the_issues(tmp_path):
+    w, out = make_wording(tmp_path)
+    text = "4651 is supposedly assigned on A-TTC-V25-6/4-[AI]-202646, there are 3 TRs, all 6th Apr 2026. " * 6
+    w.check(text)
+    kw = w.llm.calls[-1]
+    assert kw["max_tokens"] >= len(text.strip()) and kw["num_ctx"] >= kw["max_tokens"] + len(text) // 4

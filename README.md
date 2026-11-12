@@ -159,8 +159,8 @@ Nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
   copied (the clipboard comes back), the window opens on the **Writing** tab with the mistakes (wrong → better · why)
   and a better version to edit and copy. "Replace the selection right away" pastes the better version over the
   selection instead. The Writing tab also checks pasted text. Ctrl+W works too, but then it no longer closes tabs.
-- **Recap** tab: mail (Inbox) and Teams chats of the last day / 2 days / week / 2 weeks / 30 days or since a date,
-  sorted by the model into **To do**, **To answer**, **Good to know** and **Ignore**, each with a one-line summary, the
+- **Recap** tab: mail (Inbox and all its subfolders) and Teams chats of the last day / 2 days / week / 2 weeks /
+  30 days or since a date, sorted by the model into **To do**, **To answer**, **Good to know** and **Ignore**, each with a one-line summary, the
   next step, a deadline when one is mentioned, and a link to Outlook/Teams. Automatic senders (no-reply, notifications)
   go to Ignore without the model. An experiment: move an item to the right group when the model is wrong, and the tab
   counts how often it was right. Results stay in `%LOCALAPPDATA%\powertools\recap.json`; a conversation is classified

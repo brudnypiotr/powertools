@@ -374,6 +374,8 @@ class Ollama:
                     raise
                 body.pop("think")  # a model without the thinking switch
                 r = self._req("POST", "/api/chat", body, timeout=timeout)
+        if schema and r.get("done_reason") == "length":
+            raise LLMError(f"the model's answer was cut off after {r.get('eval_count', max_tokens)} tokens")
         stats = {"model": model, "load_s": round(r.get("load_duration", 0) / NS, 1),
                  "total_s": round(r.get("total_duration", 0) / NS, 1),
                  "prompt_tokens": r.get("prompt_eval_count", 0), "tokens": r.get("eval_count", 0),

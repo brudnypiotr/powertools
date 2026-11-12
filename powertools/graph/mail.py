@@ -30,6 +30,17 @@ def folders(g: Graph, depth: int = 3) -> list[dict]:
     return out
 
 
+def folder_tree(g: Graph, folder_id: str = "inbox") -> list[str]:
+    """The folder and all its subfolders at any depth (mail moved there by rules still counts)."""
+    ids, todo = [folder_id], [folder_id]
+    while todo:
+        for f in g.pages(f"/me/mailFolders/{todo.pop()}/childFolders", {"$top": "100", "$select": "id,childFolderCount"}):
+            ids.append(f["id"])
+            if f.get("childFolderCount"):
+                todo.append(f["id"])
+    return ids
+
+
 def _kql(value: str) -> str:
     value = value.replace('"', "")
     return f'"{value}"' if " " in value else value
@@ -40,8 +51,10 @@ def person_names(rcps: list) -> list[str]:
 
 
 def search_threads(g: Graph, folder_id: str = "", person: str = "", subject: str = "",
-                   since: datetime | None = None, limit: int = 300) -> list[dict]:
-    base = f"/me/mailFolders/{folder_id}/messages" if folder_id else "/me/messages"
+                   since: datetime | None = None, limit: int = 300, folder_ids: list[str] | None = None) -> list[dict]:
+    """Threads in one folder, in several (`folder_ids`, `limit` messages each) or in the whole mailbox."""
+    ids = folder_ids or ([folder_id] if folder_id else [])
+    bases = [f"/me/mailFolders/{f}/messages" for f in ids] or ["/me/messages"]
     if person or subject:
         terms = []
         if since:
@@ -56,7 +69,7 @@ def search_threads(g: Graph, folder_id: str = "", person: str = "", subject: str
         if since:
             params["$filter"] = f"receivedDateTime ge {since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
     threads: dict[str, dict] = {}
-    for m in g.pages(base, params, max_items=limit):
+    for m in (m for base in bases for m in g.pages(base, params, max_items=limit)):
         cid = m.get("conversationId")
         if not cid:
             continue
