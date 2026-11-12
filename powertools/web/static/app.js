@@ -737,7 +737,7 @@ async function loadRecap() {
   $("#recap-form button").disabled = running;
   const pct = job.total ? Math.round(100 * job.done / job.total) : 0;
   $("#recap-now").innerHTML = running
-    ? `<div class="card recap-now"><span class="cradle"><i></i><i></i><i></i><i></i><i></i></span><b>Working:</b> ${esc(r.current || job.state)}
+    ? `<div class="card recap-now"><b>Working:</b> ${esc(r.current || job.state)}
         ${job.total ? `<div class="bar"><span style="width:${pct}%"></span></div><span class="muted small">${job.done} of ${job.total} sorted; they show up below as they are done</span>` : ""}
         ${job.state === "queued" && r.ahead.length ? `<div class="muted small">First the job that is running now: ${esc(r.ahead.join(", "))}</div>` : ""}</div>`
     : job.state === "needs_token" ? `<div class="card"><span class="warn">Paused: the token expired. Get a new token and the recap goes on.</span></div>`

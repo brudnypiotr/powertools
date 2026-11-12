@@ -25,6 +25,22 @@ FPS_MS = 33
 N_BARS = 9
 
 
+def cradle(t: float) -> list[tuple[float, float]]:
+    """Offsets (dx, dy) of the five balls at time t: the outer ones swing out and rise, the whole row leans along with
+    them, and every hit runs a small hop through the three in the middle, in the direction of the hit."""
+    phase = (t * 5) % (2 * math.pi)
+    s = math.sin(phase)
+    lean = 1.5 * s
+    out = [(lean, 0.0) for _ in range(5)]
+    out[0 if s < 0 else 4] = (s * 9 + lean, -abs(s) * 3)
+    hit, step = (phase, 1) if phase < math.pi else (phase - math.pi, -1)   # the left ball hits at 0, the right at pi
+    for j, i in enumerate((1, 2, 3) if step > 0 else (3, 2, 1)):
+        x = hit - j * 0.25
+        if 0 < x < 0.7:
+            out[i] = (lean, -2.5 * math.sin(math.pi * x / 0.7))
+    return out
+
+
 class NullOverlay:
     available = False
 
@@ -174,10 +190,8 @@ class Overlay:
                 c.create_oval(cx - 5, H / 2 - 5 - dy, cx + 5, H / 2 + 5 - dy, fill=AMBER, outline="")
         elif self.state == "thinking":
             self._pill(BG)
-            s = math.sin(t * 5)
-            for i in range(5):
-                swing = s if (i == 0 and s < 0) or (i == 4 and s > 0) else 0
-                cx, cy = W / 2 + (i - 2) * 12 + swing * 9, H / 2 - abs(swing) * 3
+            for i, (dx, dy) in enumerate(cradle(t)):
+                cx, cy = W / 2 + (i - 2) * 12 + dx, H / 2 + dy
                 c.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=SKY, outline="")
         elif self.state == "error":
             self._pill(GREY)

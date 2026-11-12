@@ -12,6 +12,8 @@ import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .overlay import cradle
+
 SS = 3  # supersampling
 PILL_W, PILL_H = 148, 40
 CARD_W = 340
@@ -76,12 +78,8 @@ def pill(state: str, t: float, levels: list[float], scale: float = 1.0) -> Image
             rr = 5 * k
             d.ellipse((cx - rr, cy - rr - dy, cx + rr, cy + rr - dy), fill=AMBER[:3] + (a,))
     elif state == "thinking":   # the local model: five light-blue balls, a Newton's cradle
-        s = math.sin(t * 5)
-        for i in range(5):
-            cx, by = w / 2 + (i - 2) * 12 * k, cy
-            if (i == 0 and s < 0) or (i == 4 and s > 0):   # the outer ball swings out and rises a little
-                cx, by = cx + s * 9 * k, cy - abs(s) * 3 * k
-            rr = 5 * k
+        for i, (dx, dy) in enumerate(cradle(t)):
+            cx, by, rr = w / 2 + ((i - 2) * 12 + dx) * k, cy + dy * k, 5 * k
             d.ellipse((cx - rr, by - rr, cx + rr, by + rr), fill=SKY)
     elif state == "error":
         f = _font(int(13 * k), bold=True)
