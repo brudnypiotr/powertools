@@ -250,7 +250,7 @@ class WinOverlay:
                 return
             if kind == "state":
                 self.state, self.since = item[1], time.time()
-                if self.state in ("recording", "transcribing", "error"):
+                if self.state in ("recording", "transcribing", "thinking", "error"):
                     self.levels.extend([0.0] * 12)
                     self._draw_pill()
                     user32.ShowWindow(self.pill_hwnd, SW_SHOWNOACTIVATE)
@@ -267,7 +267,7 @@ class WinOverlay:
         if self.state == "error" and time.time() - self.since > 2.5:
             self.state = "idle"
             user32.ShowWindow(self.pill_hwnd, SW_HIDE)
-        if self.state in ("recording", "transcribing", "error"):
+        if self.state in ("recording", "transcribing", "thinking", "error"):
             if self.state == "recording":
                 self.levels.append(min(1.0, self.level() * 9))
             self._draw_pill()

@@ -116,7 +116,7 @@ def test_wording_review_shows_the_window(tmp_path):
     assert out["shown"] == 1 and out["pasted"] == []
     assert w.last["state"] == "done" and w.last["changed"]
     assert [i["wrong"] for i in w.last["issues"]] == ["regarding to"]   # the non-change is dropped
-    assert out["states"] == ["transcribing", "idle"]
+    assert out["states"] == ["thinking", "idle"]
 
 
 def test_wording_replace_pastes_over_the_selection(tmp_path):

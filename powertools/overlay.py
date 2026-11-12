@@ -2,6 +2,7 @@
 
   recording     pulsing red dot + bars that follow the microphone level
   transcribing  three amber dots in a wave
+  thinking      five light-blue balls swinging like a Newton's cradle (the local model works)
   error         grey pill with "!" for 2.5 s
 
 tkinter runs on the main thread; other threads only put states into a queue that the Tk loop polls.
@@ -19,7 +20,7 @@ from typing import Callable
 
 W, H, BOTTOM = 132, 36, 72          # pill size and distance from the bottom edge (above the taskbar)
 KEY = "#010203"                     # transparent colour
-BG, RED, AMBER, GREY, BAR = "#1e1f24", "#ff3b47", "#ffb020", "#8a8a90", "#f2f2f5"
+BG, RED, AMBER, SKY, GREY, BAR = "#1e1f24", "#ff3b47", "#ffb020", "#78c8ff", "#8a8a90", "#f2f2f5"
 FPS_MS = 33
 N_BARS = 9
 
@@ -171,6 +172,13 @@ class Overlay:
                 dy = 6 * math.sin(t * 7 - i * 0.9)
                 cx = W / 2 - 18 + i * 18
                 c.create_oval(cx - 5, H / 2 - 5 - dy, cx + 5, H / 2 + 5 - dy, fill=AMBER, outline="")
+        elif self.state == "thinking":
+            self._pill(BG)
+            s = math.sin(t * 5)
+            for i in range(5):
+                swing = s if (i == 0 and s < 0) or (i == 4 and s > 0) else 0
+                cx, cy = W / 2 + (i - 2) * 12 + swing * 9, H / 2 - abs(swing) * 3
+                c.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=SKY, outline="")
         elif self.state == "error":
             self._pill(GREY)
             c.create_text(W / 2, H / 2, text="!", fill="white", font=("Segoe UI", 14, "bold"))
@@ -186,7 +194,7 @@ class Overlay:
                     self.root.quit()
                     return
                 self.state, self.since = state, time.time()
-                if state in ("recording", "transcribing", "error"):
+                if state in ("recording", "transcribing", "thinking", "error"):
                     self.levels.extend([0.0] * N_BARS)
                     self._place(True)
                     self.root.attributes("-topmost", True)
@@ -197,7 +205,7 @@ class Overlay:
         if self.state == "error" and time.time() - self.since > 2.5:
             self.state = "idle"
             self._place(False)
-        if self.state in ("recording", "transcribing", "error"):
+        if self.state in ("recording", "transcribing", "thinking", "error"):
             self._draw()
         self.root.after(FPS_MS, self._tick)
 

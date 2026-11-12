@@ -122,7 +122,7 @@ class Wording:
             if mode == "review":
                 self.last = {"id": next(_ids), "state": "working", "original": text[:MAX_CHARS]}
                 self.show()
-            self.on_state("transcribing")
+            self.on_state("thinking")
             self._run(text, mode)
             self.on_state("error" if self.last.get("state") == "error" else "idle")
         finally:

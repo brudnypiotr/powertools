@@ -214,3 +214,10 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .side nav button:disabled { opacity: .4; cursor: not-allowed; } .side nav button:disabled:hover { background: none; color: var(--muted); }
 .recap-now .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
 .recap-now .bar span { display: block; height: 100%; background: var(--accent); }
+/* the local model at work: five light-blue balls, a Newton's cradle (as on the pill) */
+.cradle { display: inline-flex; gap: 2px; margin-right: 10px; vertical-align: middle; --sky: #78c8ff; }
+.cradle i { width: 8px; height: 8px; border-radius: 50%; background: var(--sky); }
+.cradle i:first-child { animation: swing-left 1.26s ease-in-out infinite; }
+.cradle i:last-child { animation: swing-right 1.26s ease-in-out infinite; }
+@keyframes swing-left { 0%, 50%, 100% { transform: none; } 75% { transform: translate(-8px, -2px); } }
+@keyframes swing-right { 0%, 50%, 100% { transform: none; } 25% { transform: translate(8px, -2px); } }

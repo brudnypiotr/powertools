@@ -19,6 +19,7 @@ BG = (22, 23, 28, 238)
 BORDER = (255, 255, 255, 28)
 RED = (255, 69, 80, 255)
 AMBER = (255, 184, 48, 255)
+SKY = (120, 200, 255, 255)
 WHITE = (242, 242, 246, 255)
 MUTED = (160, 164, 176, 255)
 BTN = (52, 54, 62, 255)
@@ -40,7 +41,8 @@ def _font(size: int, bold: bool = False):
 
 
 def pill(state: str, t: float, levels: list[float], scale: float = 1.0) -> Image.Image:
-    """state: recording | transcribing | error. t: seconds since the state began. levels: recent mic levels 0..1."""
+    """state: recording | transcribing | thinking | error. t: seconds since the state began.
+    levels: recent mic levels 0..1."""
     k = scale * SS
     w, h = int(PILL_W * k), int(PILL_H * k)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -73,6 +75,14 @@ def pill(state: str, t: float, levels: list[float], scale: float = 1.0) -> Image
             cx = w / 2 + (i - 1) * 18 * k
             rr = 5 * k
             d.ellipse((cx - rr, cy - rr - dy, cx + rr, cy + rr - dy), fill=AMBER[:3] + (a,))
+    elif state == "thinking":   # the local model: five light-blue balls, a Newton's cradle
+        s = math.sin(t * 5)
+        for i in range(5):
+            cx, by = w / 2 + (i - 2) * 12 * k, cy
+            if (i == 0 and s < 0) or (i == 4 and s > 0):   # the outer ball swings out and rises a little
+                cx, by = cx + s * 9 * k, cy - abs(s) * 3 * k
+            rr = 5 * k
+            d.ellipse((cx - rr, by - rr, cx + rr, by + rr), fill=SKY)
     elif state == "error":
         f = _font(int(13 * k), bold=True)
         d.text((w / 2, cy), "!  not available", fill=MUTED, font=f, anchor="mm")

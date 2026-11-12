@@ -1,6 +1,7 @@
 """The powertools icon: a plain red dot in the middle, on a transparent background.
 
-Tray states keep the dot: idle red, recording red with a ring, transcribing amber, meeting purple, loading/error grey.
+Tray states keep the dot: idle red, recording red with a ring, transcribing amber, thinking (local model)
+light blue, meeting purple, loading/error grey.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from PIL import Image, ImageDraw
 
 SS = 4
 COLORS = {"idle": (232, 52, 64), "recording": (232, 52, 64), "transcribing": (240, 160, 30),
+          "thinking": (120, 200, 255),
           "meeting": (140, 82, 224), "loading": (150, 150, 158), "error": (120, 120, 128)}
 DOT = 0.28       # radius as a share of the icon size (diameter 56 %)
 
