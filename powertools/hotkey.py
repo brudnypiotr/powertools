@@ -14,16 +14,16 @@ class Hotkey:
         self.combo = ""
         self._handle = None
 
-    def bind(self, combo: str) -> None:
+    def bind(self, combo: str, suppress: bool = True) -> None:
         import keyboard
 
         if self._handle is not None:
             keyboard.remove_hotkey(self._handle)
             self._handle = None
-        # suppress=True keeps the key (e.g. the "q" of Alt+Q) out of the focused app;
+        # suppress=True keeps the key (e.g. the "q" of Alt+Q) out of the focused app (False: the app gets it too);
         # the callback runs in its own thread so the keyboard hook never waits for audio code
         self._handle = keyboard.add_hotkey(combo, lambda: threading.Thread(target=self.callback, daemon=True).start(),
-                                           suppress=True, trigger_on_release=False)
+                                           suppress=suppress, trigger_on_release=False)
         self.combo = combo
         log.info("hotkey bound: %s", combo)
 

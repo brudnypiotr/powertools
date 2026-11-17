@@ -143,11 +143,11 @@ async function loadSettings() {
     [...new Set([...list, cur].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   f.meeting_mic.innerHTML = opts(md.inputs, s.meeting_mic, "Windows default microphone");
   f.meeting_output.innerHTML = opts(md.outputs, s.meeting_output, "Windows default output");
-  for (const k of ["meeting_mic", "meeting_output", "meeting_final_model", "meeting_keep_audio_days"]) f[k].value = s[k];
+  for (const k of ["meeting_mic", "meeting_output", "meeting_final_model", "meeting_keep_audio_days", "meeting_mute_hotkey"]) f[k].value = s[k];
   f.meeting_prompt.checked = s.meeting_prompt;
   f.meeting_mute_sync.checked = s.meeting_mute_sync;
   f.meeting_summary.checked = s.meeting_summary;
-  api("GET", "/api/meetings").then((m) => { $("#teams-link").textContent = teamsLink(m.teams); }).catch(() => {});
+  api("GET", "/api/meetings").then((m) => { $("#teams-link").textContent = m.teams && m.teams.connected ? teamsLink(m.teams) : ""; }).catch(() => {});
   f.notifications.checked = s.notifications;
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
@@ -178,7 +178,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
     jira_max_attachment_mb: Number(f.jira_max_attachment_mb.value),
     meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
-    meeting_mute_sync: f.meeting_mute_sync.checked, meeting_summary: f.meeting_summary.checked,
+    meeting_mute_sync: f.meeting_mute_sync.checked, meeting_summary: f.meeting_summary.checked, meeting_mute_hotkey: f.meeting_mute_hotkey.value.trim(),
     llm_model: f.llm_model.value, llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
     dictation_cleanup: f.dictation_cleanup.checked, wording_hotkey: f.wording_hotkey.value, wording_mode: f.wording_mode.value,
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
@@ -579,16 +579,18 @@ async function loadMeetings() {
   if (cur) {
     if (!now.querySelector(".timer")) {
       now.innerHTML = `<div class="meetbar"><span class="pill recording">recording</span><b class="mtitle"></b>
-        <span class="timer"></span><span class="pill transcribing mutedp hidden" title="Muted in Teams: your microphone is not recorded">muted</span><span class="lv">Me <span class="meter"><span class="lme"></span></span></span>
+        <span class="timer"></span><span class="pill transcribing mutedp hidden" title="Me muted: your microphone is not recorded">Me muted</span><span class="lv">Me <span class="meter"><span class="lme"></span></span></span>
         <span class="lv">Others <span class="meter"><span class="lot"></span></span></span></div>
         <div class="meetbar" style="margin-top:10px"><input class="note" placeholder="Note for this moment (optional)">
-        <button class="mark">Mark moment</button><button class="stop rec">Stop</button></div>`;
+        <button class="mark">Mark moment</button><button class="mute"></button><button class="stop rec">Stop</button></div>`;
+      now.querySelector(".mute").onclick = async () => { await api("POST", "/api/meetings/mute", {}); loadMeetings(); };
       now.querySelector(".mark").onclick = async () => { await api("POST", "/api/meetings/mark", { note: now.querySelector(".note").value }); now.querySelector(".note").value = ""; };
       now.querySelector(".stop").onclick = async () => { await api("POST", "/api/meetings/stop"); setTimeout(loadMeetings, 500); };
     }
     now.querySelector(".mtitle").textContent = cur.title;
     now.querySelector(".timer").textContent = clock(Date.now() / 1000 - cur.started);
-    now.querySelector(".mutedp").classList.toggle("hidden", !(m.muted && m.teams));
+    now.querySelector(".mutedp").classList.toggle("hidden", !m.muted);
+    now.querySelector(".mute").textContent = m.muted ? "Unmute Me" : "Mute Me";
     now.querySelector(".lme").style.width = Math.min(100, m.levels.me * 600) + "%";
     now.querySelector(".lot").style.width = Math.min(100, m.levels.others * 600) + "%";
     live.classList.remove("hidden");
@@ -614,7 +616,7 @@ async function loadMeetings() {
     }
   }
   const tl = now.querySelector(".tlink");
-  if (tl) tl.textContent = m.teams && m.teams.paired ? "While you are muted in Teams, your microphone is not recorded." : "";
+  if (tl) tl.textContent = m.mute_hotkey ? `${m.mute_hotkey.toUpperCase()} mutes Teams and "Me" in the recording together.` : "";
   const status = { done: "done", finalizing: "transcribing...", interrupted: "interrupted", recording: "recording" };
   const hm = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const mins = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.round(sec % 3600 / 60)} min` : `${Math.max(1, Math.round(sec / 60))} min`;
@@ -638,7 +640,7 @@ async function loadMeetings() {
             : `<div class="muted">No attendees yet. <button data-act="cal">Fill from calendar</button> (needs the Graph token from the Teams tab)</div>`}
           ${talk ? `<div><span class="muted">Speaking</span> Me ${mins(me.seconds || 0)} (${me.words || 0} words) · Others ${mins(ot.seconds || 0)} (${ot.words || 0} words)</div>` : ""}
           ${(s.marks || []).length ? `<div><span class="muted">Marked moments</span> ${s.marks.length}</div>` : ""}
-          ${(s.muted || []).length ? `<div><span class="muted">Muted in Teams</span> ${mins((s.muted || []).reduce((a, [x, y]) => a + ((y ?? s.seconds) - x), 0))} (not recorded)</div>` : ""}
+          ${(s.muted || []).length ? `<div><span class="muted">Me muted</span> ${mins((s.muted || []).reduce((a, [x, y]) => a + ((y ?? s.seconds) - x), 0))} (not recorded)</div>` : ""}
           ${s.transcript_model ? `<div><span class="muted">Transcript</span> ${esc(s.transcript_model)}</div>` : ""}
           ${s.devices ? `<div><span class="muted">Devices</span> mic: ${esc(s.devices.mic || "default")} · others: ${esc(s.devices.output || "default")}</div>` : ""}
           ${s.invite ? `<details><summary class="muted">Invitation</summary><pre>${esc(s.invite)}</pre></details>` : ""}

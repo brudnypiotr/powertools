@@ -164,6 +164,7 @@ class App:
                                    cleaner=lambda text: cleanup.clean(self.llm, text, self.settings["vocabulary"]))
         self.wording = Wording(self.settings, self.llm, deliver, self._on_wording_state, self.show_writing)
         self.wording_hotkey = None
+        self.mute_hotkey = None
         from .recap import Recap
 
         self.recap = Recap(self.settings, self.graph, self.llm)
@@ -194,8 +195,11 @@ class App:
     def apply_settings(self, changes: dict) -> dict:
         dictation = str(changes.get("hotkey", self.settings["hotkey"])).strip().lower()
         wording = str(changes.get("wording_hotkey", self.settings["wording_hotkey"])).strip().lower()
+        mute = str(changes.get("meeting_mute_hotkey", self.settings["meeting_mute_hotkey"])).strip().lower()
         if dictation == wording:
             raise ValueError("the dictation and the wording hotkeys must differ")
+        if mute and mute in (dictation, wording):
+            raise ValueError("the mute hotkey must differ from the dictation and wording hotkeys")
         for key, hk in (("hotkey", self.hotkey), ("wording_hotkey", self.wording_hotkey)):
             if key in changes and hk is not None:
                 new, old = str(changes[key]).strip().lower(), self.settings[key]
@@ -206,6 +210,8 @@ class App:
                         hk.bind(old)
                         raise ValueError(f"hotkey '{new}' not accepted: {e}") from e
         changed = self.settings.update(changes)
+        if "meeting_mute_hotkey" in changed and self.mute_hotkey is not None:
+            self._bind_mute_hotkey()
         if "small_on_cpu" in changed:
             self.engine.small_on_cpu = changed["small_on_cpu"]
         if "model" in changed or ("small_on_cpu" in changed and self.engine.info.get("device") == "cpu"):
@@ -335,17 +341,31 @@ class App:
         elif kind == "summarized":
             self.notify("Meeting summary ready", f"'{title}': summary and key points are in the file.")
 
+    def _bind_mute_hotkey(self) -> None:
+        """Ctrl+Shift+M is Teams' own mute key: listened to, not taken away (Teams still mutes)."""
+        self.mute_hotkey.unbind()
+        combo = self.settings["meeting_mute_hotkey"]
+        if combo:
+            try:
+                self.mute_hotkey.bind(combo, suppress=False)
+            except Exception as e:
+                log.error("mute hotkey %s failed: %s", combo, e)
+
+    def _meeting_tip(self) -> str:
+        if not self.meetings.current:
+            return "powertools: ready"
+        return "powertools: recording a meeting" + (" (Me muted)" if self.meetings.muted else "")
+
     def _meeting_changed(self) -> None:
         if self.tray and self.dictation.state == "idle":
-            self.tray.set_state("meeting" if self.meetings.current else "idle",
-                                "powertools: recording a meeting" if self.meetings.current else "powertools: ready")
+            self.tray.set_state("meeting" if self.meetings.current else "idle", self._meeting_tip())
 
     # ------------------------------------------------------------------ state display
     def _on_state(self, state: str) -> None:
         if self.overlay:
             self.overlay.show(state)
         if self.tray and state == "idle" and self.meetings.current:
-            self.tray.set_state("meeting", "powertools: recording a meeting")
+            self.tray.set_state("meeting", self._meeting_tip())
         elif self.tray:
             self.tray.set_state(state, f"powertools: {state}")
 
@@ -393,8 +413,11 @@ class App:
         except Exception as e:
             log.error("wording hotkey %s failed: %s", self.settings["wording_hotkey"], e)
         self.tray = Tray("powertools", self.settings["hotkey"], self.dictation.toggle, self.open_window, self.quit,
-                         meeting=(lambda: bool(self.meetings.current), self.toggle_meeting, self.meetings.mark))
+                         meeting=(lambda: bool(self.meetings.current), self.toggle_meeting, self.meetings.mark,
+                                  lambda: self.meetings.muted, self.meetings.toggle_muted))
         self.tray.start()
+        self.mute_hotkey = Hotkey(self.meetings.toggle_muted)
+        self._bind_mute_hotkey()
         from .meetings.watcher import Watcher
 
         self.watcher = Watcher(self._call_started, self._call_ended)
@@ -430,6 +453,8 @@ class App:
                 self.hotkey.unbind()
             if self.wording_hotkey:
                 self.wording_hotkey.unbind()
+            if self.mute_hotkey:
+                self.mute_hotkey.unbind()
             if self.recorder.active:
                 self.recorder.stop()
             self.tray.stop()

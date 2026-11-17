@@ -421,3 +421,26 @@ def test_summary_error_is_shown_not_raised(tmp_path, monkeypatch):
     session = mm.Session(folder, {"title": "x", "started": time.time(), "status": "done"})
     m.summarize(session)
     assert session.meta["summary_status"] == "error" and "not running" in session.meta["summary_error"]
+
+
+def test_mute_hotkey_toggles_only_while_recording_and_resets(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+    s.update({"output_dir": str(tmp_path / "out"), "meeting_summary": False, "meeting_mute_hotkey": " Ctrl+Shift+M "})
+    assert s["meeting_mute_hotkey"] == "ctrl+shift+m"
+    m = mm.MeetingManager(s, FakeEngine())
+    assert m.toggle_muted() is None and not m.muted          # no recording: Ctrl+Shift+M is only Teams'
+    folder = m.root / "20261117-130000"
+    folder.mkdir()
+    session = mm.Session(folder, {"title": "x", "started": time.time() - 10, "seconds": 10, "marks": [],
+                                  "status": "recording", "muted": []})
+    m.current = session
+    assert m.toggle_muted() is True and (folder / "MUTED").exists()
+    m.finalize = lambda sess: None
+    m._finish(session)
+    assert not m.muted and not (folder / "MUTED").exists() and session.meta["muted"][0][1] == 10
+    s.update({"meeting_mute_sync": False})
+    m.current = session
+    assert m.toggle_muted() is None and not m.muted
+    s.update({"meeting_mute_hotkey": ""})
+    assert s["meeting_mute_hotkey"] == ""

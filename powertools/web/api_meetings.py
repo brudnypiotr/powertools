@@ -12,6 +12,7 @@ def meetings(h):
     m = h.app.meetings
     h.send(200, {"current": m.current.view(with_live=True) if m.current else None, "levels": m.levels,
                  "teams": h.app.teams.view() if h.app.teams else None, "muted": m.muted,
+                 "mute_hotkey": h.app.settings["meeting_mute_hotkey"] if h.app.settings["meeting_mute_sync"] else "",
                  "pending_prompt": {k: v for k, v in h.app.pending_prompt.items() if k != "event"},
                  "sessions": [s.view() for s in m.sessions() if not m.current or s.id != m.current.id]})
 
@@ -35,6 +36,13 @@ def meeting_stop(h):
         raise ValueError("no meeting is being recorded")
     threading.Thread(target=h.app.meetings.stop, daemon=True).start()  # waits for the recorder to flush
     h.send(200, {"stopping": True})
+
+
+@route("POST", "/api/meetings/mute")
+def meeting_mute(h):
+    if h.app.meetings.toggle_muted() is None:
+        raise ValueError("no meeting is being recorded")
+    h.send(200, {"muted": h.app.meetings.muted})
 
 
 @route("POST", "/api/meetings/mark")

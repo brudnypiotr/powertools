@@ -66,10 +66,11 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
 - Live transcript every 30 s in the Meetings tab, with "Mark moment". After the call (Teams leaves the
   microphone for 20 s, or Stop) the accurate model (large-v3) transcribes both tracks and writes
   `meetings/<date>_<title>.md`: invitation text, attendees, marked moments, `Me:` / `Others:` lines.
-- Muted in Teams = your microphone is not recorded: the recorder writes silence for Me and drops any Me text from
-  those minutes. It reads the Teams mute button through Teams' local API (Teams > Settings > Privacy > Third-party
-  app API > Manage API: on; no admin). In the first call Teams asks once to allow "powertools". Without it, Me is
-  recorded as before (Settings > Meetings).
+- "Me" muted = your microphone is not recorded: the recorder writes silence for Me and drops any Me text from
+  those minutes. While recording, **Ctrl+Shift+M** (Teams' own mute key, passed on to Teams) mutes Teams and Me
+  together; the Mute Me button (Meetings tab, tray) does it by hand. Muting with the mouse in Teams is not seen.
+  Every recording starts unmuted. Where Teams' Third-party app API is allowed (Settings > Privacy), the real Teams
+  mute button is followed instead.
 - After the final transcript the local model (Local AI tab) writes a summary and the key points above the
   transcript in the same file; long meetings are summarized in parts first. "Summarize" in the list redoes it, also
   for older recordings.

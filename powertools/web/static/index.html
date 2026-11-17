@@ -267,8 +267,10 @@
         </select>
       </label>
       <label>Keep meeting audio (days) <input name="meeting_keep_audio_days" type="number" min="0" max="365"></label>
-      <label class="check"><input type="checkbox" name="meeting_mute_sync"> Don't record my microphone while I'm muted in Teams</label>
-      <small>Needs Teams &gt; Settings &gt; Privacy &gt; Third-party app API &gt; Manage API: on. In the first call Teams asks once to allow "powertools". <span id="teams-link"></span></small>
+      <label class="check"><input type="checkbox" name="meeting_mute_sync"> Don't record my microphone while "Me" is muted</label>
+      <label>Mute hotkey <input name="meeting_mute_hotkey" placeholder="ctrl+shift+m (empty: off)">
+        <small>While recording it toggles "Me" muted and still reaches Teams (Ctrl+Shift+M is Teams' own mute), so one key mutes both.
+        Muting with the mouse in Teams is not seen: use the key, or the Mute button in the Meetings tab or the tray. Every recording starts unmuted. <span id="teams-link"></span></small></label>
       <label class="check"><input type="checkbox" name="meeting_summary"> After the transcript: summary and key points from the local model</label>
       <h3>Dictation details</h3>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>

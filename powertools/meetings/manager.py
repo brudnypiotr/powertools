@@ -2,8 +2,9 @@
 the accurate model, the Markdown file (Me / Others, calendar metadata, marked moments) and, after it, a summary with
 the key points from the local model.
 
-While the user is muted in Teams (teams_api.TeamsLink) the microphone track is not recorded: the file MUTED in the
-session folder tells the recorder to write silence, and the muted spans (meta "muted") drop any "Me" text there.
+While "Me" is muted (the mute hotkey, Ctrl+Shift+M like Teams, the Mute button, or Teams' local API where it is
+allowed) the microphone track is not recorded: the file MUTED in the session folder tells the recorder to write
+silence, and the muted spans (meta "muted") drop any "Me" text there.
 
 Session folder: %LOCALAPPDATA%\\powertools\\meetings\\<id>\\ (meta.json + WAV chunks; audio is deleted after
 `meeting_keep_audio_days`).
@@ -194,7 +195,7 @@ class MeetingManager:
         self.settings, self.engine, self.llm = settings, engine, llm
         self.on_change = on_change or (lambda: None)
         self.on_event = on_event or (lambda kind, session: None)  # started | stopped | saved | summarized
-        self.muted = False  # muted in Teams right now (TeamsLink)
+        self.muted = False  # "Me" muted right now (hotkey, button or TeamsLink)
         self.root = data_dir() / "meetings"
         self.root.mkdir(parents=True, exist_ok=True)
         self.current: Session | None = None
@@ -310,7 +311,7 @@ class MeetingManager:
         self.engine.submit(path, done, priority=LIVE, language=s["language"], beam_size=1)
 
     def set_muted(self, muted: bool) -> None:
-        """Teams' mute button changed: the recorder writes silence for the microphone while muted."""
+        """Mute changed (hotkey, button, Teams): the recorder writes silence for the microphone while muted."""
         self.muted = muted
         with self._lock:
             s = self.current
@@ -327,8 +328,15 @@ class MeetingManager:
                 if spans and spans[-1][1] is None:
                     spans[-1][1] = t
             s.save()
-        log.info("muted in Teams: %s", muted)
+        log.info("me muted: %s", muted)
         self.on_change()
+
+    def toggle_muted(self) -> bool | None:
+        """The mute hotkey or button: only while recording (outside a recording Ctrl+Shift+M is just Teams')."""
+        if not self.current or not self.settings["meeting_mute_sync"]:
+            return None
+        self.set_muted(not self.muted)
+        return self.muted
 
     def mark(self, note: str = "") -> dict:
         if not self.current:
@@ -366,6 +374,7 @@ class MeetingManager:
         if spans and spans[-1][1] is None:
             spans[-1][1] = session.meta["seconds"]
         (session.folder / "MUTED").unlink(missing_ok=True)
+        self.muted = False  # the next call starts unmuted (a hotkey toggle cannot know Teams' state)
         self.on_event("stopped", session)
         self.finalize(session)
 

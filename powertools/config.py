@@ -39,7 +39,8 @@ DEFAULTS: dict = {
     "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"
     "meeting_final_model": "large-v3",  # model for the final pass, or "live" to keep the live transcript
     "meeting_keep_audio_days": 7,
-    "meeting_mute_sync": True,   # muted in Teams = my microphone is not recorded (Teams' Third-party app API)
+    "meeting_mute_sync": True,   # "Me" muted = my microphone is not recorded (the mute hotkey, or Teams' local API)
+    "meeting_mute_hotkey": "ctrl+shift+m",  # Teams' own mute key, passed on to Teams: toggles "Me" too ("" = off)
     "meeting_summary": True,     # after the transcript: summary and key points from the local model (Ollama)
     "jira_url": "",              # e.g. https://<site>.atlassian.net
     "jira_email": "",            # Atlassian e-mail (Jira Cloud sign-in)
@@ -74,6 +75,8 @@ def validate(key: str, value):
         value = str(value).strip().lower()
         if not value:
             raise ValueError(f"{key} cannot be empty")
+    if key == "meeting_mute_hotkey":
+        value = str(value).strip().lower()
     if key == "llm_model":
         value = str(value).strip()
         if not value or any(c.isspace() for c in value):
