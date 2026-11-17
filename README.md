@@ -66,6 +66,13 @@ consent: 1:1, group and meeting chats with shared files, and mail; team channels
 - Live transcript every 30 s in the Meetings tab, with "Mark moment". After the call (Teams leaves the
   microphone for 20 s, or Stop) the accurate model (large-v3) transcribes both tracks and writes
   `meetings/<date>_<title>.md`: invitation text, attendees, marked moments, `Me:` / `Others:` lines.
+- Muted in Teams = your microphone is not recorded: the recorder writes silence for Me and drops any Me text from
+  those minutes. It reads the Teams mute button through Teams' local API (Teams > Settings > Privacy > Third-party
+  app API > Manage API: on; no admin). In the first call Teams asks once to allow "powertools". Without it, Me is
+  recorded as before (Settings > Meetings).
+- After the final transcript the local model (Local AI tab) writes a summary and the key points above the
+  transcript in the same file; long meetings are summarized in parts first. "Summarize" in the list redoes it, also
+  for older recordings.
 - Dictation keeps working during a meeting and goes first in the Whisper queue.
 - The Meetings tab lists each recording with date, start-end, duration, how many were invited, your share of the
   speaking time; click a row for the organizer, attendees, speaking time and words per track, marked moments, model,

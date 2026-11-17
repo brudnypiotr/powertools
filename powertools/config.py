@@ -39,6 +39,8 @@ DEFAULTS: dict = {
     "meeting_output": "",        # "" = Windows default output; the loopback of this device is "Others"
     "meeting_final_model": "large-v3",  # model for the final pass, or "live" to keep the live transcript
     "meeting_keep_audio_days": 7,
+    "meeting_mute_sync": True,   # muted in Teams = my microphone is not recorded (Teams' Third-party app API)
+    "meeting_summary": True,     # after the transcript: summary and key points from the local model (Ollama)
     "jira_url": "",              # e.g. https://<site>.atlassian.net
     "jira_email": "",            # Atlassian e-mail (Jira Cloud sign-in)
     "jira_attachments": True,

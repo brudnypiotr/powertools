@@ -261,3 +261,163 @@ def test_parakeet_loads_on_the_cpu_and_returns_vad_segments(monkeypatch):
     assert loaded == [("nemo-parakeet-tdt-0.6b-v3", "int8"), ("vad", 500)]
     r = e._transcribe(Job(np.zeros(32000, np.float32), lambda r: None, {"language": "pl"}))
     assert r.text == "Dzień dobry Merlot" and r.language == "pl" and r.audio_s == 2.0 and len(r.segments) == 2
+
+
+# ---------------------------------------------------------------- muted in Teams, summary
+def test_teams_link_pairs_and_reports_mute(tmp_path):
+    """A fake Teams on a local port: unpaired update -> pair request -> token -> mute changes reach on_mute."""
+    import base64
+    import hashlib
+    import socket
+
+    from powertools.meetings.teams_api import TeamsLink, WebSocket
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    got, seen = [], []
+
+    def teams():
+        c, _ = srv.accept()
+        head = b""
+        while b"\r\n\r\n" not in head:
+            head += c.recv(4096)
+        seen.append(head.decode())
+        key = [l.split(": ")[1] for l in head.decode().split("\r\n") if l.lower().startswith("sec-websocket-key")][0]
+        acc = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+        c.sendall(f"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                  f"Sec-WebSocket-Accept: {acc}\r\n\r\n".encode())
+        ws = WebSocket(c)
+
+        def out(obj):  # server frames are not masked
+            data = json.dumps(obj).encode()
+            c.sendall(bytes([0x81, 126]) + len(data).to_bytes(2, "big") + data if len(data) > 125
+                      else bytes([0x81, len(data)]) + data)
+
+        out({"meetingUpdate": {"meetingPermissions": {"canPair": True}}})
+        got.append(json.loads(ws.recv()))           # the pair request
+        out({"tokenRefresh": "tok-1"})
+        state = {"isInMeeting": True, "isMuted": True}
+        out({"meetingUpdate": {"meetingState": state, "meetingPermissions": {"canPair": True}}})
+        out({"meetingUpdate": {"meetingState": {**state, "isMuted": False}, "meetingPermissions": {"canPair": True}}})
+        c.sendall(bytes([0x88, 0]))                 # close
+        c.close()
+
+    threading.Thread(target=teams, daemon=True).start()
+    calls = []
+    link = TeamsLink(calls.append, token_file=tmp_path / "teams_api.json", port=port, retry=60)
+    link._session()
+    srv.close()
+    assert "protocol-version=2.0.0" in seen[0] and "token=" not in seen[0]
+    assert got[0]["action"] == "pair" and got[0]["requestId"] == 1
+    assert link.token == "tok-1" and calls == [True, False]
+    assert not link.connected and link.muted is None
+
+
+def test_muted_spans_drop_my_words_and_skip_silent_chunks(tmp_path, monkeypatch):
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+    s.update({"output_dir": str(tmp_path / "out"), "meeting_summary": False})
+    eng = FakeEngine()
+    m = mm.MeetingManager(s, eng)
+    folder = m.root / "20261117-100000"
+    folder.mkdir()
+    session = mm.Session(folder, {"title": "Sync", "started": time.time() - 30, "seconds": 0, "marks": [],
+                                  "status": "recording", "muted": []})
+    m.current = session
+    m.set_muted(True)
+    assert (folder / "MUTED").exists() and session.meta["muted"][0][1] is None
+    m.set_muted(False)
+    assert not (folder / "MUTED").exists() and session.meta["muted"][0][1] is not None
+    m.set_muted(True)
+    m.current = None
+    session.meta["muted"] = [[0.0, 5.0], [20.0, None]]
+    session.meta["seconds"] = 30
+    out = mm.drop_muted([seg("me", 1, 3, "muted talk"), seg("me", 10, 12, "heard"), seg("others", 1, 3, "them"),
+                         seg("me", 25, 27, "still muted")], session.meta["muted"])
+    assert [s["text"] for s in out] == ["heard", "them"]
+    assert mm.muted_seconds(session.meta["muted"], 30) == 15
+    md = mm.meeting_markdown(session.meta, out)
+    assert "me_muted_min: 0.2" in md
+
+    class Proc:  # the recorder's event stream: a silent chunk is not sent to Whisper
+        stdout = iter([json.dumps({"event": "chunk", "track": "me", "path": "me_0000.wav", "start": 0, "silent": True}),
+                       json.dumps({"event": "chunk", "track": "others", "path": "others_0000.wav", "start": 0})])
+        stderr = None
+
+        def wait(self):
+            return 0
+
+    m._finish = lambda s: None
+    m._read_events(session, Proc())
+    assert [a for a, _, _ in eng.jobs] == ["others_0000.wav"]
+
+
+def test_summary_after_the_transcript(tmp_path, monkeypatch):
+    from powertools.meetings import summary
+
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+    s.update({"output_dir": str(tmp_path / "out")})
+
+    class LLM:
+        settings = {"llm_model": "gemma4:e4b"}
+
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, system, user, schema=None, **kw):
+            self.calls.append((system, user, kw))
+            n = len(self.calls)
+            return json.dumps({"summary": f"Summary {n}.", "key_points": [f"Point {n}a", f"Point {n}b"]}), {}
+
+    llm = LLM()
+    m = mm.MeetingManager(s, FakeEngine(), llm=llm)
+    m.summarize = lambda session: None  # run it by hand below, not in a thread
+    folder = m.root / "20261117-110000"
+    folder.mkdir()
+    for t in ("me", "others"):
+        write_wav(folder / f"{t}_0000.wav", np.zeros(16000, np.float32))
+    session = mm.Session(folder, {"title": "Planning", "started": time.time(), "seconds": 60, "marks": [],
+                                  "status": "interrupted"})
+    m.finalize(session)
+    mm.MeetingManager.summarize(m, session)
+    md = open(session.meta["md"], encoding="utf-8").read()
+    assert session.meta["summary_status"] == "done" and session.meta["summary"]["key_points"] == ["Point 1a", "Point 1b"]
+    assert md.index("## Summary") < md.index("## Key points") < md.index("## Transcript")
+    assert "- Point 1a" in md and "Me:** me says hi" in md
+    assert "Me: me says hi" in llm.calls[0][1] and llm.calls[0][2]["num_ctx"] == summary.NUM_CTX
+    mm.MeetingManager.summarize(m, session)  # again: replaced, not added twice
+    md = open(session.meta["md"], encoding="utf-8").read()
+    assert md.count("## Summary") == 1 and "- Point 2a" in md
+
+    # a long meeting: parts first, then one call that joins them
+    llm.calls.clear()
+    segs = [seg("others", i * 10, i * 10 + 5, "word " * 60) for i in range(100)]
+    r = summary.summarize(llm, {"title": "Long"}, segs)
+    parts = len(summary.split(summary.transcript_text(segs)))
+    assert parts > 1 and len(llm.calls) == parts + 1 and r["summary"] == f"Summary {parts + 1}."
+    assert all(len(p) <= summary.CHUNK_CHARS for p in summary.split(summary.transcript_text(segs)))
+
+    # an older file without transcript.json: the turns come from the Markdown
+    assert summary.segments_from_md(md)[0]["speaker"] in ("me", "others")
+
+
+def test_summary_error_is_shown_not_raised(tmp_path, monkeypatch):
+    from powertools.llm import LLMError
+
+    monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path / "home"))
+    s = Settings(tmp_path / "s.json")
+
+    class Down:
+        def chat(self, *a, **k):
+            raise LLMError("Ollama is not running")
+
+    m = mm.MeetingManager(s, FakeEngine(), llm=Down())
+    folder = m.root / "20261117-120000"
+    folder.mkdir()
+    (folder / "transcript.json").write_text(json.dumps([seg("me", 0, 1, "hello")]))
+    session = mm.Session(folder, {"title": "x", "started": time.time(), "status": "done"})
+    m.summarize(session)
+    assert session.meta["summary_status"] == "error" and "not running" in session.meta["summary_error"]

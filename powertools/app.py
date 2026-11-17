@@ -155,8 +155,10 @@ class App:
         from .jira.service import JiraService
 
         self.jira = JiraService(self.settings, self.graph.jobs)
-        self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed, self._meeting_event)
+        self.meetings = MeetingManager(self.settings, self.engine, self._meeting_changed, self._meeting_event,
+                                       llm=self.llm)
         self.watcher = None
+        self.teams = None  # TeamsLink: the Teams mute button, started in run()
         self.pending_prompt: dict = {}
         self.dictation = Dictation(self.settings, self.engine, self.recorder, self.store, deliver, self._on_state,
                                    cleaner=lambda text: cleanup.clean(self.llm, text, self.settings["vocabulary"]))
@@ -328,7 +330,10 @@ class App:
             mins = round(session.meta.get("seconds", 0) / 60)
             self.notify("Meeting recorded", f"'{title}', {mins} min. Writing the transcript...")
         elif kind == "saved":
-            self.notify("Transcript saved", session.meta.get("md", title))
+            self.notify("Transcript saved", session.meta.get("md", title)
+                        + (" Writing the summary..." if self.settings["meeting_summary"] else ""))
+        elif kind == "summarized":
+            self.notify("Meeting summary ready", f"'{title}': summary and key points are in the file.")
 
     def _meeting_changed(self) -> None:
         if self.tray and self.dictation.state == "idle":
@@ -394,6 +399,10 @@ class App:
 
         self.watcher = Watcher(self._call_started, self._call_ended)
         self.watcher.start()
+        from .meetings.teams_api import TeamsLink
+
+        self.teams = TeamsLink(self.meetings.set_muted)
+        self.teams.start()
         self._watch_engine()
         if open_browser and self.settings["open_window_on_start"]:
             self.open_window()
@@ -413,6 +422,8 @@ class App:
             self._quit.set()
             if self.watcher:
                 self.watcher.stop()
+            if self.teams:
+                self.teams.stop()
             if self.meetings.current:
                 self.meetings.stop()
             if self.hotkey:

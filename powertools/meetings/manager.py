@@ -1,5 +1,9 @@
 """Meeting sessions: start/stop the recorder subprocess, live transcription of 30 s chunks, the final pass with
-the accurate model, and the Markdown file (Me / Others, calendar metadata, marked moments).
+the accurate model, the Markdown file (Me / Others, calendar metadata, marked moments) and, after it, a summary with
+the key points from the local model.
+
+While the user is muted in Teams (teams_api.TeamsLink) the microphone track is not recorded: the file MUTED in the
+session folder tells the recorder to write silence, and the muted spans (meta "muted") drop any "Me" text there.
 
 Session folder: %LOCALAPPDATA%\\powertools\\meetings\\<id>\\ (meta.json + WAV chunks; audio is deleted after
 `meeting_keep_audio_days`).
@@ -24,6 +28,8 @@ import numpy as np
 from .. import export
 from ..config import data_dir, output_dir
 from ..engine import FINAL, LIVE, Result
+from ..llm import LLMError
+from . import summary
 
 log = logging.getLogger("powertools.meetings")
 SPEAKERS = {"me": "Me", "others": "Others"}
@@ -64,6 +70,23 @@ def concat_wavs(paths: list[Path], dest: Path) -> float:
     return total / 16000
 
 
+def drop_muted(segments: list[dict], muted: list[list[float]], pad: float = 0.5) -> list[dict]:
+    """Leave out "Me" pieces said while muted in Teams (the recorder already wrote silence there; this catches
+    what Whisper makes up from silence and the moment between the click and the recorder noticing it)."""
+    if not muted:
+        return segments
+
+    def inside(s: dict) -> bool:
+        mid = (s["start"] + s.get("end", s["start"])) / 2
+        return any(a - pad <= mid <= (b if b is not None else float("inf")) + pad for a, b in muted)
+
+    return [s for s in segments if s["speaker"] != "me" or not inside(s)]
+
+
+def muted_seconds(muted: list[list[float]], total: float) -> float:
+    return sum((b if b is not None else total) - a for a, b in muted or [])
+
+
 def speech_stats(segments: list[dict]) -> dict:
     """Speaking time and words per track (Me / Others) from the transcript segments."""
     out = {t: {"seconds": 0.0, "words": 0} for t in SPEAKERS}
@@ -90,6 +113,8 @@ def meeting_markdown(meta: dict, segments: list[dict]) -> str:
         "organizer": meta.get("organizer", ""),
         "speakers": "Me = my microphone; Others = everyone else (one track, not split by person)",
         "transcript": meta.get("transcript_model", ""),
+        **({"me_muted_min": round(muted_seconds(meta["muted"], meta.get("seconds", 0)) / 60, 1)}
+           if meta.get("muted") else {}),
     })
     out = [head, f"# {meta['title']}", ""]
     if meta.get("invite"):
@@ -154,7 +179,8 @@ class Session:
 
     def view(self, with_live: bool = False) -> dict:
         keys = ("title", "status", "started", "seconds", "attendees", "organizer", "marks", "md", "error", "auto",
-                "devices", "transcript_model", "stats")
+                "devices", "transcript_model", "stats", "summary", "summary_status", "summary_step", "summary_error",
+                "muted")
         v = {"id": self.id, **{k: self.meta.get(k) for k in keys}}
         v["invite"] = (self.meta.get("invite") or "")[:600]
         v["audio"] = any((self.folder / f"{t}.wav").exists() or any(self.folder.glob(f"{t}_*.wav")) for t in SPEAKERS)
@@ -164,10 +190,11 @@ class Session:
 
 
 class MeetingManager:
-    def __init__(self, settings, engine, on_change=None, on_event=None):
-        self.settings, self.engine = settings, engine
+    def __init__(self, settings, engine, on_change=None, on_event=None, llm=None):
+        self.settings, self.engine, self.llm = settings, engine, llm
         self.on_change = on_change or (lambda: None)
-        self.on_event = on_event or (lambda kind, session: None)  # started | stopped | saved
+        self.on_event = on_event or (lambda kind, session: None)  # started | stopped | saved | summarized
+        self.muted = False  # muted in Teams right now (TeamsLink)
         self.root = data_dir() / "meetings"
         self.root.mkdir(parents=True, exist_ok=True)
         self.current: Session | None = None
@@ -201,6 +228,9 @@ class MeetingManager:
             if s.meta.get("status") in ("recording", "finalizing"):
                 s.meta["status"] = "interrupted"
                 s.save()
+            elif s.meta.get("summary_status") == "running":
+                s.meta.update(summary_status="error", summary_error="interrupted (powertools was closed)")
+                s.save()
 
     def cleanup_audio(self) -> None:
         keep = self.settings["meeting_keep_audio_days"] * 86400
@@ -221,8 +251,11 @@ class MeetingManager:
             folder.mkdir(parents=True)
             meta = {"title": title or event.get("title") or "Teams call", "status": "recording", "started": started,
                     "seconds": 0, "attendees": event.get("attendees", []), "organizer": event.get("organizer", ""),
-                    "invite": event.get("invite", ""), "marks": [], "auto": auto}
+                    "invite": event.get("invite", ""), "marks": [], "auto": auto, "muted": []}
             self.current = Session(folder, meta)
+            if self.muted and self.settings["meeting_mute_sync"]:
+                (folder / "MUTED").touch()
+                meta["muted"].append([0.0, None])
             self.current.save()
             boot = (f"import sys, runpy; sys.path.insert(0, {str(ROOT)!r}); "
                     "runpy.run_module('powertools.meetings.worker', run_name='__main__', alter_sys=True)")
@@ -246,7 +279,7 @@ class MeetingManager:
             kind = ev.get("event")
             if kind == "level":
                 self.levels = {"me": ev.get("me", 0.0), "others": ev.get("others", 0.0)}
-            elif kind == "chunk":
+            elif kind == "chunk" and not ev.get("silent"):  # silence (muted, nothing played): nothing to transcribe
                 self._live(session, ev["track"], ev["path"], float(ev["start"]))
             elif kind == "error":
                 session.meta["error"] = ev.get("message", "")
@@ -275,6 +308,27 @@ class MeetingManager:
 
         s = self.settings
         self.engine.submit(path, done, priority=LIVE, language=s["language"], beam_size=1)
+
+    def set_muted(self, muted: bool) -> None:
+        """Teams' mute button changed: the recorder writes silence for the microphone while muted."""
+        self.muted = muted
+        with self._lock:
+            s = self.current
+            if not s:
+                return
+            spans = s.meta.setdefault("muted", [])
+            t = round(time.time() - s.meta["started"], 1)
+            if muted and self.settings["meeting_mute_sync"]:
+                (s.folder / "MUTED").touch()
+                if not spans or spans[-1][1] is not None:
+                    spans.append([t, None])
+            else:
+                (s.folder / "MUTED").unlink(missing_ok=True)
+                if spans and spans[-1][1] is None:
+                    spans[-1][1] = t
+            s.save()
+        log.info("muted in Teams: %s", muted)
+        self.on_change()
 
     def mark(self, note: str = "") -> dict:
         if not self.current:
@@ -308,6 +362,10 @@ class MeetingManager:
                 self.levels = {"me": 0.0, "others": 0.0}
         if not session.meta.get("seconds"):
             session.meta["seconds"] = round(time.time() - session.meta["started"], 1)
+        spans = session.meta.get("muted") or []
+        if spans and spans[-1][1] is None:
+            spans[-1][1] = session.meta["seconds"]
+        (session.folder / "MUTED").unlink(missing_ok=True)
         self.on_event("stopped", session)
         self.finalize(session)
 
@@ -323,7 +381,7 @@ class MeetingManager:
             return
         model = self.settings["meeting_final_model"]
         if model == "live":
-            self._write(session, merge(session.live), "live (turbo)")
+            self._write(session, session.live, "live (turbo)")
             return
         session.meta["status"] = "finalizing"
         session.meta.pop("error", None)  # a new attempt: an old error (e.g. a broken decoder) no longer applies
@@ -340,7 +398,7 @@ class MeetingManager:
                     segs = [s for v in results.values() for s in v]
                     if session.meta.get("error") and not segs:
                         segs = session.live  # fall back to the live transcript
-                    self._write(session, merge(segs), model)
+                    self._write(session, segs, model)
             return done
 
         jobs = {}
@@ -355,7 +413,10 @@ class MeetingManager:
                                language=self.settings["language"], beam_size=5)
 
     def _write(self, session: Session, segments: list[dict], model: str) -> None:
+        segments = merge(drop_muted(segments, session.meta.get("muted") or []))
         session.meta["transcript_model"] = model
+        session.meta.pop("summary", None)  # a new transcript: the old summary no longer matches it
+        (session.folder / "transcript.json").write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
         session.meta["stats"] = speech_stats(segments)
         start = datetime.fromtimestamp(session.meta["started"])
         name = f"{start:%Y-%m-%d-%H%M}_{export.slug(session.meta['title'])}.md"
@@ -368,6 +429,42 @@ class MeetingManager:
         log.info("meeting written: %s", path)
         self.on_change()
         self.on_event("saved", session)
+        if self.llm and self.settings["meeting_summary"] and segments:
+            threading.Thread(target=self.summarize, args=(session,), name="meeting-summary", daemon=True).start()
+
+    # ------------------------------------------------------------------ summary
+    def summarize(self, session: Session) -> None:
+        """Summary and key points from the local model, written into the Markdown file above the transcript."""
+        if not self.llm:
+            raise ValueError("no local model")
+        md = Path(session.meta.get("md") or "")
+        try:
+            segs = json.loads((session.folder / "transcript.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            segs = summary.segments_from_md(md.read_text(encoding="utf-8")) if md.is_file() else []
+
+        def step(text: str) -> None:
+            session.meta["summary_status"] = "running"
+            session.meta["summary_step"] = text
+            self.on_change()
+
+        session.meta.pop("summary_error", None)
+        step("waiting for the local model")
+        session.save()
+        try:
+            result = summary.summarize(self.llm, session.meta, segs, step)
+        except (LLMError, OSError) as e:
+            session.meta.update(summary_status="error", summary_error=str(e)[:300])
+            log.warning("meeting summary failed: %s", e)
+        else:
+            session.meta.update(summary=result, summary_status="done")
+            if md.is_file():
+                export.write(md, summary.insert(md.read_text(encoding="utf-8"), result))
+            log.info("meeting summary written: %s (%.0f s)", md, result["seconds"])
+        session.save()
+        self.on_change()
+        if session.meta["summary_status"] == "done":
+            self.on_event("summarized", session)
 
     def update_file(self, session: Session, event: dict | None) -> dict:
         """Bring an earlier recording up to date: attendees, organizer and (for an untitled "Teams call") the title

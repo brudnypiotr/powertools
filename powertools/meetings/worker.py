@@ -6,11 +6,12 @@ Records the microphone ("me") and the WASAPI loopback of the output device ("oth
 library that passed the feasibility check), and writes 16 kHz mono WAV chunks every CHUNK_S seconds:
 me_0000.wav, others_0000.wav, ... Events go to stdout as JSON lines:
   {"event": "started", "mic": ..., "output": ...}
-  {"event": "chunk", "track": "me", "index": 3, "path": ..., "start": 90.0}
+  {"event": "chunk", "track": "me", "index": 3, "path": ..., "start": 90.0, "silent": false}
   {"event": "level", "me": 0.02, "others": 0.1}
   {"event": "error", "message": ...}
   {"event": "stopped", "seconds": 1834.5}
-It stops when the file STOP appears in the session dir (or stdin closes).
+It stops when the file STOP appears in the session dir (or stdin closes). While the file MUTED exists (the user is
+muted in Teams) the microphone track gets silence instead of what the microphone hears.
 """
 
 from __future__ import annotations
@@ -60,11 +61,14 @@ class Track:
         self.lock = threading.Lock()
         self.level = 0.0
         self.index = 0
+        self.muted = False
 
     def callback(self, data, frames, info, status):
         import pyaudiowpatch as pa
 
         arr = np.frombuffer(data, dtype=np.float32)
+        if self.muted:
+            arr = np.zeros_like(arr)
         with self.lock:
             self.buf.append(arr)
         self.level = float(np.sqrt(np.mean(np.square(arr)))) if arr.size else 0.0
@@ -80,7 +84,8 @@ class Track:
         if audio.size:
             path = folder / f"{self.name}_{self.index:04d}.wav"
             write_wav(path, audio)
-            emit(event="chunk", track=self.name, index=self.index, path=str(path), start=self.index * CHUNK_S)
+            emit(event="chunk", track=self.name, index=self.index, path=str(path), start=self.index * CHUNK_S,
+                 silent=not np.any(audio))
             self.index += 1
 
 
@@ -98,7 +103,7 @@ def find(p, names_ok, wanted: str, default_info):
 def main() -> None:
     folder, mic_name, out_name = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
     folder.mkdir(parents=True, exist_ok=True)
-    stop_file = folder / "STOP"
+    stop_file, muted_file = folder / "STOP", folder / "MUTED"
     import pyaudiowpatch as pa
 
     p = pa.PyAudio()
@@ -116,6 +121,7 @@ def main() -> None:
             ch = max(1, min(2, int(dev["maxInputChannels"])))
             rate = int(dev["defaultSampleRate"])
             t = Track(name, rate, ch)
+            t.muted = name == "me" and muted_file.exists()
             s = p.open(format=pa.paFloat32, channels=ch, rate=rate, input=True, input_device_index=dev["index"],
                        frames_per_buffer=1024, stream_callback=t.callback)
             tracks.append(t)
@@ -131,6 +137,7 @@ def main() -> None:
         next_chunk += CHUNK_S
         while not stop_file.exists():
             time.sleep(0.25)
+            tracks[0].muted = muted_file.exists()
             emit(event="level", me=round(tracks[0].level, 4), others=round(tracks[1].level, 4))
             if time.time() >= next_chunk:
                 next_chunk += CHUNK_S

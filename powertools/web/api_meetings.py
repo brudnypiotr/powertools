@@ -11,6 +11,7 @@ from .server import route
 def meetings(h):
     m = h.app.meetings
     h.send(200, {"current": m.current.view(with_live=True) if m.current else None, "levels": m.levels,
+                 "teams": h.app.teams.view() if h.app.teams else None, "muted": m.muted,
                  "pending_prompt": {k: v for k, v in h.app.pending_prompt.items() if k != "event"},
                  "sessions": [s.view() for s in m.sessions() if not m.current or s.id != m.current.id]})
 
@@ -48,6 +49,17 @@ def meeting_finalize(h, sid):
         raise ValueError("only interrupted or finished meetings can be transcribed again")
     threading.Thread(target=h.app.meetings.finalize, args=(s,), daemon=True).start()
     h.send(200, {"finalizing": sid})
+
+
+@route("POST", r"/api/meetings/([\w-]+)/summarize")
+def meeting_summarize(h, sid):
+    s = h.app.meetings.get(sid)
+    if s.meta.get("status") != "done" or not s.meta.get("md"):
+        raise ValueError("only meetings with a transcript can be summarized")
+    if s.meta.get("summary_status") == "running":
+        raise ValueError("the summary is already being written")
+    threading.Thread(target=h.app.meetings.summarize, args=(s,), daemon=True).start()
+    h.send(200, {"summarizing": sid})
 
 
 @route("POST", r"/api/meetings/([\w-]+)/open")

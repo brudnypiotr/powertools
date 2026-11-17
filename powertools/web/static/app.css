@@ -186,6 +186,8 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .sessions .mhead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .sessions .mdetail { display: none; margin-top: 8px; font-size: 12.5px; line-height: 1.6; }
 .sessions li.open .mdetail { display: block; }
+.sessions .mdetail ul.kp { margin: 2px 0 4px 18px; padding: 0; }
+.sessions .mdetail ul.kp li { display: list-item; padding: 0; margin: 0; border: 0; background: none; border-radius: 0; cursor: auto; }
 .sessions .mdetail pre { white-space: pre-wrap; max-height: 200px; overflow: auto; font-size: 12px; }
 .sessions .mact { display: flex; gap: 6px; flex-wrap: wrap; }
 .sessions .warn { color: var(--rec); font-size: 12.5px; margin-top: 4px; }

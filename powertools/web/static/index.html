@@ -267,6 +267,9 @@
         </select>
       </label>
       <label>Keep meeting audio (days) <input name="meeting_keep_audio_days" type="number" min="0" max="365"></label>
+      <label class="check"><input type="checkbox" name="meeting_mute_sync"> Don't record my microphone while I'm muted in Teams</label>
+      <small>Needs Teams &gt; Settings &gt; Privacy &gt; Third-party app API &gt; Manage API: on. In the first call Teams asks once to allow "powertools". <span id="teams-link"></span></small>
+      <label class="check"><input type="checkbox" name="meeting_summary"> After the transcript: summary and key points from the local model</label>
       <h3>Dictation details</h3>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
       <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
