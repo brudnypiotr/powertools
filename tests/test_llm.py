@@ -158,7 +158,7 @@ class FakeJobs:
     def __init__(self):
         self.all = []
 
-    def submit(self, title, run):
+    def submit(self, title, run, kind=""):
         from powertools.jobs import Job
         job = Job(title, run)
         run(job)              # synchronous for the test
@@ -509,7 +509,7 @@ def test_recap_start_clears_the_old_one_and_shows_the_step(tmp_path):
     assert r.view()["items"] and r.view()["current"] == ""                       # finished: no step shown
 
     class Waiting(FakeJobs):
-        def submit(self, title, run):
+        def submit(self, title, run, kind=""):
             from powertools.jobs import Job
             self.all.append(Job(title, run))                                     # queued behind an export
             return self.all[-1]

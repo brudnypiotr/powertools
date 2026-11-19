@@ -216,3 +216,7 @@ dialog#about::backdrop { background: rgba(10,10,14,.35); }
 .side nav button:disabled { opacity: .4; cursor: not-allowed; } .side nav button:disabled:hover { background: none; color: var(--muted); }
 .recap-now .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
 .recap-now .bar span { display: block; height: 100%; background: var(--accent); }
+
+.job li.file { display: flex; align-items: center; gap: 6px; }
+.job li.file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job button.mini { font-size: 12px; padding: 2px 8px; }

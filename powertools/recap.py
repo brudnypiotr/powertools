@@ -222,7 +222,7 @@ class Recap:
             self.current = ""
             job.note(f"done: {sum(i.get('category') in ('todo', 'reply') for i in items)} to act on")
 
-        self.job = self.graph.jobs.submit("Recap", run)
+        self.job = self.graph.jobs.submit("Recap", run, "recap")
         return self.job
 
     def _classify(self, system: str, item: dict) -> dict:

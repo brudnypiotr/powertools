@@ -268,7 +268,7 @@ class JiraService:
 
         what = {"keys": ", ".join(issue_keys(value)[:3]) + ("..." if len(issue_keys(value)) > 3 else ""),
                 "epic": f"epic {value}", "jql": value[:60]}[mode]
-        return self.jobs.submit(f"Jira: {what}" + (f" + links to depth {depth}" if depth else ""), run)
+        return self.jobs.submit(f"Jira: {what}" + (f" + links to depth {depth}" if depth else ""), run, "jira")
 
     def refresh(self, keys: list[str] | None, opts: dict) -> Job:
         """Re-check downloaded issues: one search finds those updated in Jira since their download; only those are fetched."""
@@ -315,7 +315,7 @@ class JiraService:
                     job.files.append(str(output_dir(self.settings) / "jira" / f"{key}.md"))
             job.note(", ".join(f"{v} {k}" for k, v in job.counts.items() if v))
 
-        return self.jobs.submit(f"Jira: refresh {len(keys)} downloaded issue(s)", run)
+        return self.jobs.submit(f"Jira: refresh {len(keys)} downloaded issue(s)", run, "jira")
 
     # ------------------------------------------------------------------ one issue
     def _children(self, j: Jira, key: str, limit: int) -> list[str]:
@@ -360,9 +360,15 @@ class JiraService:
                 listing.append((name, rel, size))
                 continue
             if attachments and size <= limit:
+                try:
+                    data = j.attachment(a)
+                except Exception as e:  # noqa: BLE001 (one bad attachment must not lose the issue)
+                    note(f"{key}: {name} not downloaded ({e})")
+                    listing.append((name, "", size))
+                    continue
                 p = export.unique(base_out / key / export.safe_filename(name))
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(j.attachment(a))
+                p.write_bytes(data)
                 rel = p.relative_to(base_out).as_posix()
                 files_state[aid] = rel
                 new_files += 1

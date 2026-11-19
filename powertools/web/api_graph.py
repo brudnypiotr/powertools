@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from ..config import output_dir
 from ..graph.client import TokenExpired
@@ -88,9 +89,38 @@ def jobs(h):
     h.send(200, [j.view() for j in reversed(h.app.graph.jobs.all)])
 
 
+OUTPUT_KINDS = {"teams": "teams", "mail": "mail", "org": "org", "jira": "jira"}
+
+
+def _reveal(p, folder: bool) -> None:
+    """Open an exported file, or show it selected in its folder."""
+    if sys.platform == "win32":
+        if folder:
+            subprocess.Popen(f'explorer /select,"{p}"')  # noqa: S602,S603 (Explorer on the user's own file)
+        else:
+            os.startfile(p)  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", str(p)] if folder else ["open", str(p)])
+
+
+@route("POST", "/api/open-path")
+def open_path(h):
+    """Open file / Open folder next to an export; only paths inside the export folder."""
+    b = h.json_body() or {}
+    root = output_dir(h.app.settings).resolve()
+    p = Path(str(b.get("path", ""))).resolve()
+    if root not in p.parents or not p.exists():
+        h.send(400, {"error": "not an exported file"})
+        return
+    _reveal(p, bool(b.get("folder")))
+    h.send(200, {"path": str(p)})
+
+
 @route("POST", "/api/open-output")
 def open_output(h):
-    d = output_dir(h.app.settings)
+    kind = OUTPUT_KINDS.get(str((h.json_body() or {}).get("kind", "")), "")
+    d = output_dir(h.app.settings) / kind if kind else output_dir(h.app.settings)
+    d.mkdir(parents=True, exist_ok=True)
     if sys.platform == "win32":
         os.startfile(d)  # noqa: S606 (opens Explorer on the user's own folder)
     elif sys.platform == "darwin":

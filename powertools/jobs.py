@@ -20,6 +20,7 @@ _ids = itertools.count(1)
 class Job:
     title: str
     run: Callable[["Job"], None]
+    kind: str = ""                 # recap | teams | mail | org | jira: the tab that lists the job
     id: int = field(default_factory=lambda: next(_ids))
     state: str = "queued"          # queued | running | done | error | needs_token
     done: int = 0
@@ -36,7 +37,7 @@ class Job:
         log.info("job %s: %s", self.id, text)
 
     def view(self) -> dict:
-        return {k: getattr(self, k) for k in ("id", "title", "state", "done", "total", "notes", "files", "error",
+        return {k: getattr(self, k) for k in ("id", "kind", "title", "state", "done", "total", "notes", "files", "error",
                                               "result", "started", "finished")}
 
 
@@ -46,8 +47,8 @@ class Jobs:
         self.all: list[Job] = []
         threading.Thread(target=self._worker, name="jobs", daemon=True).start()
 
-    def submit(self, title: str, run: Callable[[Job], None]) -> Job:
-        job = Job(title, run)
+    def submit(self, title: str, run: Callable[[Job], None], kind: str = "") -> Job:
+        job = Job(title, run, kind)
         self.all.append(job)
         self.all = self.all[-30:]
         self._q.put(job)

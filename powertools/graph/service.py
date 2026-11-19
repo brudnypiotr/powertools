@@ -185,7 +185,7 @@ class GraphService:
                 job.done += 1
 
         title = f"Teams: {len(chats)} chat(s)" if len(chats) > 1 else f"Teams: {chats[0]['title']}"
-        return self.jobs.submit(title, run)
+        return self.jobs.submit(title, run, "teams")
 
     # ------------------------------------------------------------------ mail
     def folders(self) -> list[dict]:
@@ -217,7 +217,7 @@ class GraphService:
                 job.done += 1
 
         title = f"Mail: {len(items)} thread(s)" if len(items) > 1 else f"Mail: {items[0].get('subject', '')}"
-        return self.jobs.submit(title, run)
+        return self.jobs.submit(title, run, "mail")
 
     # ------------------------------------------------------------------ org chart
     def org_chain(self) -> list[dict]:
@@ -248,7 +248,7 @@ class GraphService:
             job.result = files[0].stem               # the Org tab opens the chart when the job is done
             job.note(f"{found} people below {root.name}")
 
-        return self.jobs.submit("Org chart", run)
+        return self.jobs.submit("Org chart", run, "org")
 
     def org_saved(self) -> list[dict]:
         return org.saved(output_dir(self.settings))

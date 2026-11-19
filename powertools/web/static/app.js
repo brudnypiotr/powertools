@@ -537,15 +537,21 @@ $("#org-saved").addEventListener("change", (e) => openOrg(e.target.value));
 let jobsTimer = null;
 async function loadJobs() {
   const jobs = await api("GET", "/api/jobs");
-  const html = jobs.length ? `<div class="row"><h2>Exports</h2><button class="open-out">Open export folder</button></div>` +
-    jobs.map((j) => `<div class="card job ${j.state}">
+  const card = (j) => `<div class="card job ${j.state}">
       <div class="title"><b>${esc(j.title)}</b> · ${j.state.replace("_", " ")} ${j.total ? `· ${j.done}/${j.total}` : ""}</div>
       ${j.state === "running" || j.state === "queued" ? `<div class="bar"><span style="width:${j.total ? (100 * j.done / j.total) : 5}%"></span></div>` : ""}
       ${j.error ? `<div>${esc(j.error)}</div>` : ""}
-      ${j.files.length || j.notes.length ? `<ul>${j.files.map((f) => `<li>${esc(f)}</li>`).join("")}
-        ${j.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>`).join("") : "";
-  document.querySelectorAll(".jobs").forEach((el) => (el.innerHTML = html));
-  document.querySelectorAll(".open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
+      ${j.files.length || j.notes.length ? `<ul>${j.files.map((f) => `<li class="file"><span title="${esc(f)}">${esc(f.split(/[\\/]/).pop())}</span>
+          <button class="mini" data-open="${esc(f)}">Open</button><button class="mini" data-reveal="${esc(f)}">Open folder</button></li>`).join("")}
+        ${j.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>`;
+  document.querySelectorAll(".jobs").forEach((el) => {  // each tab lists only its own exports
+    const mine = jobs.filter((j) => !el.dataset.kind || j.kind === el.dataset.kind);
+    el.innerHTML = mine.length ? `<div class="row"><h2>Exports</h2><button class="open-out" data-kind="${el.dataset.kind || ""}">Open export folder</button></div>` +
+      mine.map(card).join("") : "";
+  });
+  document.querySelectorAll(".jobs .open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output", { kind: b.dataset.kind })));
+  document.querySelectorAll(".jobs [data-open]").forEach((b) => (b.onclick = () => api("POST", "/api/open-path", { path: b.dataset.open })));
+  document.querySelectorAll(".jobs [data-reveal]").forEach((b) => (b.onclick = () => api("POST", "/api/open-path", { path: b.dataset.reveal, folder: true })));
   if (jobs.some((j) => j.state === "needs_token")) renderGraphBar();
   clearTimeout(jobsTimer);
   if (jobs.some((j) => j.state === "running" || j.state === "queued")) jobsTimer = setTimeout(loadJobs, 1500);
@@ -652,7 +658,7 @@ async function loadMeetings() {
         ${s.status === "done" && s.md && s.summary_status !== "running" ? `<button data-act="sum">${s.summary ? "Summarize again" : "Summarize"}</button>` : ""}
         <button data-act="del">Delete</button></div></li>`;
   }).join("") || "<li>No recordings yet.</li>";
-  document.querySelectorAll(".open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
+  document.querySelectorAll(".open-out:not([data-kind])").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
   if ($("#meetings").classList.contains("active")) meetTimer = setTimeout(loadMeetings, cur ? 1000 : 4000);
 }
 $("#meeting-list").addEventListener("click", async (e) => {
