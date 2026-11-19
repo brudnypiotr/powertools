@@ -58,6 +58,8 @@ def _log(rng: str, n: int = 40) -> list[dict]:
 def about(fetch: bool = False) -> dict:
     info = {"version": __version__, "python": sys.version.split()[0], "root": str(ROOT), "git": bool(git_exe())}
     try:
+        if fetch and not has_commit():
+            attach()  # a half-connected ZIP copy (setup's fetch failed): finish connecting it now
         info["commit"] = git("rev-parse", "--short", "HEAD")
         info["branch"] = git("rev-parse", "--abbrev-ref", "HEAD")
         info["changelog"] = _log("HEAD", 40)
@@ -70,7 +72,19 @@ def about(fetch: bool = False) -> dict:
         info["fetched"] = fetch
     except (GitError, subprocess.TimeoutExpired) as e:
         info["error"] = str(e)
+        if git_exe() and not has_commit():
+            info["error"] = f"this copy is not connected to the repository yet (internet or proxy?): {e}"
     return info
+
+
+def has_commit(root: Path = ROOT) -> bool:
+    """False for a git repo whose HEAD has no commit yet (`git init` done, fetch never finished)."""
+    exe = git_exe()
+    if not exe:
+        return False
+    r = subprocess.run([exe, "rev-parse", "--verify", "-q", "HEAD"], cwd=root, capture_output=True, text=True,
+                       creationflags=FLAGS)
+    return r.returncode == 0
 
 
 def update_source(root: Path = ROOT) -> dict:
@@ -115,6 +129,12 @@ def attach(root: Path = ROOT) -> dict:
             pass  # another branch is checked out: Update follows its own upstream when it has one
         return {"attached": True, "remote": src["remote"], "message": f"origin added: {src['remote']}"}
     url = g("remote", "get-url", "origin")
+    if not has_commit(root):  # an earlier attach stopped after init (fetch failed): finish it, origin stays as it is
+        g("fetch", "-q", "origin", src["branch"], timeout=600)
+        g("reset", "-q", "--hard", f"origin/{src['branch']}")
+        g("branch", "-q", "-u", f"origin/{src['branch']}")
+        return {"attached": True, "remote": url, "commit": g("rev-parse", "--short", "HEAD"),
+                "message": f"connection to {url} ({src['branch']}) finished"}
     return {"attached": False, "remote": url, "message": f"already connected to {url}"}
 
 

@@ -150,3 +150,14 @@ def test_attach_zip_copy_and_keep_existing_origin(tmp_path):
     r = updater.attach(zipcopy)
     assert not r["attached"] and r["remote"] == bare.as_posix()
     rmtree(zipcopy / ".git")
+
+    # an attach that stopped after init (fetch failed: no internet or proxy) is finished by the next one
+    (zipcopy / "app.txt").write_text("v1\n")
+    run("git", "init", "-q", "-b", "main", cwd=zipcopy)
+    run("git", "remote", "add", "origin", bare.as_posix(), cwd=zipcopy)
+    assert not updater.has_commit(zipcopy)
+    r = updater.attach(zipcopy)
+    assert r["attached"] and updater.has_commit(zipcopy) and (zipcopy / "app.txt").read_text() == "v2\n"
+    up = subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=zipcopy, capture_output=True, text=True).stdout.strip()
+    assert up == "origin/main"
+    rmtree(zipcopy / ".git")
