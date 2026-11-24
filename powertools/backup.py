@@ -13,7 +13,7 @@ STATE = ("assistant.json", "settings.json", "usage.json")
 def make(home: Path, memory: Path, version: str) -> Path:
     folder = home / "backups"
     folder.mkdir(parents=True, exist_ok=True)
-    out = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 1000000:06d}-before-update-of-{version}.zip"
+    out = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() // 1000 % 1000000:06d}-before-update-of-{version}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name in STATE:
             if (home / name).is_file():

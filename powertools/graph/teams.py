@@ -6,18 +6,14 @@ import base64
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
-from .. import export
+from .. import clock, export
 from .client import Graph, GraphError
 
 log = logging.getLogger("powertools.teams")
 MAX_FILE_BYTES = 50 * 1024 * 1024
-
-
-def iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def chat_title(chat: dict, me_id: str) -> str:
@@ -56,7 +52,7 @@ def fetch_messages(g: Graph, chat_id: str, since: datetime | None, until: dateti
     if since:
         # server-side filter on the modification time (checked on the laptop); creation time is checked below
         params = {"$top": "50", "$orderby": "lastModifiedDateTime desc",
-                  "$filter": f"lastModifiedDateTime gt {iso(since)} and lastModifiedDateTime lt {iso(until)}"}
+                  "$filter": f"lastModifiedDateTime gt {clock.iso(since)} and lastModifiedDateTime lt {clock.iso(until)}"}
     else:
         params = {"$top": "50"}
     out = []

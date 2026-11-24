@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .. import export
+from .. import clock, export
 from ..exclusions import Exclusions
 from ..graph import mail, teams
 from ..graph.client import GraphError
@@ -211,7 +211,7 @@ def meeting_items(sessions: list, since: datetime, ex: Exclusions) -> Iterator[d
                 f"{summary.get('summary', '')}\n" + "\n".join(f"- {p}" for p in summary.get("key_points", [])))
         yield {
             "key": "meeting:" + s.id, "source": "meeting", "title": m.get("title", "Meeting"), **_people(m.get("attendees", []), {}),
-            "last": done.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "link": "", "msg_id": "", "count": 1,
+            "last": clock.iso(done), "link": "", "msg_id": "", "count": 1,
             "last_from_me": False, "automated": False, "keys": issue_keys(m.get("title", ""), text), "text": text,
             "file": str(Path(m["md"])) if m.get("md") else "",
         }
@@ -258,7 +258,7 @@ def _jira_time(t: str) -> str:
 
 
 def _utc(t: str) -> str:
-    return export.parse_time(t).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return clock.iso(export.parse_time(t))
 
 
 def _adf(body) -> str:

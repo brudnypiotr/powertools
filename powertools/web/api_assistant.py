@@ -32,7 +32,7 @@ def text(h, *names) -> list[str]:
 def view(h):
     a = h.app.assistant
     h.send(200, {**a.view(), "llm": h.app.llm.available(), "graph": h.app.graph.status(), "draft_list": a.drafts.list(),
-                 "people": a.people()})
+                 "people": a.people.all()})
 
 
 @route("POST", "/api/assistant/update")
@@ -40,7 +40,7 @@ def view(h):
 def update(h):
     b = h.json_body()
     # without a token the job is made all the same: it pauses at once and goes on when the token is there
-    h.app.assistant.update(b.get("range"), b.get("sources"))
+    h.app.assistant.updates.start(b.get("range"), b.get("sources"))
     h.send(200, h.app.assistant.view())
 
 
@@ -50,7 +50,7 @@ def check(h):
     """Did I answer in the meantime? Needs a token now (the window then waits for one and calls again)."""
     if not h.app.graph.tokens.get():
         raise TokenExpired("no valid token")
-    h.app.assistant.check_answers()
+    h.app.assistant.answers.check()
     h.send(200, h.app.assistant.view())
 
 
@@ -62,48 +62,49 @@ def stop(h):
 
 @route("POST", "/api/assistant/act")
 def act(h):
-    h.app.assistant.act(*text(h, "key", "action", "value"))
+    h.app.assistant.actions.act(*text(h, "key", "action", "value"))
     h.send(200, h.app.assistant.view())
 
 
 @route("POST", "/api/assistant/promise")
 def promise(h):
-    h.app.assistant.promise(*text(h, "id", "state"))
+    h.app.assistant.state.close_promise(*text(h, "id", "state"))
     h.send(200, h.app.assistant.view())
 
 
 @route("POST", "/api/assistant/setup")
 def setup(h):
-    h.send(200, h.app.assistant.setup(h.json_body()))
+    h.app.assistant.actions.setup(h.json_body())
+    h.send(200, h.app.assistant.view())
 
 
 @route("POST", "/api/assistant/brief")
 @answer
 def brief(h):
     b = h.json_body()
-    h.send(200, h.app.assistant.brief(str(b.get("kind", "day")), int(b.get("days") or 0)))
+    h.send(200, h.app.assistant.briefs.brief(str(b.get("kind", "day")), int(b.get("days") or 0)))
 
 
 @route("POST", "/api/assistant/ask")
 @answer
 def ask(h):
-    h.send(200, h.app.assistant.ask(*text(h, "question")))
+    h.send(200, h.app.assistant.asking.ask(*text(h, "question")))
 
 
 @route("GET", "/api/assistant/talk")
 def talk(h):
-    h.send(200, h.app.assistant.talk)
+    h.send(200, h.app.assistant.kit.talk)
 
 
 @route("DELETE", "/api/assistant/talk")
 def talk_clear(h):
-    h.app.assistant.talk = []
+    h.app.assistant.kit.talk = []
     h.send(200, [])
 
 
 @route("POST", "/api/assistant/feedback")
 def feedback(h):
-    h.app.assistant.feedback(*text(h, "text"))
+    h.app.assistant.actions.feedback(*text(h, "text"))
     h.send(200, {"saved": True})
 
 
@@ -220,36 +221,36 @@ def style_rule(h):
 @answer
 def prep(h):
     b = h.json_body()
-    h.send(200, h.app.assistant.prep(str(b.get("id", "")), bool(b.get("again")), str(b.get("person", ""))))
+    h.send(200, h.app.assistant.briefs.prep(str(b.get("id", "")), bool(b.get("again")), str(b.get("person", ""))))
 
 
 @route("GET", "/api/people")
 def people(h):
-    h.send(200, h.app.assistant.people())
+    h.send(200, h.app.assistant.people.all())
 
 
 @route("GET", "/api/people/card")
 def person(h):
-    h.send(200, h.app.assistant.person(h.query("name")))
+    h.send(200, h.app.assistant.people.person(h.query("name")))
 
 
 @route("POST", "/api/people")
 def person_add(h):
-    h.app.assistant.add_person(*text(h, "name", "title", "mail"))
-    h.send(200, h.app.assistant.people())
+    h.app.assistant.people.add(*text(h, "name", "title", "mail"))
+    h.send(200, h.app.assistant.people.all())
 
 
 @route("POST", "/api/people/remove")
 def person_remove(h):
-    h.app.assistant.remove_person(*text(h, "name"))
-    h.send(200, h.app.assistant.people())
+    h.app.assistant.people.remove(*text(h, "name"))
+    h.send(200, h.app.assistant.people.all())
 
 
 @route("POST", "/api/people/note")
 def person_note(h):
     name, note = text(h, "name", "note")
-    h.app.assistant.note_person(name, note)
-    h.send(200, h.app.assistant.person(name))
+    h.app.assistant.people.note(name, note)
+    h.send(200, h.app.assistant.people.person(name))
 
 
 # ------------------------------------------------------------------ ideas, comparing models

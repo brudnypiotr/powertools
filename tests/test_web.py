@@ -157,12 +157,12 @@ def test_recap_api_from_setup_to_memory(server, tmp_path):
     assert not v["setup_done"] and v["llm"]["provider"] == "local" and not v["llm"]["chosen"]
     call(base, "POST", "/api/assistant/update", {})                               # no token: it waits, nothing is lost
     for _ in range(50):
-        if app.assistant.job.state == "needs_token":
+        if app.assistant.updates.job.state == "needs_token":
             break
         time.sleep(0.1)
-    first = app.assistant.job
+    first = app.assistant.updates.job
     call(base, "POST", "/api/assistant/update", {})
-    assert first.state == "needs_token" and app.assistant.job is first            # a second click does not queue another
+    assert first.state == "needs_token" and app.assistant.updates.job is first            # a second click does not queue another
     st = call(base, "GET", "/api/state")
     assert st["graph"]["has_token"] is False and {"tokens_today", "limit", "github_days", "model"} <= set(st["llm"])
     call(base, "POST", "/api/assistant/setup", {"provider": "local", "running": "Alpha"})

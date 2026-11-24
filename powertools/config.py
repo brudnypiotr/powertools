@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import threading
 from pathlib import Path
+
+from . import files
 
 
 def data_dir() -> Path:
@@ -67,93 +68,87 @@ DEFAULTS: dict = {
 MODELS = ["turbo", "large-v3", "medium", "small", "parakeet-v3"]
 
 
-def output_dir(settings) -> "Path":
+def output_dir(settings) -> Path:
     d = Path(settings["output_dir"]) if settings["output_dir"] else Path.home() / "Documents" / "powertools"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def memory_dir(settings) -> "Path":
+def memory_dir(settings) -> Path:
     d = Path(settings["memory_dir"]) if settings["memory_dir"] else Path.home() / "Documents" / "powertools" / "memory"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
+# ------------------------------------------------------------------ what a setting may be: one rule per key
+def one_of(*allowed):
+    def rule(key: str, value):
+        if value not in allowed:
+            raise ValueError(f"{key} must be one of {', '.join(repr(a) for a in allowed)}")
+        return value
+    return rule
+
+
+def whole(low: int, high: int):
+    def rule(key: str, value):
+        value = int(value)
+        if not low <= value <= high:
+            raise ValueError(f"{key} must be {low}..{high}")
+        return value
+    return rule
+
+
+def hotkey(key: str, value):
+    value = str(value).strip().lower()
+    if not value and key != "meeting_mute_hotkey":       # that one may be off
+        raise ValueError(f"{key} cannot be empty")
+    return value
+
+
+def model_name(key: str, value):
+    value = str(value).strip()
+    if not value or any(c.isspace() for c in value):
+        raise ValueError(f"{key} must be a model name, e.g. {DEFAULTS[key]}")
+    return value
+
+
+def words(key: str, value):
+    if not isinstance(value, list):
+        raise ValueError(f"{key} must be a list")
+    return [str(w).strip() for w in value if str(w).strip()]
+
+
+def replacements(key: str, value):
+    if not isinstance(value, list):
+        raise ValueError(f"{key} must be a list")
+    return [{"from": str(r["from"]).strip(), "to": str(r["to"]).strip()} for r in value if isinstance(r, dict) and str(r.get("from", "")).strip()]
+
+
+def https(key: str, value):
+    value = str(value).strip().rstrip("/")
+    if value and not value.startswith("https://"):
+        raise ValueError("Jira site must start with https://")
+    return value
+
+
+RULES = {
+    "hotkey": hotkey, "wording_hotkey": hotkey, "meeting_mute_hotkey": hotkey, "model": one_of(*MODELS), "language": one_of("", "pl", "en"),
+    "beam_size": whole(1, 10), "vocabulary": words, "replacements": replacements, "exclude": words,
+    "meeting_final_model": one_of(*MODELS, "live"), "meeting_keep_audio_days": whole(0, 365),
+    "ai_provider": one_of("", "local", "copilot"), "copilot_model": model_name, "copilot_effort": one_of("", "low", "medium", "high"),
+    "copilot_daily_credits": whole(0, 5000), "llm_model": model_name, "llm_gpu": one_of("auto", "cpu"), "llm_keep_alive_min": whole(0, 120),
+    "wording_mode": one_of("review", "replace"), "silence_days": whole(1, 365), "matter_quiet_days": whole(1, 365),
+    "jira_url": https, "jira_max_attachment_mb": whole(1, 2000),
+}
+
+
 def validate(key: str, value):
-    """Returns the cleaned value or raises ValueError."""
+    """The cleaned value, or ValueError."""
     if key not in DEFAULTS:
         raise ValueError(f"unknown setting: {key}")
-    default = DEFAULTS[key]
-    if key == "model" and value not in MODELS:
-        raise ValueError(f"model must be one of {', '.join(MODELS)}")
-    if key == "language" and value not in ("", "pl", "en"):
-        raise ValueError("language must be '', 'pl' or 'en'")
-    if key in ("hotkey", "wording_hotkey"):
-        value = str(value).strip().lower()
-        if not value:
-            raise ValueError(f"{key} cannot be empty")
-    if key == "meeting_mute_hotkey":
-        value = str(value).strip().lower()
-    if key == "ai_provider" and value not in ("", "local", "copilot"):
-        raise ValueError("ai_provider must be 'local' or 'copilot'")
-    if key == "copilot_model":
-        value = str(value).strip()
-        if not value or any(c.isspace() for c in value):
-            raise ValueError("copilot_model must be a model id, e.g. gpt-6-luna")
-    if key == "copilot_effort" and value not in ("", "low", "medium", "high"):
-        raise ValueError("copilot_effort must be '', 'low', 'medium' or 'high'")
-    if key == "copilot_daily_credits":
-        value = int(value)
-        if not 0 <= value <= 5000:
-            raise ValueError("copilot_daily_credits must be 0..5000")
-    if key == "llm_model":
-        value = str(value).strip()
-        if not value or any(c.isspace() for c in value):
-            raise ValueError("llm_model must be an Ollama model name, e.g. gemma4:e4b")
-    if key == "llm_gpu" and value not in ("auto", "cpu"):
-        raise ValueError("llm_gpu must be 'auto' or 'cpu'")
-    if key == "llm_keep_alive_min":
-        value = int(value)
-        if not 0 <= value <= 120:
-            raise ValueError("llm_keep_alive_min must be 0..120")
-    if key == "wording_mode" and value not in ("review", "replace"):
-        raise ValueError("wording_mode must be 'review' or 'replace'")
-    if key in ("silence_days", "matter_quiet_days"):
-        value = int(value)
-        if not 1 <= value <= 365:
-            raise ValueError(f"{key} must be 1..365")
-    if key in ("vocabulary", "exclude"):
-        if not isinstance(value, list):
-            raise ValueError(f"{key} must be a list")
-        value = [str(w).strip() for w in value if str(w).strip()]
-    if key == "replacements":
-        if not isinstance(value, list):
-            raise ValueError("replacements must be a list")
-        value = [{"from": str(r["from"]).strip(), "to": str(r["to"]).strip()}
-                 for r in value if isinstance(r, dict) and str(r.get("from", "")).strip()]
-    if key == "meeting_final_model" and value not in MODELS + ["live"]:
-        raise ValueError("meeting_final_model must be a model name or 'live'")
-    if key == "meeting_keep_audio_days":
-        value = int(value)
-        if not 0 <= value <= 365:
-            raise ValueError("meeting_keep_audio_days must be 0..365")
-    if key == "jira_url":
-        value = str(value).strip().rstrip("/")
-        if value and not value.startswith("https://"):
-            raise ValueError("Jira site must start with https://")
-    if key == "jira_max_attachment_mb":
-        value = int(value)
-        if not 1 <= value <= 2000:
-            raise ValueError("jira_max_attachment_mb must be 1..2000")
-    if key == "beam_size":
-        value = int(value)
-        if not 1 <= value <= 10:
-            raise ValueError("beam_size must be 1..10")
-    if isinstance(default, bool):
-        value = bool(value)
-    elif isinstance(default, str):
-        value = str(value)
-    return value
+    if key in RULES:
+        return RULES[key](key, value)
+    return type(DEFAULTS[key])(value)       # a plain switch or text
 
 
 class Settings:
@@ -161,17 +156,12 @@ class Settings:
         self.path = path or data_dir() / "settings.json"
         self._lock = threading.Lock()
         self._data = copy.deepcopy(DEFAULTS)
-        if self.path.exists():
-            try:
-                stored = json.loads(self.path.read_text(encoding="utf-8"))
-                for k, v in stored.items():
-                    if k in DEFAULTS:
-                        try:
-                            self._data[k] = validate(k, v)
-                        except (ValueError, TypeError, KeyError):
-                            pass  # keep the default for a broken value
-            except (OSError, ValueError):
-                pass
+        for k, v in files.load_json(self.path).items():
+            if k in DEFAULTS:
+                try:
+                    self._data[k] = validate(k, v)
+                except (ValueError, TypeError, KeyError):
+                    pass  # keep the default for a broken value
 
     def __getitem__(self, key: str):
         with self._lock:
@@ -187,7 +177,5 @@ class Settings:
         with self._lock:
             changed = {k: v for k, v in clean.items() if self._data[k] != v}
             self._data.update(clean)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, self.path)
+            files.save_json(self.path, self._data, indent=2)
         return changed

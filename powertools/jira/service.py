@@ -13,7 +13,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from .. import export
+from .. import export, files
 from ..config import data_dir, output_dir
 from ..jobs import Job, Jobs
 from . import auth, render
@@ -168,10 +168,7 @@ class JiraService:
             return {}
 
     def _save(self, base: str, key: str, state: dict) -> None:
-        p = self.state_dir(base) / f"{key}.json"
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(p)
+        files.save_json(self.state_dir(base) / f"{key}.json", state, indent=1)
 
     def search(self, form: dict, limit: int = 200) -> dict:
         jql = form["jql_only"].strip() if form.get("jql_only") else build_jql(form)

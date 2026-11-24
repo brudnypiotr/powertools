@@ -15,7 +15,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from . import updater
+from . import files, updater
 from .config import data_dir
 
 STEMS = ("logo", "background")
@@ -83,10 +83,7 @@ def save(data: dict) -> dict:
 
 
 def _write_json(data: dict) -> None:
-    local_dir().mkdir(parents=True, exist_ok=True)
-    tmp = local_dir() / "branding.tmp"
-    tmp.write_text(json.dumps(clean(data), ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, local_dir() / "branding.json")
+    files.save_json(local_dir() / "branding.json", clean(data), indent=2)
 
 
 def import_zip(data: bytes) -> dict:

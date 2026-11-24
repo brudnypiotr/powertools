@@ -72,7 +72,7 @@ def test_a_copilot_refusal_is_explained():
 
 
 def test_the_github_token_is_stored_for_this_user_only(tmp_path):
-    st = copilot.SecretStore(tmp_path / "t.bin")
+    st = copilot.GitHubToken(tmp_path / "t.bin")
     for bad in ("ghp_classic", "hello", "github_pat_ with space"):
         with pytest.raises(ValueError):
             st.set(bad)

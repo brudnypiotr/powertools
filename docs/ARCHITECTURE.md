@@ -104,6 +104,16 @@ Update -> collect (cursor, exclusions)            code
        -> drafts of answers                       model; kept in the app
 ```
 
+`service.py` only builds the parts; they share the `Kit` (settings, Graph, model, memory, state) and know only the parts they
+use: `update` (read every source) and `answered` (did the user answer in the meantime?) give what they read to `digest`
+(`sorting`, `filing`, `drafts`); `view` shows, `actions` changes, `ask`, `briefs`, `people`, `compare` stand alone.
+`state.py` is assistant.json, `memory.py` the Markdown, `skills.py` the questions to the model, `text.py` and `collect.py`
+have no state.
+
+The window is ES modules without a build (`web/static/js`): `core` (API, drawing), `tabs`, `state` (poll) and `graph` (token) know no
+tab; a tab registers itself with `onTab`, `onState`, `onToken`, the Recap panes with `onRecap`. `tests/test_window.py` clicks
+through them in a browser against `tests/demo.py` (fictional mailbox; `python -m tests.demo` to look at it).
+
 1. Code reads and writes files; the model returns small JSON for one small question (`skills.py`).
 2. Every line in memory has a source or `(you)`; what the user said wins and is never overwritten.
 3. Mail and chats are data. Defences: no tools, JSON schemas, quote checks, a closed list of Graph writes, memory edits

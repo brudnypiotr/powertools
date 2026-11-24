@@ -42,6 +42,9 @@ class Job:
                                               "result", "started", "finished")}
 
 
+ACTIVE = ("queued", "running")
+
+
 class Stopped(Exception):
     """The user pressed Stop; what was done so far is kept."""
 
@@ -72,7 +75,7 @@ class Jobs:
             job.state = "stopped"
 
     def busy(self) -> bool:
-        return any(j.state in ("queued", "running") for j in self.all)
+        return any(j.state in ACTIVE for j in self.all)
 
     def get(self, job_id: int) -> Job:
         for j in self.all:

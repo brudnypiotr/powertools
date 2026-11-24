@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass, field
 
 from ..config import data_dir
-from ..graph.token import TokenStore, _dpapi
+from ..vault import SecretFile
 
 
 @dataclass
@@ -35,26 +35,10 @@ def fingerprint(token: str) -> str:
     return f"…{token[-4:]} ({len(token)} chars)" if token else ""
 
 
-class JiraTokenStore(TokenStore):
-    """Same DPAPI file as the Graph token, but a Jira token is not a JWT and does not expire on a known date."""
-
-    def set(self, token: str) -> None:
-        token = token.strip()
-        if token.lower().startswith("bearer "):
-            token = token[7:].strip()
-        if len(token) < 10 or any(c.isspace() for c in token):
+class JiraTokenStore(SecretFile):
+    def check(self, secret: str) -> None:
+        if len(secret) < 10 or any(c.isspace() for c in secret):
             raise ValueError("this does not look like a Jira token")
-        data = token.encode("utf-8")
-        self.path.write_bytes(_dpapi(data, True) if sys.platform == "win32" else data)
-        if sys.platform != "win32":
-            os.chmod(self.path, 0o600)
-        self._token = token
-
-    def get(self) -> str:
-        return self._token
-
-    def expires_in(self) -> float:
-        return float("inf") if self._token else 0
 
 
 def windows_credential(target: str) -> tuple[str, str] | None:

@@ -114,7 +114,6 @@ def rmtree(path):
     shutil.rmtree(path, onerror=writable)
 
 def test_attach_zip_copy_and_keep_existing_origin(tmp_path):
-    import shutil
     import subprocess
 
     from powertools import updater

@@ -11,9 +11,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-import os
 import re
-import sys
 import threading
 import time
 import urllib.request
@@ -22,8 +20,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import data_dir
-from .graph.token import _dpapi
 from .llm import INTERACTIVE, LLMError
+from .vault import SecretFile
 
 log = logging.getLogger("powertools.copilot")
 NO_LICENCE = ("this GitHub account has no Copilot access (the token itself is fine). Use the account the licence is "
@@ -99,32 +97,12 @@ def quota_view(q: dict, now: datetime) -> dict:
             "work_days_left": sum((now.date() + timedelta(days=n)).weekday() < 5 for n in range(days)), "checked": time.time()}
 
 
-class SecretStore:
-    """The GitHub token, encrypted with Windows DPAPI for this user (a private plain file on other systems)."""
-
-    def __init__(self, path: Path):
-        self.path = path
-
-    def get(self) -> str:
-        try:
-            raw = self.path.read_bytes()
-            return (_dpapi(raw, False) if sys.platform == "win32" else raw).decode("utf-8")
-        except (OSError, ValueError):
-            return ""
-
-    def set(self, token: str) -> None:
-        token = token.strip()
-        if token.startswith("ghp_"):
+class GitHubToken(SecretFile):
+    def check(self, secret: str) -> None:
+        if secret.startswith("ghp_"):
             raise ValueError("classic tokens (ghp_...) do not work with Copilot: create a fine-grained one")
-        if not token.startswith(("github_pat_", "gho_", "ghu_")) or any(c.isspace() for c in token):
+        if not secret.startswith(("github_pat_", "gho_", "ghu_")) or any(c.isspace() for c in secret):
             raise ValueError("this does not look like a GitHub token (it starts with github_pat_)")
-        data = token.encode("utf-8")
-        self.path.write_bytes(_dpapi(data, True) if sys.platform == "win32" else data)
-        if sys.platform != "win32":
-            os.chmod(self.path, 0o600)
-
-    def clear(self) -> None:
-        self.path.unlink(missing_ok=True)
 
 
 def _reject(_request, _invocation=None):
@@ -139,7 +117,7 @@ class Copilot:
     def __init__(self, settings, home: Path | None = None):
         self.settings = settings
         self.home = home or data_dir() / "copilot"
-        self.secret = SecretStore(data_dir() / "github-token.bin")
+        self.secret = GitHubToken(data_dir() / "github-token.bin")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client = None
         self._client_token = ""

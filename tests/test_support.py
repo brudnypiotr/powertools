@@ -28,7 +28,7 @@ def test_nothing_is_readable_without_the_key(server):  # noqa: F811
             raw(base + path)
         assert e.value.code == 403 and json.loads(e.value.read())["error"] == "locked"
     assert raw(base + "/api/ping").status == 200                              # how a second start finds the first
-    assert raw(base + "/app.js").status == 200                                # no data in it
+    assert raw(base + "/js/main.js").status == 200                                # no data in it
     assert raw(base + "/api/state", app.door.key).status == 200
 
 
@@ -124,8 +124,8 @@ def test_the_report_has_state_but_no_names_titles_or_text(server, tmp_path, capl
     app, base = server
     app.settings.update({"memory_dir": str(tmp_path / "mem"), "exclude": ["Hanna HR"], "jira_url": "https://secretcorp.example.invalid"})
     a, g = make(tmp_path)
-    a.update()
-    app.assistant.data = a.data
+    a.updates.start()
+    app.assistant.state.data = a.state.data
     app.assistant.memory.create_matter("Secret merger")
     (diagnostics.data_dir() / "app.log").write_text(
         "2026-11-25 ERROR   powertools.web: GET /api/x failed\nTraceback (most recent call last):\n  File \"/u/x.py\", line 3, in f\n"
@@ -165,6 +165,6 @@ def test_a_public_repository_gets_no_ideas(server, monkeypatch):  # noqa: F811
 def test_what_the_recap_missed_is_told_to_the_model_next_time(tmp_path, monkeypatch):
     monkeypatch.setenv("POWERTOOLS_HOME", str(tmp_path))
     a, g = make(tmp_path)
-    a.feedback("The mails of the airline are always for me")
-    a.update()
-    assert "The mails of the airline are always for me" in a.llm.asked("triage")[0]["system"]
+    a.actions.feedback("The mails of the airline are always for me")
+    a.updates.start()
+    assert "The mails of the airline are always for me" in a.kit.llm.asked("triage")[0]["system"]

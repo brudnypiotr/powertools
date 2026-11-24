@@ -25,10 +25,11 @@ KIND = re.compile(r"^([A-Za-z_][\w.]*(?:Error|Exception|Busy|Expired|Stopped|Tim
 def known_words(app) -> list[str]:
     """What the app knows by name: it must not be in the report."""
     a, s = app.assistant, app.settings
-    words = {a.me, *s["exclude"], *s["vocabulary"]}
-    for i in list(a.data["items"].values()):
+    data = a.state.data
+    words = {a.state.me, *s["exclude"], *s["vocabulary"]}
+    for i in a.state.all():
         words |= {i["title"], *i["people"].split(", ")}
-    words |= {p["name"] for p in a.data["people"]} | {e["title"] for e in a.data["events"]}
+    words |= {p["name"] for p in data["people"]} | {e["title"] for e in data["events"]}
     words |= {m["title"] for m in a.memory.matters(every=True)} | {x.meta.get("title", "") for x in app.meetings.sessions(100)}
     return sorted((w for w in words if len(w) > 2), key=len, reverse=True)
 
@@ -70,8 +71,8 @@ def _commit() -> str:
 
 
 def report(app) -> dict:
-    a, words = app.assistant, known_words(app)
-    items, last, usage, engine = list(a.data["items"].values()), a.data["last"], app.llm.usage.today(), app.engine.status()
+    a, words, data = app.assistant, known_words(app), app.assistant.state.data
+    items, last, usage, engine = a.state.all(), data["last"], app.llm.usage.today(), app.engine.status()
     log = data_dir() / "app.log"
     return {
         "app": {"version": __version__, "commit": _commit(), "before": updater.previous().get("version", "")},
@@ -82,9 +83,9 @@ def report(app) -> dict:
         "graph": {k: v for k, v in app.graph.status().items() if k in ("has_token", "expires_min", "chats", "mail")} | {"scopes": app.graph.tokens.scopes()},
         "recap": {"items": Counter(i.get("user_category") or i.get("category") or "new" for i in items),
                   "status": Counter(i["status"] for i in items), "not_sorted": sum(bool(i.get("error")) for i in items),
-                  "waiting_to_be_sorted": sum(bool(i.get("pending")) for i in items), "cursor": a.data["cursor"], "updated": a.data["updated"],
+                  "waiting_to_be_sorted": sum(bool(i.get("pending")) for i in items), "cursor": data["cursor"], "updated": data["updated"],
                   "last": {k: last.get(k) for k in ("found", "new", "seconds", "credits")}, "problems": len(last.get("problems", [])),
-                  "matters": len(a.memory.matters(every=True)), "drafts": len(a.drafts.list()), "people": len(a.data["people"])},
+                  "matters": len(a.memory.matters(every=True)), "drafts": len(a.drafts.list()), "people": len(data["people"])},
         "jobs": [{"kind": j.kind, "state": j.state, "done": j.done, "total": j.total, "error": redact(j.error, words)} for j in app.graph.jobs.all[-10:]],
         "settings": {k: (len(v) if isinstance(v, list) else bool(v)) if k in PRIVATE else v for k, v in app.settings.all().items() if k in DEFAULTS},
         "errors": errors(log.read_text(encoding="utf-8", errors="replace"), words) if log.exists() else [],

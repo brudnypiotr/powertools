@@ -21,6 +21,7 @@ import time
 from typing import Callable
 from urllib.parse import urlencode
 
+from .. import files
 from ..config import data_dir
 
 log = logging.getLogger("powertools.teams_api")
@@ -143,9 +144,7 @@ class TeamsLink:
             return ""
 
     def _save_token(self, token: str) -> None:
-        tmp = self.token_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"token": token, "paired": time.time()}), encoding="utf-8")
-        tmp.replace(self.token_file)
+        files.save_json(self.token_file, {"token": token, "paired": time.time()})
         log.info("paired with Teams")
 
     def view(self) -> dict:

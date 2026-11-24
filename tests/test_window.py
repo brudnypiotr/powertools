@@ -122,7 +122,7 @@ def test_a_draft_goes_to_outlook_once(win):
 def test_a_failed_update_says_why(win):
     page = win.open()
     win.update()
-    win.app.assistant.job.state, win.app.assistant.job.error = "error", "no connection to Microsoft"
+    win.app.assistant.updates.job.state, win.app.assistant.updates.job.error = "error", "no connection to Microsoft"
     page.reload()
     see(page, "#today-rows", "no connection to Microsoft")
 
@@ -194,14 +194,14 @@ def test_a_question_answered_in_teams_closes_by_itself(win):
 
 def test_an_update_can_be_stopped(win):
     page = win.open()
-    real = win.app.assistant.classify
-    win.app.assistant.classify = lambda *a, **k: (time.sleep(0.4), real(*a, **k))[1]
+    real = win.app.assistant.sorting.classify
+    win.app.assistant.sorting.classify = lambda *a, **k: (time.sleep(0.4), real(*a, **k))[1]
     page.select_option("#recap-range", "30")
     page.click("#recap-update")
     sync.expect(page.locator("#recap-update")).to_have_text("Stop")
     page.click("#recap-update")
     sync.expect(page.locator("#recap-update")).to_have_text("Update", timeout=15000)
-    assert win.app.assistant.job.state == "stopped"
+    assert win.app.assistant.updates.job.state == "stopped"
 
 
 def test_what_is_left_of_the_credits_is_in_the_menu(win):
@@ -253,3 +253,90 @@ def test_the_version_before_the_update_is_one_click_away(win, monkeypatch):
     page = win.open()
     page.click("#engine-foot")
     sync.expect(page.locator("#about-back")).to_have_text("Back to 0.16.0")
+
+
+def test_this_is_wrong_later_and_a_promise(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    page.click("[data-do=wrong]")
+    page.click("[data-do=category][data-value=fyi]")
+    see(page, ".toasts", "Moved")
+    win.row("Send the minutes")
+    see(page, "#today-body", "You promised it")
+    page.click("[data-do=p-done]")
+    sync.expect(page.locator("#today-rows")).not_to_contain_text("Send the minutes")
+    page.locator(".toast button").last.click()
+    see(page, "#today-rows", "Send the minutes")
+    win.row("Choose option A or B")
+    page.click("#today-bar details.menu summary")
+    page.click("[data-do=snooze][data-days='3']")
+    sync.expect(page.locator("#today-rows")).not_to_contain_text("Choose option A or B")
+
+
+def test_a_suggested_matter_is_created_and_leads_back_to_its_item(win):
+    page = win.open()
+    win.update()
+    page.click("[data-do=new_matter]")
+    page.click("[data-tab=matters]")
+    see(page, "#matters-body", "Contract renewal")
+    page.locator("#matters-body [data-do=go]").first.click()
+    see(page, "#today-body", "signed contract")
+    page.click("[data-tab=matters]")
+    page.click("#matters-bar [data-st=parked]")
+    page.click("#matters-tabs [data-seg=off]")
+    see(page, "#matters-rows", "Contract renewal")
+
+
+def test_a_brief_and_an_agenda_become_texts_of_mine(win):
+    page = win.open()
+    win.update()
+    page.click("[data-kind=week]")
+    page.click("[data-do=brief-draft]")
+    sync.expect(page.locator("#draft-text")).to_have_value(re.compile("Finance needs"))
+    page.click("[data-tab=meetings]")
+    page.click("[data-m=make]")
+    page.click("[data-m=agenda]")
+    sync.expect(page.locator("#draft-text")).to_have_value(re.compile("Agenda:"))
+    page.click("#today-bar [data-do=used]")
+    see(page, "#today-rows", "The week")
+
+
+def test_what_i_say_changes_a_file_and_can_be_undone(win):
+    page = win.open()
+    win.update()
+    page.fill("#ask-form input", "The contract deadline is Thursday")
+    page.keyboard.press("Enter")
+    see(page, "#today-body .edit", "profile.md")
+    assert "Thursday" in win.app.assistant.memory.read("profile.md")
+    page.click("[data-do=mem-undo]")
+    see(page, ".toasts", "Undone in profile.md")
+    assert "Thursday" not in win.app.assistant.memory.read("profile.md")
+
+
+def test_rewriting_a_draft_offers_a_rule(win):
+    page = win.open()
+    win.update()
+    win.row("Answer Jan")
+    page.fill("#today-body [name=remark]", "no greeting")
+    page.click("#today-body .fixline button")
+    sync.expect(page.locator("#draft-text")).to_have_value("Jan, 3 pm works.")
+    page.click("#today-body .rule button")
+    see(page, "#today-body .rule", "Remembered")
+
+
+def test_a_one_to_one_with_a_person(win):
+    page = win.open()
+    win.update()
+    page.click("[data-tab=matters]")
+    page.click("#matters-tabs [data-seg=people]")
+    page.fill("#matters-new [name=name]", "Jan")
+    page.click("#matters-new button")
+    see(page, "#matters-body", "Jan")
+    page.fill("#matters-bar [name=note]", "likes short mails")
+    page.click("#matters-bar form button")
+    see(page, "#matters-body", "likes short mails")
+    page.click("[data-one]")
+    see(page, "#meet-rows", "1:1 with Jan")
+    page.click("[data-m=file]")
+    sync.expect(page.locator("#mem-text")).to_have_value(re.compile("1:1 with Jan"))

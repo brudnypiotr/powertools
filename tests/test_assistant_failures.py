@@ -30,15 +30,15 @@ def said_in_chat(mid, hours, text, me=False):
 def test_one_forbidden_chat_is_named_and_the_rest_goes_on(tmp_path):
     a, g = make(tmp_path)
     g.fail = {"/chats/c1/messages": GraphError(403, "Forbidden", "you left it")}
-    a.update()
-    assert a.data["cursor"] and any("Jan" in p for p in a.data["last"]["problems"])
+    a.updates.start()
+    assert a.state.data["cursor"] and any("Jan" in p for p in a.state.data["last"]["problems"])
 
 
 def test_a_service_error_keeps_what_was_read_and_reads_the_range_again(tmp_path):
     a, g = make(tmp_path)
     g.fail = {"/chats/c1/messages": GraphError(503, "Busy", "later")}
-    a.update()
-    assert a.data["cursor"] == "" and "mail:cv1" in a.data["items"]
+    a.updates.start()
+    assert a.state.data["cursor"] == "" and "mail:cv1" in a.state.data["items"]
 
 
 def test_more_chats_than_one_update_reads_is_said(tmp_path, monkeypatch):
@@ -52,19 +52,19 @@ def test_more_chats_than_one_update_reads_is_said(tmp_path, monkeypatch):
                                "lastMessagePreview": {"createdDateTime": iso(2)}} for n in range(3)]}
         return {"value": g.chat_msgs} if p.startswith("/chats/x") else real(p, params, headers)
     g.get = get
-    a.update()
-    assert any("newest 2" in p for p in a.data["last"]["problems"])
+    a.updates.start()
+    assert any("newest 2" in p for p in a.state.data["last"]["problems"])
 
 
 def test_killed_after_sorting_the_next_update_still_matches(tmp_path):
     a, g = make(tmp_path)
-    a._match, real = fail(RuntimeError("killed")), a._match
+    a.filing.match, real = fail(RuntimeError("killed")), a.filing.match
     with pytest.raises(RuntimeError):
-        a.update()
-    a._save()
-    a._match, a.job = real, None
-    a.update()
-    assert a.llm.asked("match matters")
+        a.updates.start()
+    a.state.save()
+    a.filing.match, a.updates.job = real, None
+    a.updates.start()
+    assert a.kit.llm.asked("match matters")
 
 
 def test_matching_that_failed_is_tried_again(tmp_path):
@@ -76,52 +76,52 @@ def test_matching_that_failed_is_tried_again(tmp_path):
             raise LLMError("limit")
         return Model.match_matters
     a, g = make(tmp_path, Model(match_matters=match))
-    a.update()
-    assert any("matter" in p for p in a.data["last"]["problems"])
-    a.update()
+    a.updates.start()
+    assert any("matter" in p for p in a.state.data["last"]["problems"])
+    a.updates.start()
     assert len(calls) == 2
-    a.update()
+    a.updates.start()
     assert len(calls) == 2
 
 
 def test_a_malformed_answer_is_one_item_not_the_whole_update(tmp_path):
     broken = {**NOTHING, "category": "todo", "summary": "x", "commitments": {"a": 1}}
     a, g = make(tmp_path, Model(triage=lambda u: broken))
-    a.update()
-    assert a.data["cursor"] and a.data["items"]["mail:cv1"]["commitments"] == []
+    a.updates.start()
+    assert a.state.data["cursor"] and a.state.data["items"]["mail:cv1"]["commitments"] == []
 
 
 def test_an_error_in_the_code_for_one_item_does_not_stop_the_others(tmp_path, monkeypatch):
     a, g = make(tmp_path)
-    real = a.classify
-    monkeypatch.setattr(a, "classify", lambda i, *x, **k: fail(TypeError("odd"))() if i["key"] == "mail:cv1" else real(i, *x, **k))
-    a.update()
-    assert a.data["items"]["mail:cv1"]["error"] and a.data["items"]["teams:c1"]["category"] == "reply"
+    real = a.sorting.classify
+    monkeypatch.setattr(a.sorting, "classify", lambda i, *x, **k: fail(TypeError("odd"))() if i["key"] == "mail:cv1" else real(i, *x, **k))
+    a.updates.start()
+    assert a.state.data["items"]["mail:cv1"]["error"] and a.state.data["items"]["teams:c1"]["category"] == "reply"
 
 
 def test_a_new_range_while_waiting_for_a_token_is_used(tmp_path):
     a, g = make(tmp_path)
     g.fail = {"/me": TokenExpired("x")}
-    job = a.update()
-    assert a.update({"kind": "days", "days": 30}) is job
+    job = a.updates.start()
+    assert a.updates.start({"kind": "days", "days": 30}) is job
     g.fail = {}
     job.run(job)
-    assert "mail:cv3" in a.data["items"]                                          # 5 days old: outside the first range
+    assert "mail:cv3" in a.state.data["items"]                                          # 5 days old: outside the first range
 
 
 def test_what_was_read_before_the_token_ended_is_not_read_again(tmp_path):
     a, g = make(tmp_path)
     g.fail = {"/me/chats": TokenExpired("x")}
-    job = a.update()
+    job = a.updates.start()
     assert a.view()["paused_at"].startswith("reading Teams")
     g.fail, g.calls = {}, []
     job.run(job)
-    assert "mail:cv1" in a.data["items"] and "/me/mailFolders/inbox/messages" not in g.calls
+    assert "mail:cv1" in a.state.data["items"] and "/me/mailFolders/inbox/messages" not in g.calls
 
 
 def test_a_failed_update_is_visible(tmp_path):
     a, g = make(tmp_path)
-    job = a.update()
+    job = a.updates.start()
     job.state, job.error = "error", "no connection to Microsoft"
     assert a.view()["job"]["error"] == "no connection to Microsoft"
 
@@ -138,36 +138,45 @@ def test_no_network_is_a_graph_error(monkeypatch):
         g.get("/me")
 
 
+def test_trouble_before_the_token_ended_still_counts_after_it(tmp_path):
+    a, g = make(tmp_path)
+    g.fail = {"/me/messages": GraphError(503, "Busy", "later"), "/me/chats": TokenExpired("x")}
+    job = a.updates.start()
+    g.fail = {}
+    job.run(job)
+    assert a.state.data["cursor"] == "" and any("Mail" in p for p in a.state.data["last"]["problems"])
+
+
 # ---------------------------------------------------------------- my own answers, drafts, promises
 def test_my_answer_closes_the_draft_and_is_never_waiting_for_me(tmp_path):
     a, g = make(tmp_path)
-    a.update()
-    assert a.data["items"]["teams:c1"]["draft"]
+    a.updates.start()
+    assert a.state.data["items"]["teams:c1"]["draft"]
     g.chat_msgs = g.chat_msgs + [said_in_chat("t2", 0.5, "Yes, at 3 pm.", me=True)]
-    a.update(WIDE)
-    i = a.data["items"]["teams:c1"]
+    a.updates.start(WIDE)
+    i = a.state.data["items"]["teams:c1"]
     assert not i.get("draft") and i["status"] == "done" and i["done_by"] == "answer"   # the model still says "reply"
     assert "teams:c1" in [x["key"] for x in a.view()["closed"]]
 
 
 def test_a_new_message_replaces_an_untouched_draft_and_marks_an_edited_one(tmp_path):
     a, g = make(tmp_path)
-    a.update()
-    first = a.data["items"]["teams:c1"]["draft"]
+    a.updates.start()
+    first = a.state.data["items"]["teams:c1"]["draft"]
     g.chat_msgs = g.chat_msgs + [said_in_chat("t2", 0.5, "And can you answer my question about Monday?")]
-    a.update(WIDE)
-    second = a.data["items"]["teams:c1"]["draft"]
+    a.updates.start(WIDE)
+    second = a.state.data["items"]["teams:c1"]["draft"]
     assert second != first
     a.drafts.save(second, "my own words")
     g.chat_msgs = g.chat_msgs + [said_in_chat("t3", 0.1, "Any answer to my question?")]
-    a.update(WIDE)
-    d = a.drafts.get(a.data["items"]["teams:c1"]["draft"])
+    a.updates.start(WIDE)
+    d = a.drafts.get(a.state.data["items"]["teams:c1"]["draft"])
     assert d["id"] == second and d["body"] == "my own words" and d["old"]
 
 
 def test_the_same_text_goes_to_outlook_once(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     made = []
     g.reply_draft = lambda *x, **k: made.append(1) or {"webLink": "https://o/d"}
     d = a.drafts.create("mail:cv1")
@@ -188,45 +197,45 @@ def test_a_closed_promise_stays_closed_in_other_words(tmp_path):
             a["commitments"] = [{"who": "me", "to": "Ola", "what": next(words), "due": "", "quote": "I will send you the plan tomorrow"}]
         return a
     a, g = make(tmp_path, Model(triage=triage))
-    a.update(WIDE)
-    a.promise(next(p["id"] for p in a.promises() if p["mine"]), "done")
+    a.updates.start(WIDE)
+    a.state.close_promise(next(p["id"] for p in a.state.promises() if p["mine"]), "done")
     g.threads["cv3"].append(mail("e9", "cv3", "Contract", 1, OLA, "thanks"))
-    a.update(WIDE)
-    assert not [p for p in a.promises() if p["mine"]]
+    a.updates.start(WIDE)
+    assert not [p for p in a.state.promises() if p["mine"]]
 
 
 def test_an_open_promise_outlives_a_conversation_that_is_only_news(tmp_path):
     a, g = make(tmp_path)
-    a.update(WIDE)
-    i = a.data["items"]["mail:cv3"]
+    a.updates.start(WIDE)
+    i = a.state.data["items"]["mail:cv3"]
     i.update(category="fyi", last=iso(31 * 24))
-    a._prune()
-    assert [p for p in a.promises() if p["mine"]]
+    a.updates.prune()
+    assert [p for p in a.state.promises() if p["mine"]]
 
 
 def test_the_model_hears_how_the_user_filed_the_conversation_before(tmp_path):
     a, g = make(tmp_path)
-    a.update()
-    a.act("mail:cv1", "category", "fyi")
+    a.updates.start()
+    a.actions.act("mail:cv1", "category", "fyi")
     g.threads["cv1"].append(mail("e8", "cv1", "Review of rule 12", 0.5, ANNA, "ping about rule 12"))
-    a.update()
-    assert "filed this conversation as fyi" in a.llm.asked("triage")[-1]["user"]
+    a.updates.start()
+    assert "filed this conversation as fyi" in a.kit.llm.asked("triage")[-1]["user"]
 
 
 def test_a_name_with_a_comma_is_one_person(tmp_path):
     a, g = make(tmp_path)
     made = []
     g.threads["cv1"][0]["from"] = addr("Kowalska, Anna", "a@example.invalid")
-    a.update()
+    a.updates.start()
     g.reply_draft = lambda m, c, everyone=False: made.append(everyone) or {}
     a.drafts.to_outlook(a.drafts.create("mail:cv1")["id"])
-    assert made == [False] and a.person("Kowalska, Anna")["last"]
+    assert made == [False] and a.people.person("Kowalska, Anna")["last"]
 
 
 # ---------------------------------------------------------------- files
 def test_a_file_in_another_encoding_does_not_break_the_window(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     d = a.memory.root / "matters"
     d.mkdir(exist_ok=True)
     (d / "ansi.md").write_bytes("# Zażółć".encode("cp1250"))
@@ -237,12 +246,12 @@ def test_a_file_in_another_encoding_does_not_break_the_window(tmp_path):
 
 def test_a_file_made_by_hand_is_a_matter_like_any_other(tmp_path):
     a, g = make(tmp_path, Model(brief={"lines": ["x"]}))
-    a.update()
+    a.updates.start()
     d = a.memory.root / "matters"
     d.mkdir(exist_ok=True)
     (d / "Budget Q1.md").write_text("# Budget", encoding="utf-8")
-    assert a.brief("week")["lines"] == ["x"]
-    a.act("mail:cv1", "matter", "Budget Q1")
+    assert a.briefs.brief("week")["lines"] == ["x"]
+    a.actions.act("mail:cv1", "matter", "Budget Q1")
     assert "rule 12" in a.memory.read("matters/Budget Q1.md")
     with pytest.raises(KeyError):
         a.memory.matter("../style")
@@ -253,11 +262,11 @@ def test_a_locked_file_is_never_taken_for_an_empty_one(tmp_path, monkeypatch):
 
     monkeypatch.setattr(files.time, "sleep", lambda s: None)
     a, g = make(tmp_path)
-    a.note_person("Ola", "first note")
+    a.people.note("Ola", "first note")
     f, real = a.memory.root / "people" / "ola.md", Path.read_bytes
     monkeypatch.setattr(Path, "read_bytes", lambda self: fail(PermissionError("locked"))() if self.name == "ola.md" else real(self))
     with pytest.raises(files.Busy):
-        a.note_person("Ola", "second note")
+        a.people.note("Ola", "second note")
     a.view()
     monkeypatch.undo()
     assert "first note" in f.read_text(encoding="utf-8")
@@ -265,10 +274,10 @@ def test_a_locked_file_is_never_taken_for_an_empty_one(tmp_path, monkeypatch):
 
 def test_a_damaged_state_file_is_kept_aside(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     (tmp_path / "assistant.json").write_text("{broken")
     b, _ = make(tmp_path)
-    b._save()
+    b.state.save()
     assert [p.read_text() for p in tmp_path.glob("assistant.bad-*.json")] == ["{broken"]
 
 

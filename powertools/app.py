@@ -172,7 +172,7 @@ class App:
         from .assistant.service import Assistant
 
         self.assistant = Assistant(self.settings, self.graph, self.llm, self.jira, self.meetings)
-        self.graph.on_token = self.assistant.check_answers_quietly
+        self.graph.on_token = self.assistant.answers.check_quietly
         self.focus: dict = {"tab": "", "seq": 0}   # the window switches to this tab when seq changes
         self.last_poll = 0.0                       # when an open window last asked for the state
         self._quit = threading.Event()
@@ -436,7 +436,7 @@ class App:
         self.teams = TeamsLink(self.meetings.set_muted)
         self.teams.start()
         self._watch_engine()
-        threading.Thread(target=self.assistant.watch_answers, args=(self._quit,), name="answers", daemon=True).start()
+        threading.Thread(target=self.assistant.answers.watch, args=(self._quit,), name="answers", daemon=True).start()
         if open_browser and self.settings["open_window_on_start"]:
             self.open_window()
 

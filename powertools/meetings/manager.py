@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-from .. import export
+from .. import export, files
 from ..config import data_dir, output_dir
 from ..engine import FINAL, LIVE, Result
 from ..exclusions import Exclusions
@@ -175,9 +175,7 @@ class Session:
         return self.folder.name
 
     def save(self) -> None:
-        tmp = self.folder / "meta.tmp"
-        tmp.write_text(json.dumps(self.meta, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(self.folder / "meta.json")
+        files.save_json(self.folder / "meta.json", self.meta, indent=1)
 
     def view(self, with_live: bool = False) -> dict:
         keys = ("title", "status", "started", "seconds", "attendees", "organizer", "marks", "md", "error", "auto",
@@ -412,11 +410,11 @@ class MeetingManager:
             return done
 
         jobs = {}
-        for track, files in tracks.items():
-            if files:
+        for track, chunks in tracks.items():
+            if chunks:
                 full = session.folder / f"{track}.wav"
-                if files != [full]:
-                    concat_wavs(files, full)
+                if chunks != [full]:
+                    concat_wavs(chunks, full)
                 jobs[track] = full
         for track, full in jobs.items():
             self.engine.submit(str(full), done_for(track), priority=FINAL, model=model,

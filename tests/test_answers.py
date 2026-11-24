@@ -21,97 +21,97 @@ ME = {"id": "u-me", "displayName": "Piotr B"}
 
 def test_an_answer_written_in_teams_closes_the_question_without_an_update(tmp_path):
     a, g = make(tmp_path, Model(triage=lambda u: {**NOTHING, "category": "fyi", "summary": "Settled."} if "Thanks" in u else Model().triage(u)))
-    a.update()
-    cursor, asked = a.data["cursor"], len(a.llm.asked("triage"))
+    a.updates.start()
+    cursor, asked = a.state.data["cursor"], len(a.kit.llm.asked("triage"))
     g.chat_msgs = [*g.chat_msgs, said_in_chat("t2", 0.2, "Sure, at 3 pm.", me=True), said_in_chat("t3", 0.1, "Thanks!")]
-    a.check_answers()
-    i = a.data["items"]["teams:c1"]
+    a.answers.check()
+    i = a.state.data["items"]["teams:c1"]
     assert i["status"] == "done" and i["done_by"] == "answer" and not i.get("draft")
-    assert len(a.llm.asked("triage")) == asked + 1 and a.data["cursor"] == cursor        # one conversation, no new range
+    assert len(a.kit.llm.asked("triage")) == asked + 1 and a.state.data["cursor"] == cursor        # one conversation, no new range
     v = a.view()
     assert [x["key"] for x in v["answered"]] == ["teams:c1"] and v["checked"]
-    a.act("teams:c1", "reopen")
+    a.actions.act("teams:c1", "reopen")
     assert "teams:c1" in [x["key"] for x in a.view()["mine"]] and not a.view()["answered"]
 
 
 def test_an_answer_by_mail_closes_it_too(tmp_path):
     a, g = make(tmp_path, Model(triage=lambda u: {**NOTHING, "category": "reply", "summary": "s", "action": "Answer"}))
-    a.update()
+    a.updates.start()
     g.threads["cv1"].append(mail("e7", "cv1", "Review of rule 12", 0.2, ME_ADDR, "Done, see the file."))
-    a.check_answers()
-    assert a.data["items"]["mail:cv1"]["status"] == "done" and a.data["items"]["teams:c1"]["status"] == "open"
+    a.answers.check()
+    assert a.state.data["items"]["mail:cv1"]["status"] == "done" and a.state.data["items"]["teams:c1"]["status"] == "open"
 
 
 def test_nothing_is_asked_of_the_model_when_i_wrote_nothing(tmp_path):
     a, g = make(tmp_path)
-    a.update()
-    asked = len(a.llm.calls)
+    a.updates.start()
+    asked = len(a.kit.llm.calls)
     g.chat_msgs = [*g.chat_msgs, said_in_chat("t2", 0.1, "Hello? My question?")]
-    a.check_answers()
-    assert len(a.llm.calls) == asked and a.data["items"]["teams:c1"]["status"] == "open"
+    a.answers.check()
+    assert len(a.kit.llm.calls) == asked and a.state.data["items"]["teams:c1"]["status"] == "open"
 
 
 def test_a_task_i_wrote_about_stays_when_the_model_says_it_is_not_done(tmp_path):
     a, g = make(tmp_path, Model(triage=lambda u: {**NOTHING, "category": "todo", "summary": "s", "action": "Send the file"}))
-    a.update()
+    a.updates.start()
     g.chat_msgs = [*g.chat_msgs, said_in_chat("t2", 0.2, "I will send it tomorrow.", me=True)]
-    a.check_answers()
-    i = a.data["items"]["teams:c1"]
+    a.answers.check()
+    i = a.state.data["items"]["teams:c1"]
     assert i["status"] == "open" and i["last_from_me"]                                   # shown as "you wrote"
 
 
 def test_a_question_i_answered_closes_even_when_the_model_is_away(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     g.chat_msgs = [*g.chat_msgs, said_in_chat("t2", 0.2, "Sure.", me=True)]
-    a.llm.error = "no model"
-    a.check_answers()
-    assert a.data["items"]["teams:c1"]["status"] == "done"
+    a.kit.llm.error = "no model"
+    a.answers.check()
+    assert a.state.data["items"]["teams:c1"]["status"] == "done"
 
 
 def test_a_reaction_is_seen_and_shown_to_the_model(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     g.chat_msgs[0]["reactions"] = [{"reactionType": "👍", "createdDateTime": iso(0.1), "user": {"user": {"id": "u-me"}}}]
-    a.check_answers()
-    assert "I reacted to the latest message with 👍" in a.llm.asked("triage")[-1]["user"]
+    a.answers.check()
+    assert "I reacted to the latest message with 👍" in a.kit.llm.asked("triage")[-1]["user"]
 
 
 def test_the_check_needs_a_token_and_never_runs_next_to_an_update(tmp_path):
     a, g = make(tmp_path)
-    a.update()
+    a.updates.start()
     g.fail = {"/chats": TokenExpired("x")}
-    a.check_answers()
-    assert a.job.state == "done"                                                          # the Update is not touched
-    a.job.state = "running"
+    a.answers.check()
+    assert a.updates.job.state == "done"                                                          # the Update is not touched
+    a.updates.job.state = "running"
     with pytest.raises(ValueError, match="running"):
-        a.check_answers()
+        a.answers.check()
 
 
 def test_only_open_questions_of_mine_are_looked_at(tmp_path):
     a, g = make(tmp_path)
-    a.update()
-    for i in a.data["items"].values():
+    a.updates.start()
+    for i in a.state.data["items"].values():
         i["status"] = "done"
     g.calls = []
-    assert a.check_answers() is None and g.calls == []
+    assert a.answers.check() is None and g.calls == []
 
 
 # ---------------------------------------------------------------- Stop
 def test_a_stopped_update_keeps_what_it_has_and_the_range(tmp_path):
     a, g = make(tmp_path)
-    real = a.classify
+    real = a.sorting.classify
 
     def classify(i, *x, **k):
         a.stop()
         return real(i, *x, **k)
-    a.classify = classify
+    a.sorting.classify = classify
     with pytest.raises(Stopped):
-        a.update()
-    assert a.data["cursor"] == "" and sum("summary" in i for i in a.data["items"].values()) >= 1
-    a.classify, a.job = real, None
-    a.update()
-    assert a.data["cursor"] and all(not i.get("pending") for i in a.data["items"].values())
+        a.updates.start()
+    assert a.state.data["cursor"] == "" and sum("summary" in i for i in a.state.data["items"].values()) >= 1
+    a.sorting.classify, a.updates.job = real, None
+    a.updates.start()
+    assert a.state.data["cursor"] and all(not i.get("pending") for i in a.state.data["items"].values())
 
 
 def test_jobs_can_be_stopped_while_waiting(tmp_path):

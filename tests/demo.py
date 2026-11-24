@@ -97,7 +97,7 @@ def build(home: Path, cut: int = 0):
     app.llm.local.available = lambda: {"installed": True, "running": True}     # the same with and without Ollama
     m = model()
     m.available = app.llm.available
-    app.assistant.llm, app.graph.g = m, Mailbox(app, g, cut)
+    app.assistant.kit.llm, app.graph.g = m, Mailbox(app, g, cut)
     for i in range(3):
         app.store.add("raw", "Please move the meeting to Thursday and tell Anna about it. " * (1 + i), "en", 5, 0.6)
     return app, g
