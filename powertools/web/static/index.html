@@ -15,11 +15,12 @@
 <aside class="side">
   <div class="brand"><img id="brand-logo" alt="" class="hidden"><div class="brand-name"><img src="/dot-192.png" alt="" class="logo"><span id="brand-name">powertools</span></div></div>
   <nav>
-    <button data-tab="recap" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Recap</span></button>
+    <button data-tab="recap" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Today</span><i id="nav-today"></i></button>
+    <button data-tab="matters"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg><span>Matters</span></button>
+    <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span><i id="nav-meetings"></i></button>
     <button data-tab="dictation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
-    <button id="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>More</span></button>
+    <button id="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>All tools</span></button>
     <div id="more-nav" class="hidden">
-    <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Recordings</span></button>
     <button data-tab="writing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4M14 20h6"/></svg><span>Writing</span></button>
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
@@ -30,6 +31,12 @@
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
     </div>
   </nav>
+  <div class="side-space"></div>
+  <div class="side-box" id="side-box">
+    <div><b id="side-model"></b><span id="side-tokens"></span><span id="side-credits"></span><div class="side-bar hidden" id="side-bar" aria-hidden="true"><span></span></div></div>
+    <div class="side-tokens"><div class="side-token"><span>Graph token</span><span class="label" id="side-graph"></span></div><button id="side-renew" type="button">Renew</button>
+      <div id="side-github-row" class="hidden"><div class="side-token"><span>GitHub token</span><span class="label" id="side-github"></span></div><button id="side-github-renew" type="button">Renew</button></div></div>
+  </div>
   <button id="idea" class="idea" title="Tell us an idea or a problem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg><span>I have an idea</span></button>
   <button class="side-foot" id="engine-foot" title="About, changelog and updates"></button>
 </aside>
@@ -67,35 +74,41 @@
     <div id="w-result"></div>
   </section>
 
-  <section id="recap" class="tab active">
-    <div id="recap-head">
-      <div id="recap-bar" class="recapbar hidden">
-        <button id="recap-update" class="primary">Update</button>
-        <select id="recap-range" aria-label="How far back"><option value="new" selected>since the last one</option><option value="1">last day</option><option value="3">last 3 days</option>
-          <option value="7">last 7 days</option><option value="14">last 2 weeks</option><option value="30">last 30 days</option><option value="since">since date...</option></select>
-        <input id="recap-since" type="date" class="hidden" aria-label="Since date">
-        <span id="recap-status" class="muted small"></span>
-        <span class="grow"></span>
-        <details id="recap-briefs" class="menu"><summary>Brief</summary><div>
-          <button data-brief="day">Brief me for today</button><button data-brief="week">The week in 10 lines</button>
-          <button data-brief="upward">Brief for my manager</button><button data-brief="leave">I was away: what did I miss?</button></div></details>
-        <span id="recap-where"></span><button id="recap-conn" class="chip"></button>
-      </div>
-      <div id="recap-progress" class="hidden"><span></span></div>
-      <div id="recap-token" class="card graphbar hidden"></div>
-      <div id="recap-tabs" class="seg hidden" role="tablist" aria-label="Recap"><button role="tab" data-view="today">Today <i></i></button><button role="tab" data-view="matters">Matters <i></i></button>
-        <button role="tab" data-view="meetings">Meetings <i></i></button><button role="tab" data-view="drafts">Drafts <i></i></button><button role="tab" data-view="people">People <i></i></button>
-        <button role="tab" data-view="ask">Ask <i></i></button></div>
+  <section id="recap" class="tab panes active">
+    <div class="pane-list" id="today-list" aria-label="List">
+      <div class="pane-head"><div class="pane-title"><div><h1>Today</h1><div class="muted small" id="today-status"></div></div><button id="recap-update">Update</button></div>
+        <div class="pane-range"><label>Read <select id="recap-range"><option value="new" selected>since the last one</option><option value="1">last day</option><option value="3">last 3 days</option>
+          <option value="7">last 7 days</option><option value="14">last 2 weeks</option><option value="30">last 30 days</option><option value="since">since a date</option></select></label>
+          <input id="recap-since" type="date" class="hidden" aria-label="Since date"></div>
+        <div id="recap-progress" class="hidden"><span></span></div>
+        <div class="segments" id="today-tabs" role="group" aria-label="Show"></div></div>
+      <div class="pane-scroll" id="today-rows"></div>
     </div>
-    <div id="recap-now"></div>
-    <div id="recap-view"><div class="empty muted">Loading...</div></div>
+    <div class="pane-main">
+      <form id="ask-form" class="askline"><input name="q" autocomplete="off" aria-label="Ask" placeholder="Ask, or tell me what changed: the deadline is Thursday"></form>
+      <div class="pane-body" id="today-body"><div class="empty muted">Loading...</div></div>
+      <div class="pane-bar hidden" id="today-bar"></div>
+    </div>
   </section>
 
-  <section id="meetings" class="tab">
+  <section id="matters" class="tab panes">
+    <div class="pane-list"><div class="pane-head"><div class="pane-title"><h1>Matters</h1></div>
+        <div class="segments" id="matters-tabs" role="group" aria-label="Show"></div>
+        <form id="matters-new" class="newline"><input name="name" aria-label="New" placeholder="New matter"><button>Add</button></form></div>
+      <div class="pane-scroll" id="matters-rows"></div></div>
+    <div class="pane-main"><div class="pane-body" id="matters-body"></div><div class="pane-bar hidden" id="matters-bar"></div></div>
+  </section>
+
+  <section id="meetings" class="tab panes">
+    <div class="pane-list"><div class="pane-head"><div class="pane-title"><h1>Meetings</h1></div><div class="segments" id="meet-tabs" role="group" aria-label="Show"></div></div>
+      <div class="pane-scroll" id="meet-rows"></div></div>
+    <div class="pane-main" id="meet-ahead"><div class="pane-body" id="meet-body"></div><div class="pane-bar hidden" id="meet-bar"></div></div>
+    <div class="pane-main hidden" id="meet-recorded"><div class="pane-body wide">
     <div id="meeting-now" class="card"></div>
     <div id="meeting-live" class="card live hidden"></div>
-    <div class="row"><h2>Recorded meetings</h2><button id="update-all" title="Attendees from the calendar where they are missing, and the compact transcript layout for every file">Update older transcripts</button><button class="open-out">Open export folder</button></div>
+    <div class="row"><h2>Recorded meetings</h2><span class="grow"></span><button id="update-all" title="Attendees from the calendar where they are missing, and the compact transcript layout for every file">Update older transcripts</button><button class="open-out">Open export folder</button></div>
     <ul id="meeting-list" class="sessions"></ul>
+      </div></div>
   </section>
 
   <section id="teams" class="tab">

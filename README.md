@@ -174,8 +174,8 @@ With this model nothing leaves the laptop: powertools talks to Ollama on 127.0.0
 ## GitHub Copilot (optional)
 
 AI tab > "Where the model runs". Never a default: until you choose it, everything stays with the local model. With
-Copilot the text of mail, chats, Jira issues and meeting summaries is sent to GitHub Copilot; the Recap always shows
-where the model runs. **Prerequisite: a GitHub account with a Copilot licence.**
+Copilot the text of mail, chats, Jira issues and meeting summaries is sent to GitHub Copilot; the menu always shows
+which model is used. **Prerequisite: a GitHub account with a Copilot licence.**
 
 - Sign-in: a fine-grained GitHub token with **Copilot Requests** (steps in the AI tab, kept with DPAPI), else the user
   already signed in to the Copilot CLI. The SDK downloads its runtime from GitHub on first use and checks its SHA-256.
@@ -190,21 +190,27 @@ First start: five questions (role, what you run, who you must not miss, what cam
 Then one button, **Update**: mail (Inbox with subfolders, and Sent), Teams chats, Jira issues you are assigned to, watch
 or reported, the calendar of the next week and finished meeting summaries; only what is new since the last full Update.
 
-- **Today**: *Decisions waiting for me* · *Mine* (to do, to answer) · *Waiting for* (also threads only you wrote in;
-  "quiet for N days") · *Promised by me* / *to me* · meetings today · *Changed* · *Ignored*. "Why is this here?" shows
-  the sentence that decided it. Move, mute, snooze or close an item; corrections go into the next prompts.
-- **Matters** (a project, a case, a problem): created only by you; the Recap suggests. A conversation belongs to a matter
-  by its Jira key or thread, else by the model when a word of the matter's name is in the text, else it asks. States:
-  active, waiting, parked (comes back on a date), closed.
-- **Meetings**: "Prepare me" makes a card: goal, what I know, open from before, what to ask, agenda.
-- **Drafts** are written in the app and stay there; say what is wrong and it corrects the draft, and proposes a style
-  rule you can accept. **Nothing is ever sent**: the Graph client refuses every write except a reply put into the Outlook
-  *Drafts* folder (needs Mail.ReadWrite in the token), and only when you click it.
-- **People**: your direct reports and anyone you add: what is open both ways, your notes, a 1:1 card. No scores, no
-  response times.
-- **Ask**: answers from the memory and the items, with sources. Say what is different ("no, the deadline is Thursday") and
-  it changes the memory file, marked `(you)`, with Undo. A change that does not come from your words is only proposed.
-- **Brief me**, **Week in 10 lines**, **Brief upward**, **Back from leave**.
+The window is a list on the left and one thing on the right, with at most one filled button.
+
+- **Today**: *For me* (decide, do, answer), *Waiting* ("quiet for N days", also threads only you wrote in), *Changed*
+  (with Ignored and Done and later). An item shows who, when, its matter and the sentence that decided it; its draft sits
+  under it. **Done**, **Later** and **This is wrong** (not mine, another group, ignore the conversation) can be undone, the
+  next item opens by itself, and what you correct goes into the next prompts. The morning brief is the first row;
+  *Write for me*: today in 5 lines, the week in 10, for my manager, I was away.
+- **Ask** is the field above: answers from the memory and the items, with sources. Say what is different ("no, the deadline
+  is Thursday") and it changes the memory file, marked `(you)`, with Undo. A change that does not come from your words is
+  only proposed.
+- **Drafts** are written in the app and stay there; say what should change, and it also proposes a style rule you can
+  accept. **Nothing is ever sent**: the Graph client refuses every write except a reply put into the Outlook *Drafts* folder
+  (needs Mail.ReadWrite in the token), and only when you click it.
+- **Matters** (a project, a case, a problem): created only by you; Today suggests. A conversation belongs to a matter by its
+  Jira key or thread, else by the model when a word of the matter's name is in the text, else it asks. Running, parked
+  (comes back on a date), closed. **People** (your direct reports and anyone you add) and the memory **Files** are here too:
+  what is open both ways, your notes, a 1:1 card; no scores, no response times.
+- **Meetings**: *Ahead* ("Prepare me" makes a card: goal, open from before, what to ask, agenda) and *Recorded*.
+- **Bottom left**: the model in use and its tokens and credits today, how long the Graph token (and, with Copilot, the GitHub
+  token) is valid, and the version (About, Update). The Graph token is asked for when it is needed: an Update without one
+  waits and goes on by itself when the token is there, also when it runs out in the middle.
 
 Memory: Markdown in `Documents\powertools\memory` (Settings > Memory folder), readable and editable without the app.
 Lines with `(you)` are never overwritten; every write can be undone. Items and their text are in

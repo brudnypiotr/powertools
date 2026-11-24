@@ -27,10 +27,11 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "teams" || b.dataset.tab === "mail") { renderGraphBar(); loadJobs(); }
     if (b.dataset.tab === "teams" && !chats.length) loadChats(false);
     if (b.dataset.tab === "mail" && !foldersLoaded) loadFolders();
+    document.querySelector(".main").classList.toggle("full", $("#" + b.dataset.tab).classList.contains("panes"));
     if (b.dataset.tab === "meetings") loadMeetings();
     if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); loadOrgSaved(); if (!orgChain.length) loadOrgChain(); }
     if (b.dataset.tab === "writing") loadWording();
-    if (b.dataset.tab === "recap") { renderGraphBar(); loadRecap(); }
+    if (["recap", "matters", "meetings"].includes(b.dataset.tab)) loadRecap();
     if (b.dataset.tab === "ai") loadAI();
     if (b.dataset.tab === "jira") { renderJiraBar(false); loadJiraDownloaded(); loadJobs(); loadJiraFields(); }
   }));
@@ -80,11 +81,34 @@ async function poll() {
     loadHistory();
   }
   renderPrompt(s.pending_prompt);
+  renderSide(s.llm || {}, s.graph || {});
   gateLocalAI(s.llm);
   followFocus(s);
   setTimeout(poll, s.dictation === "recording" ? 150 : 700);
 }
 $("#toggle").addEventListener("click", () => api("POST", "/api/toggle"));
+
+// ---------------------------------------------------------------- bottom left: the model, its tokens, when the access ends
+const modelName = (m) => String(m || "").split("-").map((w) => (/^gpt$/i.test(w) ? "GPT" : /^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(" ").replace(/^GPT /, "GPT-");
+const thousands = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n || 0));
+const setText = (sel, t) => { const e = $(sel); if (e.textContent !== t) e.textContent = t; };
+function setLabel(sel, text, kind) { setText(sel, text); const e = $(sel); if (e.dataset.kind !== kind) { e.dataset.kind = kind; e.className = "label " + kind; } }
+function renderSide(llm, g) {
+  const cloud = llm.provider === "copilot";
+  setText("#side-model", cloud ? modelName(llm.model) : llm.model || "");
+  setText("#side-tokens", cloud ? `${thousands(llm.tokens_today)} tokens today` : "on this laptop");
+  setText("#side-credits", cloud ? `${(llm.credits_today || 0).toFixed(1)}${llm.limit ? ` of ${llm.limit}` : ""} credits` : "nothing leaves it");
+  $("#side-bar").classList.toggle("hidden", !cloud || !llm.limit);
+  $("#side-bar span").style.width = Math.min(100, 100 * (llm.credits_today || 0) / (llm.limit || 1)) + "%";
+  const m = g.expires_min || 0;
+  setLabel("#side-graph", g.has_token ? `${m} min` : "expired", !g.has_token ? "bad" : m < 10 ? "warn" : "good");
+  const d = llm.github_days, known = cloud && d !== null && d !== undefined;
+  $("#side-github-row").classList.toggle("hidden", !known);
+  $("#side-github-renew").classList.toggle("hidden", !known || d > 7);
+  if (known) setLabel("#side-github", d > 0 ? `${d} day${d === 1 ? "" : "s"}` : "expired", d < 1 ? "bad" : d < 8 ? "warn" : "good");
+}
+$("#side-renew").addEventListener("click", () => { showTab("recap"); openConnect(); });
+$("#side-github-renew").addEventListener("click", () => { showTab("ai"); $("#copilot-card details").open = true; });
 
 // ---------------------------------------------------------------- history
 async function loadHistory() {
@@ -234,12 +258,11 @@ async function renderGraphBar() {
     <button class="token-save">${s.has_token ? "Replace" : "Connect"}</button>`;
   document.querySelectorAll(".graphbar").forEach((bar) => {
     if (bar.contains(document.activeElement) && document.activeElement.value) return;  // a token is being pasted
-    const inRecap = bar.id === "recap-token";
-    bar.innerHTML = s.has_token && !inRecap
+    bar.innerHTML = s.has_token
       ? `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span> <span class="muted">${s.expires_min} min left</span>
          <details class="token-more" ${waiting ? "open" : ""}><summary>New token</summary><div class="row">${fields}</div></details>${waiting}`
-      : `${s.has_token ? `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span>` : `<div class="token-why"><b>Connect to your mail, Teams and calendar.</b> <span class="muted">A token from
-         Microsoft Graph Explorer, valid for about an hour: press Get a token, sign in, copy it there.</span></div>`}${fields}${waiting}`;
+      : `<div class="token-why"><b>Connect to your mail, Teams and calendar.</b> <span class="muted">A token from
+         Microsoft Graph Explorer, valid for about an hour: press Get a token, sign in, copy it there.</span></div>${fields}${waiting}`;
     bar.querySelector(".token-get").onclick = async () => {
       try { await api("POST", "/api/graph/token/fetch"); watchGraphToken(s.has_token ? s.expires_min : -1); renderGraphBar(); }
       catch (e) { say(e.message); }
@@ -258,7 +281,7 @@ async function renderGraphBar() {
 }
 function tokenSaved(resumed) {
   if (resumed) loadJobs();
-  if ($("#recap").classList.contains("active")) { recapOpen.token = false; loadRecap(); }
+  recapToken();
   if ($("#teams").classList.contains("active")) loadChats(true);
   if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
   if ($("#org").classList.contains("active")) loadOrgChain();
@@ -943,7 +966,7 @@ ideaBox.querySelector("form").addEventListener("submit", async (e) => {
 
 poll();
 loadHistory();
-addEventListener("DOMContentLoaded", () => { renderGraphBar(); loadRecap(); });
+addEventListener("DOMContentLoaded", () => { $(".main").classList.add("full"); loadRecap(); });
 
 // ---------------------------------------------------------------- about + update
 const dlg = $("#about");

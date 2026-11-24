@@ -18,6 +18,9 @@ class Fake:
     def available(self):
         return {"installed": False, "running": False}
 
+    def days_left(self):
+        return 6
+
 
 def make(tmp_path, credits=30.0):
     s = Settings(tmp_path / "s.json")
@@ -32,6 +35,8 @@ def test_nothing_goes_to_copilot_until_the_user_picks_it(tmp_path):
     assert a["provider"] == "local" and not a["chosen"] and not a["installed"]
     s.update({"ai_provider": "copilot"})
     assert b.chat("s", "u", task="triage")[0] == "cloud" and b.available()["installed"]
+    a = b.available()
+    assert a["tokens_today"] == 120 and a["calls_today"] == 1 and a["github_days"] == 6
     with pytest.raises(ValueError):
         s.update({"ai_provider": "openai"})
 
@@ -72,3 +77,9 @@ def test_the_github_token_is_stored_for_this_user_only(tmp_path):
     assert st.get() == "github_pat_abc"
     st.clear()
     assert st.get() == ""
+
+
+def test_the_expiry_of_the_github_token_is_read_from_the_header():
+    assert copilot.parse_expiry("2027-11-24 12:00:00 UTC").year == 2027
+    assert copilot.parse_expiry("2027-11-24 12:00:00 +0100").utcoffset().seconds == 3600
+    assert copilot.parse_expiry("") is None and copilot.parse_expiry("soon") is None

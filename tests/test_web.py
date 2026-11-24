@@ -1,6 +1,7 @@
 """The window API against a real local server with the app's settings/history in a temp folder."""
 
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -150,9 +151,16 @@ def test_recap_api_from_setup_to_memory(server, tmp_path):
     app.settings.update({"memory_dir": str(tmp_path / "mem")})
     v = call(base, "GET", "/api/assistant")
     assert not v["setup_done"] and v["llm"]["provider"] == "local" and not v["llm"]["chosen"]
-    with pytest.raises(urllib.error.HTTPError) as e:
-        call(base, "POST", "/api/assistant/update", {})
-    assert e.value.code == 401                                                    # no token: asks for one
+    call(base, "POST", "/api/assistant/update", {})                               # no token: it waits, nothing is lost
+    for _ in range(50):
+        if app.assistant.job.state == "needs_token":
+            break
+        time.sleep(0.1)
+    first = app.assistant.job
+    call(base, "POST", "/api/assistant/update", {})
+    assert first.state == "needs_token" and app.assistant.job is first            # a second click does not queue another
+    st = call(base, "GET", "/api/state")
+    assert st["graph"]["has_token"] is False and {"tokens_today", "limit", "github_days", "model"} <= set(st["llm"])
     call(base, "POST", "/api/assistant/setup", {"provider": "local", "running": "Alpha"})
     assert call(base, "GET", "/api/memory")["files"] == ["matters/alpha.md"]
     f = call(base, "GET", "/api/memory/file?name=matters/alpha.md")

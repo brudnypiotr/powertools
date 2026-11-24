@@ -122,6 +122,8 @@ class Assistant:
         with self._lock:
             if self.job and self.job.state in ("queued", "running"):
                 raise ValueError("an update is already running")
+            if self.job and self.job.state == "needs_token":
+                return self.job                      # it waits for a token and then goes on by itself
             if rng.get("kind") == "new":
                 since = export.parse_time(self.data["cursor"]) - OVERLAP if self.data["cursor"] else resolve_since({"kind": "days", "days": 3})
             else:
@@ -188,6 +190,7 @@ class Assistant:
         if self.settings["auto_drafts"]:
             self._auto_drafts(fresh)
         self._prune()
+        self._close_drafts()
         # the cursor moves only when every chosen source was read (Update now and then with fewer sources is a look, not a sync)
         if not failed and set(SOURCES) <= set(sources):
             self.data["cursor"] = began.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -381,6 +384,14 @@ class Assistant:
                 limit = KEEP_DAYS["closed"] if closed else KEEP_DAYS.get(i["category"])
                 if limit and age > limit:
                     del self.data["items"][k]
+
+    def _close_drafts(self) -> None:
+        """Drafts of conversations that are done (since yesterday at least, so Undo still finds them) or gone."""
+        day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for d in self.drafts.list():
+            i = self.data["items"].get(d["key"])
+            if d["key"] and (i is None or (i["status"] in ("done", "dropped") and i.get("done_at", "") < day_ago)):
+                self.drafts.close(d["id"], "used")
 
     # ------------------------------------------------------------------ what the window shows
     def _open(self) -> list[dict]:

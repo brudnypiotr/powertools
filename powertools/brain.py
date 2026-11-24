@@ -82,11 +82,13 @@ class Brain:
 
     def available(self) -> dict:
         """For the window: can the model be used, and where does the text go?"""
-        a = self.local.available()
+        a, today = self.local.available(), self.usage.today()
         if self.is_cloud:
             a = {"installed": True, "running": True}   # the sign-in is checked in the AI tab and on the first call
         return {**a, "provider": self.settings["ai_provider"] or "local", "chosen": bool(self.settings["ai_provider"]),
-                "model": self.model, "credits_today": round(self.usage.today()["credits"], 2)}
+                "model": self.model, "credits_today": round(today["credits"], 2), "calls_today": today["calls"],
+                "tokens_today": today["tokens_in"] + today["tokens_out"], "limit": self.settings["copilot_daily_credits"],
+                "github_days": self.cloud.days_left() if self.is_cloud else None}
 
     def chat(self, system: str, user: str, schema: dict | None = None, priority: int = INTERACTIVE,
              max_tokens: int = 800, num_ctx: int = 4096, timeout: float = 180, model: str = "", task: str = "",

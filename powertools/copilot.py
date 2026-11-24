@@ -16,6 +16,8 @@ import os
 import sys
 import threading
 import time
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import data_dir
@@ -60,6 +62,15 @@ def explain(e: Exception) -> str:
     if "not authenticated" in low or "no github oauth token" in low:
         return NOT_SIGNED_IN
     return f"{type(e).__name__}: {msg}"[:300]
+
+
+def parse_expiry(header: str) -> datetime | None:
+    """GitHub-Authentication-Token-Expiration: '2027-11-24 12:00:00 UTC' or '... +0100'."""
+    h = (header or "").strip().replace(" UTC", " +0000")
+    try:
+        return datetime.strptime(h, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None
 
 
 class SecretStore:
@@ -107,6 +118,7 @@ class Copilot:
         self._client = None
         self._client_token = ""
         self._lock = threading.Lock()
+        self._expiry: dict = {"token": "", "at": 0.0, "when": None, "busy": False}
 
     @property
     def model(self) -> str:
@@ -183,6 +195,29 @@ class Copilot:
         if out["ok"] and self.model not in out["models"]:
             out["detail"] = f"this account does not offer {self.model}: pick another model"
         return out
+
+    def days_left(self) -> int | None:
+        """Days until the GitHub token expires; None: no token, no date, or not known yet. GitHub says it in a header of
+        any API call (asked in the background every 6 hours, costs no credits)."""
+        token = self.secret.get()
+        if not token:
+            return None
+        e = self._expiry
+        if (e["token"] != token or time.time() - e["at"] > 6 * 3600) and not e["busy"]:
+            e.update(token=token, at=time.time(), busy=True, when=e["when"] if e["token"] == token else None)
+
+            def ask() -> None:
+                try:
+                    req = urllib.request.Request("https://api.github.com/user", headers={
+                        "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "powertools"})
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        e["when"] = parse_expiry(r.headers.get("GitHub-Authentication-Token-Expiration", ""))
+                except Exception as ex:
+                    log.info("GitHub token date: %s", type(ex).__name__)
+                finally:
+                    e["busy"] = False
+            threading.Thread(target=ask, name="github-expiry", daemon=True).start()
+        return None if e["when"] is None else max(0, (e["when"] - datetime.now(timezone.utc)).days)
 
     def set_token(self, token: str) -> dict:
         self.secret.set(token)

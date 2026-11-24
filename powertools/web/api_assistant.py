@@ -27,15 +27,16 @@ def text(h, *names) -> list[str]:
 # ------------------------------------------------------------------ recap
 @route("GET", "/api/assistant")
 def view(h):
-    h.send(200, {**h.app.assistant.view(), "llm": h.app.llm.available(), "graph": h.app.graph.status()})
+    a = h.app.assistant
+    h.send(200, {**a.view(), "llm": h.app.llm.available(), "graph": h.app.graph.status(), "draft_list": a.drafts.list(),
+                 "people": a.people()})
 
 
 @route("POST", "/api/assistant/update")
 @guarded
 def update(h):
     b = h.json_body()
-    if not h.app.graph.status()["has_token"]:
-        return h.send(401, {"error": "token", "message": "Paste a fresh token from Graph Explorer."})
+    # without a token the job is made all the same: it pauses at once and goes on when the token is there
     h.app.assistant.update(b.get("range"), b.get("sources"))
     h.send(200, h.app.assistant.view())
 

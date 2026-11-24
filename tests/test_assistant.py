@@ -395,6 +395,18 @@ def test_drafts_are_written_in_the_app_and_learn_the_style(tmp_path):
         a.drafts.get("../../x")
 
 
+def test_drafts_of_finished_conversations_go_away_after_a_day(tmp_path):
+    a, g = make(tmp_path)
+    a.update({"kind": "days", "days": 10})
+    a.act("teams:c1", "done")
+    a.update()
+    assert any(d["key"] == "teams:c1" for d in a.drafts.list())          # Undo still finds it
+    a.item("teams:c1")["done_at"] = "2020-01-01T00:00:00Z"
+    a.drafts.new("My text", "stays")
+    a.update()
+    assert [d["title"] for d in a.drafts.list() if d["key"] in ("", "teams:c1")] == ["My text"]
+
+
 def test_outlook_gets_a_draft_and_the_client_cannot_send(tmp_path):
     a, g = make(tmp_path)
     a.update({"kind": "days", "days": 10})

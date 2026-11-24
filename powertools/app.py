@@ -81,7 +81,7 @@ def open_app_window(url: str) -> bool:
             if profile:
                 args = [exe, f"--profile-directory={profile}", f"--app-id={app_id}"]
             else:
-                args = [exe, f"--app={url}", "--window-size=1000,680" if "127.0.0.1" in url else "--window-size=1200,860"]
+                args = [exe, f"--app={url}", "--window-size=1180,780" if "127.0.0.1" in url else "--window-size=1200,860"]
             log.info("window: %s", " ".join(args[1:]))
             subprocess.Popen(args, close_fds=True)
             return True
@@ -185,6 +185,7 @@ class App:
             "wording": {k: self.wording.last.get(k) for k in ("id", "state")},
             "focus": self.focus,
             "llm": self.llm.available(),
+            "graph": self.graph.status(),
             "overlay": bool(self.overlay and self.overlay.available),
             "meeting": self.meetings.current.view() if self.meetings.current else None,
             "pending_prompt": self.pending_prompt,
