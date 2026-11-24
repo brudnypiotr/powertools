@@ -13,11 +13,13 @@ public repository  --pull-->  the maintainer's laptop  --push-->  the organisati
 `setup/site.json` exists only in the organisation's repository:
 
 ```json
-{"update": {"remote": "https://github.com/ORGANISATION/powertools.git", "branch": "main"}}
+{"update": {"remote": "https://github.com/ORGANISATION/powertools.git", "branch": "main"}, "contact": "someone@organisation.example"}
 ```
 
-It decides where new ZIP copies are attached to, so they take updates from there. Ideas go to the issues of the
-repository the copy follows.
+`contact` (optional) is who the feedback file goes to: the window then offers "Message in Teams" and "E-mail".
+
+It decides where new ZIP copies are attached to, so they take updates from there. Ideas become
+a file the user sends; the button "Open on GitHub" shows only in a copy that follows an organisation's own repository.
 
 ## The look
 

@@ -65,9 +65,9 @@ def installed_profile(app_id: str) -> str:
     return ""
 
 
-def open_app_window(url: str) -> bool:
-    """The window without browser bars: the installed app (own taskbar icon) when the user installed it,
-    else Edge in app mode. False when Edge is not found."""
+def open_app_window(url: str, installed: bool = True) -> bool:
+    """The window without browser bars: the installed app (own taskbar icon) when the user installed it and
+    `installed`, else Edge in app mode (in the same profile). False when Edge is not found."""
     if sys.platform != "win32":
         return False
     import os
@@ -78,11 +78,12 @@ def open_app_window(url: str) -> bool:
         if base and os.path.exists(exe):
             app_id = web_app_id(f"http://127.0.0.1:{PORT}/")
             profile = installed_profile(app_id) if url.startswith(f"http://127.0.0.1:{PORT}/") else ""
-            if profile:
+            if profile and installed:
                 args = [exe, f"--profile-directory={profile}", f"--app-id={app_id}"]
             else:
-                args = [exe, f"--app={url}", "--window-size=1180,780" if "127.0.0.1" in url else "--window-size=1200,860"]
-            log.info("window: %s", " ".join(args[1:]))
+                args = [exe, *([f"--profile-directory={profile}"] if profile else []), f"--app={url}",
+                        "--window-size=1180,780" if "127.0.0.1" in url else "--window-size=1200,860"]
+            log.info("window: %s", " ".join(a.split("?t=")[0] for a in args[1:]))
             subprocess.Popen(args, close_fds=True)
             return True
     return False
@@ -147,6 +148,9 @@ class App:
         self.hotkey = None
         self.httpd = None
         self.url = ""
+        from .web.door import Door
+
+        self.door = Door(data_dir() / "window.key")
         from .graph.service import GraphService
 
         from .meetings.manager import MeetingManager
@@ -262,10 +266,13 @@ class App:
         if self.dictation.state == "idle":   # dictation owns the pill while it runs
             self._on_state(state)
 
-    def open_window(self) -> None:
-        if self.settings["app_window"] and open_app_window(self.url):
+    def open_window(self, fresh: bool = False) -> None:
+        """With the key in the link; the installed app has no link and is used once a window with the key was open.
+        `fresh`: that window has lost its cookie."""
+        link = self.door.link(self.url)
+        if self.settings["app_window"] and open_app_window(link, installed=self.door.seen and not fresh):
             return
-        webbrowser.open(self.url)
+        webbrowser.open(link)
 
     def quit(self) -> None:
         self._quit.set()
@@ -495,7 +502,7 @@ class App:
 
         def call(method: str, path: str, body: dict | None = None):
             req = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body else None,
-                                         headers={"X-Powertools": "1", "Content-Type": "application/json"})
+                                         headers={"X-Powertools": "1", "X-Powertools-Key": self.door.key, "Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 return json.loads(r.read())
 
@@ -528,7 +535,9 @@ def main(argv: list[str] | None = None) -> int:
         make_dpi_aware()
     port = running_instance()
     if port:
-        webbrowser.open(f"http://127.0.0.1:{port}/")  # already running: just show it
+        from .web.door import Door
+
+        webbrowser.open(Door(data_dir() / "window.key").link(f"http://127.0.0.1:{port}/"))  # already running: just show it
         return 0
     try:
         return App().run(open_browser=not args.no_browser)

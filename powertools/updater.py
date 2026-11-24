@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -172,10 +173,44 @@ def switch(remote: str, root: Path = ROOT) -> dict:
     return {"remote": remote, "before": old}
 
 
-def update() -> dict:
+def _previous_file() -> Path:
+    return ROOT / "local" / "update-previous.json"
+
+
+def remember(commit: str) -> None:
+    """The version before this update, for the way back."""
+    text = git("show", f"{commit}:powertools/__init__.py")
+    m = re.search(r'__version__ = "([^"]+)"', text)
+    _previous_file().parent.mkdir(exist_ok=True)
+    _previous_file().write_text(json.dumps({"commit": commit, "version": m[1] if m else commit[:7]}), encoding="utf-8")
+
+
+def previous() -> dict:
+    """{commit, version} of the version before the last update; {} when there is none."""
+    try:
+        return json.loads(_previous_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def rollback() -> dict:
+    p = previous()
+    if not p:
+        raise GitError("no earlier version is known on this computer")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        raise GitError("files of this copy were changed by hand: put them back first")
     before = git("rev-parse", "--short", "HEAD")
+    git("reset", "--quiet", "--hard", p["commit"])
+    _previous_file().unlink()
+    return {"before": before, "after": p["commit"][:7], "version": p["version"], "changed": True}
+
+
+def update() -> dict:
+    full, before = git("rev-parse", "HEAD"), git("rev-parse", "--short", "HEAD")
     git("pull", "--ff-only", "--quiet", timeout=120)
     after = git("rev-parse", "--short", "HEAD")
+    if before != after:
+        remember(full)
     return {"before": before, "after": after, "changed": before != after}
 
 

@@ -276,6 +276,7 @@ h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.01em; } .pa
 .savebar { position: sticky; bottom: -40px; background: var(--panel); border-top: 1px solid var(--line); margin: 14px -14px -12px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; border-radius: 0 0 var(--radius) var(--radius); } #saved { color: var(--muted); }
 .edit { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; white-space: normal; }
 .edit .del { color: var(--rec); text-decoration: line-through; } .edit .ins { color: var(--ok); } .edit.proposed { border-style: dashed; }
+#idea-report { max-height: 180px; overflow: auto; font-size: 11px; white-space: pre-wrap; } #idea-pics { display: flex; gap: 8px; flex-wrap: wrap; } #idea-pics button { padding: 2px; } #idea-pics img { height: 54px; display: block; border-radius: 6px; } #idea-done:not(:empty) { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 #idea-box { border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; width: min(520px, 92vw); background: var(--panel); color: var(--text); }
 #ai label.check { display: flex; gap: 8px; align-items: center; margin: 4px 0; } #ai label.check input, .form input[type=radio] { width: auto; }
 .row > button, .recapbar button { white-space: nowrap; flex: none; }

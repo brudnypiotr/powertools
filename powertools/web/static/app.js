@@ -7,9 +7,20 @@ const api = async (method, path, body) => {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await r.json();
+  if (r.status === 403 && data.error === "locked") locked();
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 };
+let isLocked = false;
+async function locked() {   // this window has no key (a cleared cookie, a first start after an update): the app opens one that has
+  if (isLocked) return;
+  isLocked = true;
+  document.body.innerHTML = `<main class="main"><div class="empty"><b>powertools opens in a new window</b><p class="muted">This one has no access yet. You can close it.</p><p><button id="unlock" class="primary">Open it again</button></p></div></main>`;
+  const ask = () => fetch("/api/unlock", { method: "POST", headers: { "X-Powertools": "1" }, body: "{}" }).catch(() => {});
+  $("#unlock").onclick = ask;
+  if (!sessionStorage.getItem("asked")) { sessionStorage.setItem("asked", "1"); ask(); }
+  const back = setInterval(async () => { try { if ((await fetch("/api/state")).ok) { clearInterval(back); sessionStorage.removeItem("asked"); location.reload(); } } catch { /* the app restarts */ } }, 2000);
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // ---------------------------------------------------------------- tabs
@@ -54,9 +65,11 @@ function stopped() {
   window.close();  // allowed for an app window opened with one page
 }
 async function poll() {
+  if (isLocked) return;
   let s;
   try { s = await api("GET", "/api/state"); failures = 0; }
   catch {
+    if (isLocked) return;
     if (++failures >= 3 && !updating) return stopped();  // the app quit (tray > Quit): close this window too
     return setTimeout(poll, 2000);
   }
@@ -969,13 +982,42 @@ loadLook();
 
 // ---------------------------------------------------------------- ideas
 const ideaBox = $("#idea-box");
-$("#idea").addEventListener("click", () => ideaBox.showModal());
+const ideaForm = ideaBox.querySelector("form");
+let pictures = [];
+const drawPictures = () => { $("#idea-pics").innerHTML = pictures.map((p, n) => `<button type="button" data-n="${n}" title="Remove"><img src="${p}" alt="Picture ${n + 1}"></button>`).join(""); };
+$("#idea").addEventListener("click", async () => {
+  $("#idea-done").innerHTML = ""; ideaForm.querySelector(".err").textContent = "";
+  ideaBox.showModal();
+  try {
+    const i = await api("GET", "/api/feedback");
+    $("#idea-report").textContent = i.report;
+    $("#idea-github").classList.toggle("hidden", !i.issues);
+  } catch (err) { ideaForm.querySelector(".err").textContent = err.message; }
+});
 ideaBox.querySelector(".close").addEventListener("click", () => ideaBox.close());
-ideaBox.querySelector("form").addEventListener("submit", async (e) => {
+ideaBox.addEventListener("paste", (e) => {
+  for (const it of e.clipboardData.items) if (/^image\/(png|jpeg|webp)$/.test(it.type) && pictures.length < 6) {
+    const r = new FileReader();
+    r.onload = () => { pictures.push(r.result); drawPictures(); };
+    r.readAsDataURL(it.getAsFile());
+  }
+});
+$("#idea-pics").addEventListener("click", (e) => { const b = e.target.closest("[data-n]"); if (b) { pictures.splice(Number(b.dataset.n), 1); drawPictures(); } });
+ideaForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const f = e.target;
-  try { const r = await api("POST", "/api/idea", { text: f.text.value, diagnostics: f.diagnostics.checked }); window.open(r.url, "_blank", "noopener"); f.text.value = ""; ideaBox.close(); }
-  catch (err) { f.querySelector(".err").textContent = err.message; }
+  const f = e.target, text = f.text.value;
+  try {
+    const r = await api("POST", "/api/feedback/package", { text, diagnostics: f.diagnostics.checked, pictures });
+    const note = encodeURIComponent("powertools feedback: " + text.split("\n")[0].slice(0, 100));
+    $("#idea-done").innerHTML = `<b>${esc(r.name)}</b> is on your Desktop. Send it to whoever looks after powertools.
+      <span class="row"><button type="button" id="idea-show">Show the file</button>${r.contact ? `<a class="btnlink" target="_blank" rel="noopener" href="https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(r.contact)}&message=${note}">Message in Teams</a> <a class="btnlink" href="mailto:${encodeURIComponent(r.contact)}?subject=${note}">E-mail</a>` : ""}</span>`;
+    $("#idea-show").onclick = () => api("POST", "/api/feedback/show", { name: r.name }).catch((err) => say(err.message));
+    f.text.value = ""; pictures = []; drawPictures();
+  } catch (err) { f.querySelector(".err").textContent = err.message; }
+});
+$("#idea-github").addEventListener("click", async () => {
+  try { const r = await api("POST", "/api/idea", { text: ideaForm.text.value, diagnostics: ideaForm.diagnostics.checked }); window.open(r.url, "_blank", "noopener"); ideaForm.text.value = ""; ideaBox.close(); }
+  catch (err) { ideaForm.querySelector(".err").textContent = err.message; }
 });
 
 poll();
@@ -1004,6 +1046,9 @@ async function loadAbout(fetchRemote) {
     $("#about-status").textContent = a.busy ? `${pending.length} new change(s). Update after: ${a.busy}.` : `${pending.length} new change(s) available.`;
     $("#about-do").classList.toggle("hidden", !!a.busy);
   } else $("#about-status").textContent = a.fetched ? "You have the latest version." : "";
+  const prev = a.previous || {};
+  $("#about-back").classList.toggle("hidden", !prev.version || !!a.busy);
+  $("#about-back").textContent = `Back to ${prev.version || ""}`;
   appInstalled = !!a.installed;
   renderInstall();
 }
@@ -1016,14 +1061,17 @@ $("#about-source").addEventListener("submit", async (e) => {
   catch (err) { $("#about-source-note").textContent = err.message; }
 });
 $("#about-check").addEventListener("click", () => loadAbout(true));
-$("#about-do").addEventListener("click", async () => {
+$("#about-do").addEventListener("click", () => otherVersion("/api/update", "Updating..."));
+$("#about-back").addEventListener("click", () => otherVersion("/api/update/rollback", "Going back..."));
+async function otherVersion(path, doing) {
   $("#about-do").classList.add("hidden");
+  $("#about-back").classList.add("hidden");
   updating = true;
-  $("#about-status").textContent = "Updating...";
+  $("#about-status").textContent = doing;
   let r;
-  try { r = await api("POST", "/api/update"); } catch (e) { updating = false; $("#about-status").textContent = e.message; return; }
+  try { r = await api("POST", path); } catch (e) { updating = false; $("#about-status").textContent = e.message; return; }
   if (!r.restarting) { updating = false; loadAbout(false); return; }
-  $("#about-status").textContent = `Updated ${r.before} → ${r.after}. Restarting (setup may run first)...`;
+  $("#about-status").textContent = `${r.before} → ${r.after}, a backup is made. Restarting (setup may run first)...`;
   const started = Date.now();
   await new Promise((ok) => setTimeout(ok, 3000));
   const wait = async () => {
@@ -1031,7 +1079,7 @@ $("#about-do").addEventListener("click", async () => {
     catch { if (Date.now() - started < 300000) setTimeout(wait, 1500); else $("#about-status").textContent = "Restart takes long: start powertools from the shortcut (see setup.log)."; }
   };
   wait();
-});
+}
 
 // ---------------------------------------------------------------- install as an app (own taskbar icon, pinning)
 let installEvent = null, appInstalled = false;

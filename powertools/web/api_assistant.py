@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..graph.client import TokenExpired
 from ..llm import LLMError
 from .api_graph import guarded
@@ -251,6 +253,34 @@ def person_note(h):
 
 
 # ------------------------------------------------------------------ ideas, comparing models
+@route("GET", "/api/feedback")
+def feedback_info(h):
+    from .. import diagnostics, feedback
+
+    h.send(200, {"issues": feedback.issues(), "contact": feedback.contact(), "report": diagnostics.as_text(diagnostics.report(h.app))})
+
+
+@route("POST", "/api/feedback/package")
+def feedback_package(h):
+    from .. import feedback
+
+    b = h.json_body()
+    p = feedback.package(h.app, str(b.get("text", "")), bool(b.get("diagnostics")), [str(x) for x in b.get("pictures") or []])
+    h.send(200, {"path": str(p), "name": p.name, "contact": feedback.contact()})
+
+
+@route("POST", "/api/feedback/show")
+def feedback_show(h):
+    from .. import feedback
+    from .api_graph import _reveal
+
+    p = feedback.desktop() / Path(*text(h, "name")).name
+    if not (p.name.startswith("powertools-feedback-") and p.is_file()):
+        raise KeyError(p.name)
+    _reveal(p, True)
+    h.send(200, {"path": str(p)})
+
+
 @route("POST", "/api/idea")
 def idea(h):
     from ..feedback import issue_url

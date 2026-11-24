@@ -128,6 +128,6 @@ if __name__ == "__main__":
     if os.environ.get("TOKEN", "1") == "1":
         token(demo)
     serve(demo, 48777)
-    print("http://127.0.0.1:48777/", flush=True)
+    print(demo.door.link("http://127.0.0.1:48777/"), flush=True)
     while True:
         time.sleep(60)

@@ -359,7 +359,7 @@
     <button class="icon close" title="Close">✕</button></div>
   <div id="about-info" class="about-grid"></div>
   <div class="about-update"><span id="about-status" class="muted">Checking for updates...</span>
-    <button id="about-check">Check again</button><button id="about-do" class="primary hidden">Update and restart</button></div>
+    <button id="about-check">Check again</button><button id="about-back" class="hidden" title="The version before the last update; your data stays">Back</button><button id="about-do" class="primary hidden">Update and restart</button></div>
   <div class="about-update" id="install-box"><span id="install-text" class="muted">Install the window as an app to get
     its own taskbar icon and pinning.</span><button id="install-do" class="hidden">Install as app</button></div>
   <div id="about-pending"></div>
@@ -368,10 +368,11 @@
   <h3>Changelog</h3>
   <ul id="about-log" class="changelog"></ul>
 </dialog>
-<dialog id="idea-box"><form class="form"><h2>I have an idea</h2><p class="muted">An idea, a problem, a wish. You can dictate it. Next step: GitHub opens with the text filled in; you read it and press Submit there.</p>
-  <textarea name="text" aria-label="Your idea" rows="6" placeholder="What would help you?"></textarea>
-  <label class="check"><input type="checkbox" name="diagnostics" checked> Add counters (version, model, number of items and errors; no text, no names)</label>
-  <div class="row"><button class="primary">Open on GitHub</button><button type="button" class="close">Cancel</button><span class="err"></span></div></form></dialog>
+<dialog id="idea-box"><form class="form"><h2>I have an idea</h2><p class="muted">An idea, a problem, a wish. You can dictate it, and paste screenshots with Ctrl+V. It becomes a file on your Desktop; you send it.</p>
+  <textarea name="text" aria-label="Your idea" rows="6" placeholder="What would help you?"></textarea><div id="idea-pics"></div>
+  <label class="check"><input type="checkbox" name="diagnostics" checked> Add a report for support (versions, counts, errors; no text, no names)</label>
+  <details><summary class="muted small">What is in the report</summary><pre id="idea-report"></pre></details>
+  <div class="row"><button class="primary">Make the file</button><button type="button" id="idea-github" class="hidden">Open on GitHub</button><button type="button" class="close">Close</button><span class="err"></span></div><div id="idea-done" role="status"></div></form></dialog>
 <script src="/org_chart.js"></script>
 <script src="/app.js"></script>
 <script src="/recap.js"></script>

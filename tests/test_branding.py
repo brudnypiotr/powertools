@@ -110,7 +110,7 @@ def test_the_window_serves_the_look_and_an_svg_cannot_run(server, monkeypatch, t
         with pytest.raises(urllib.error.HTTPError) as e:
             get(path)
         assert e.value.code == 404
-    req = urllib.request.Request(base + "/api/branding/zip", method="POST", headers={"X-Powertools": "1"}, data=zipped(logo_DOT_svg="<svg/>"))
+    req = urllib.request.Request(base + "/api/branding/zip", method="POST", headers={"X-Powertools": "1", "X-Powertools-Key": app.door.key}, data=zipped(logo_DOT_svg="<svg/>"))
     urllib.request.urlopen(req, timeout=5).read()
     body, head = get("/branding/logo?1")
     assert body == b"<svg/>" and "sandbox" in head["Content-Security-Policy"] and head["Content-Type"] == "image/svg+xml"

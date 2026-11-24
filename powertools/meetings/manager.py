@@ -24,7 +24,6 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 
 from .. import export
 from ..config import data_dir, output_dir

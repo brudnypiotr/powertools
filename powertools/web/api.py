@@ -10,6 +10,13 @@ def ping(h):
     h.send(200, {"app": "powertools"})
 
 
+@route("POST", "/api/unlock")
+def unlock(h):
+    """A window without the key asks for one: the app opens a window of its own, with the key in its link."""
+    h.app.open_window(fresh=True)
+    h.send(200, {"opened": True})
+
+
 @route("GET", "/api/state")
 def state(h):
     import time
@@ -80,6 +87,7 @@ def about(h):
     info["busy"] = h.app.busy()
     info["engine"] = h.app.engine.status()
     info["installed"] = app_installed()
+    info["previous"] = updater.previous()
     h.send(200, info)
 
 
@@ -110,23 +118,36 @@ def update_source(h):
 
 @route("POST", "/api/update")
 def update(h):
-    from .. import updater
+    _move(h, "update")
+
+
+@route("POST", "/api/update/rollback")
+def rollback(h):
+    """Back to the version before the last update."""
+    _move(h, "rollback")
+
+
+def _move(h, what: str) -> None:
+    """Another version of the app: a backup first, then a restart."""
+    from .. import __version__, backup, updater
+    from ..config import data_dir, memory_dir
 
     busy = h.app.busy()
     if busy:
         raise ValueError(f"not now: {busy}. Try again when it has finished.")
     try:
-        result = updater.update()
+        saved = str(backup.make(data_dir(), memory_dir(h.app.settings), __version__))
+    except OSError as e:
+        raise ValueError(f"the backup before the {what} did not work, nothing was changed: {e}") from e
+    try:
+        result = updater.update() if what == "update" else updater.rollback()
     except updater.GitError as e:
-        raise ValueError(f"update failed: {e}") from e
+        raise ValueError(f"{what} failed: {e}") from e
     if result["changed"]:
-        from ..config import data_dir
-
         updater.restart_later(data_dir() / "port.txt")
-        h.send(200, {**result, "restarting": True})
+    h.send(200, {**result, "backup": saved, "restarting": result["changed"]})
+    if result["changed"]:
         h.app.quit()
-    else:
-        h.send(200, {**result, "restarting": False})
 
 
 @route("POST", "/api/quit")

@@ -43,7 +43,7 @@ def win(browser, tmp_path, monkeypatch):
             self.errors = []
             self.page.on("pageerror", lambda e: self.errors.append(str(e)))
             self.page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" and "40" not in m.text else None)
-            self.page.goto(f"http://127.0.0.1:{self.httpd.server_address[1]}/")
+            self.page.goto(f"http://127.0.0.1:{self.httpd.server_address[1]}/?t={self.app.door.key}")
             return self.page
 
         def update(self):
@@ -216,3 +216,40 @@ def test_what_is_left_of_the_credits_is_in_the_menu(win):
     page.set_viewport_size({"width": 1000, "height": 680})
     page.click("#more")
     sync.expect(page.locator("#engine-foot")).to_be_in_viewport()
+
+
+def test_a_window_without_the_key_shows_nothing_and_asks_the_app(win, browser):
+    page = win.open()
+    opened = []
+    win.app.open_window = lambda fresh=False: opened.append(fresh)
+    stranger = browser.new_context().new_page()
+    stranger.goto(page.url)
+    see(stranger, "body", "opens in a new window")
+    stranger.wait_for_timeout(500)
+    assert opened == [True] and "Morning brief" not in stranger.content()
+    stranger.goto(f"{page.url}?t={win.app.door.key}")
+    see(stranger, "#today-rows", "Morning brief")
+    assert "t=" not in stranger.url
+    stranger.context.close()
+
+
+def test_feedback_is_a_file_and_the_report_can_be_read_first(win, tmp_path, monkeypatch):
+    from powertools import feedback
+    monkeypatch.setattr(feedback, "desktop", lambda: tmp_path)
+    page = win.open()
+    page.click("#idea")
+    page.click("#idea-box summary")
+    see(page, "#idea-report", '"version"')
+    page.fill("#idea-box textarea", "Bigger buttons")
+    page.click("#idea-box .primary")
+    see(page, "#idea-done", "powertools-feedback-")
+    assert list(tmp_path.glob("powertools-feedback-*.zip"))
+    sync.expect(page.locator("#idea-github")).to_be_hidden()
+
+
+def test_the_version_before_the_update_is_one_click_away(win, monkeypatch):
+    from powertools import updater
+    monkeypatch.setattr(updater, "previous", lambda: {"commit": "abc", "version": "0.16.0"})
+    page = win.open()
+    page.click("#engine-foot")
+    sync.expect(page.locator("#about-back")).to_have_text("Back to 0.16.0")

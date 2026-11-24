@@ -93,7 +93,7 @@ function renderToday() {
   draw("#today-rows", problems + brief + checked + groups.map(([name, rows, folded]) => (folded
     ? `<button type="button" class="foldbtn" data-fold="${esc(name)}" data-k="fold-${esc(name)}" aria-expanded="${!!opened[name]}">${esc(name)} <i>${rows.length}</i></button>${opened[name] ? rows.map(rowHtml).join("") : ""}`
     : `<h2>${esc(name)}</h2>${rows.map(rowHtml).join("")}`)).join("") + sug + (groups.length || !R.updated ? "" : `<div class="empty"><b>Nothing here.</b></div>`) +
-    (V.tab === "chg" && R.ask_feedback ? `<form class="feedback"><label>What did the Recap miss today?<input name="t" placeholder="One sentence; stays on this laptop"></label><button>Save</button></form>` : ""));
+    (V.tab === "chg" && R.ask_feedback ? `<form class="feedback"><label>What did the Recap miss today?<input name="t" placeholder="One sentence; the next Update learns from it"></label><button>Save</button></form>` : ""));
   renderBody();
 }
 const mineFirst = () => [...R.decisions, ...R.mine].sort((a, b) => !!b.due - !!a.due).slice(0, 3);

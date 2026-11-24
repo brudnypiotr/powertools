@@ -7,7 +7,6 @@ keeping goes to the Markdown memory. An update that stops half way does not move
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 import threading
@@ -19,7 +18,7 @@ from pathlib import Path
 from .. import export, files
 from ..config import data_dir, memory_dir
 from ..exclusions import Exclusions
-from ..graph.client import GraphError, TokenExpired
+from ..graph.client import GraphError
 from ..graph.service import resolve_since
 from ..jira.client import JiraError
 from ..jobs import Stopped
@@ -103,7 +102,7 @@ class Assistant:
     def _load(self) -> dict:
         data = files.load_json(self.path)
         for k, v in (("items", {}), ("promises", {}), ("events", []), ("preps", {}), ("people", []), ("cursor", ""),
-                     ("updated", 0), ("last", {}), ("me", {}), ("corrections", []), ("muted", [])):
+                     ("updated", 0), ("last", {}), ("me", {}), ("corrections", []), ("muted", []), ("missed", [])):
             data.setdefault(k, v)
         return data
 
@@ -128,9 +127,9 @@ class Assistant:
         return "About " + self.me + " (own words):\n" + text[:1500] if text else ""
 
     def corrections_text(self) -> str:
-        rows = self.data["corrections"][-8:]
-        return "" if not rows else "The user corrected earlier answers; learn from it:\n" + "\n".join(
-            f'- "{c["title"][:80]}" ({c["people"][:60]}): not "{c["was"]}" but "{c["now"]}"' for c in rows)
+        rows = [f'- "{c["title"][:80]}" ({c["people"][:60]}): not "{c["was"]}" but "{c["now"]}"' for c in self.data["corrections"][-8:]]
+        rows += [f"- missed earlier, in the user's words: {t[:200]}" for t in self.data["missed"][-5:]]
+        return "The user corrected earlier answers; learn from it:\n" + "\n".join(rows) if rows else ""
 
     # ------------------------------------------------------------------ update
     def update(self, rng: dict | None = None, sources: list[str] | None = None):
@@ -960,10 +959,10 @@ class Assistant:
 
     # ------------------------------------------------------------------ the daily question
     def feedback(self, text: str) -> None:
-        """"What did the Recap miss today?" stays in a local file; the user may send it as an idea."""
-        with (data_dir() / "feedback.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"at": now_iso(), "text": text.strip()[:2000]}, ensure_ascii=False) + "\n")
+        """"What did the Recap miss today?": stays on this laptop and goes into the next sorting."""
         with self._lock:
+            if text.strip():
+                self.data["missed"] = [*self.data["missed"], " ".join(text.split())[:500]][-20:]
             self.data["asked"] = date.today().isoformat()
             self._save()
 

@@ -216,7 +216,18 @@ Memory: Markdown in `Documents\powertools\memory` (Settings > Memory folder), re
 Lines with `(you)` are never overwritten; every write can be undone. Items and their text are in
 `%LOCALAPPDATA%\powertools\assistant.json`. **Never read** (Settings): people, words in a title, `folder: Name`; checked
 before anything is kept or shown to a model. Quotes and promises the model gives are checked against the source word by
-word. **I have an idea** opens a filled-in GitHub issue; you read it and submit it there.
+word. **I have an idea** makes a zip on
+the Desktop (your words, pasted screenshots and, if you want, a report without names or text); you send it. A copy that
+follows an organisation's own repository can also open a filled-in GitHub issue there; the public one never gets an idea.
+
+- **Answered in Teams or by mail**: while the Graph token is valid the app looks every 5 minutes (or press *Check now*)
+  whether you wrote in a conversation with an open question. Only those are read and sorted again; a question you
+  answered moves to *You answered*, with *Bring it back*.
+- **Stop** ends an Update (what is sorted stays, the range is read again next time) or an answer you wait for.
+- **The window has a key**: without it 127.0.0.1 gives no data to another user or program of the computer. A window that
+  lost it (cleared cookies) asks the app to open a new one.
+- **Before an Update** the state and the memory go into `backups` in the app's folder (the last five); About has *Back to
+  the version before*.
 
 ## Your own copy for an organisation
 

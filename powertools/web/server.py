@@ -1,7 +1,7 @@
 """The window: a local web server on 127.0.0.1 (stdlib only).
 
-Safety on a shared machine: only 127.0.0.1, the Host header must match (stops DNS rebinding), and every
-request that changes something must carry the X-Powertools header (a foreign web page cannot add it without
+Safety on a shared machine: only 127.0.0.1, the Host header must match (stops DNS rebinding), every request for
+data needs the key of the window (door.py), and every request that changes something must carry the X-Powertools header (a foreign web page cannot add it without
 a CORS preflight, which this server never answers).
 """
 
@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..files import Busy
+from .door import OPEN
 
 log = logging.getLogger("powertools.web")
 STATIC = Path(__file__).parent / "static"
@@ -64,7 +65,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {"error": "bad host"})
         if method != "GET" and self.headers.get("X-Powertools") != "1":
             return self.send(403, {"error": "missing X-Powertools header"})
-        path = urlparse(self.path).path
+        path, door = urlparse(self.path).path, self.app.door
+        if path in ("", "/") and self.query("t"):
+            # only the right key gets the cookie; a wrong one just opens the window, which then asks for the key
+            extra = {"Set-Cookie": door.cookie()} if door.is_key(self.query("t")) else {}
+            return self.send(302, b"", headers={"Location": "/", **extra})
+        if path.startswith("/api/") and path not in OPEN and not door.admits(self.headers):
+            return self.send(403, {"error": "locked"})
         if method == "GET" and not path.startswith("/api/"):
             return self._static(path)
         for m, rx, fn in ROUTES:

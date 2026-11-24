@@ -17,13 +17,17 @@ def server(tmp_path, monkeypatch):
     app = App(selftest=True)
     app.input_devices = lambda: ["Mic A"]
     httpd = serve(app)
+    KEY["key"] = app.door.key
     yield app, f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
     app.store.close()
 
 
+KEY: dict = {}     # the key of the running test server's window
+
+
 def call(base, method, path, body=None, header=True):
-    headers = {"Content-Type": "application/json", **({"X-Powertools": "1"} if header else {})}
+    headers = {"Content-Type": "application/json", "X-Powertools-Key": KEY.get("key", ""), **({"X-Powertools": "1"} if header else {})}
     req = urllib.request.Request(base + path, method=method, headers=headers,
                                  data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(req, timeout=5) as r:
@@ -183,7 +187,7 @@ def test_an_idea_is_a_filled_in_issue_without_private_text(server, tmp_path, mon
 
     app, base = server
     app.settings.update({"memory_dir": str(tmp_path / "mem")})
-    monkeypatch.setattr(feedback, "repo_url", lambda: "https://github.com/o/r")
+    monkeypatch.setattr(feedback, "repo_url", lambda: "https://github.com/o/r")     # an organisation's own repository
     app.assistant.memory.create_matter("Secret merger")
     u = call(base, "POST", "/api/idea", {"text": "Bigger buttons\nplease", "diagnostics": True})["url"]
     q = parse_qs(urlparse(u).query)
