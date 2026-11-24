@@ -27,7 +27,7 @@ def text(h, *names) -> list[str]:
 # ------------------------------------------------------------------ recap
 @route("GET", "/api/assistant")
 def view(h):
-    h.send(200, {**h.app.assistant.view(), "llm": h.app.llm.available()})
+    h.send(200, {**h.app.assistant.view(), "llm": h.app.llm.available(), "graph": h.app.graph.status()})
 
 
 @route("POST", "/api/assistant/update")

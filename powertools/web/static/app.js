@@ -19,6 +19,8 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.closest("#more-nav")) openMore(true);
     document.querySelectorAll("nav button, .tab").forEach((e) => e.classList.remove("active"));
     b.classList.add("active");
+    document.querySelectorAll("nav button[data-tab]").forEach((e) => e.toggleAttribute("aria-current", e === b));
+    $(".main").scrollTop = 0;
     $("#" + b.dataset.tab).classList.add("active");
     if (b.dataset.tab === "settings") loadSettings();
     if (b.dataset.tab === "diagnostics") loadDiagnostics();
@@ -110,11 +112,21 @@ const ICONS = {
   fix: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
   del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
-function toast(text, ms = 1400) {
+const toasts = Object.assign(document.createElement("div"), { className: "toasts" });
+toasts.setAttribute("role", "status");
+document.body.appendChild(toasts);
+function toast(text, ms = 1800, action) {  // action: [label, function]
   const t = Object.assign(document.createElement("div"), { className: "toast", textContent: text });
-  document.body.appendChild(t);
+  if (action) {
+    const b = Object.assign(document.createElement("button"), { textContent: action[0] });
+    b.onclick = () => { t.remove(); action[1](); };
+    t.appendChild(b);
+  }
+  toasts.appendChild(t);
+  while (toasts.children.length > 3) toasts.firstChild.remove();
   setTimeout(() => t.remove(), ms);
 }
+const say = (text) => toast(text, 6000);  // an error or a hint: never a dialog that blocks the window
 $("#history").addEventListener("click", async (ev) => {
   const btn = ev.target.closest("[data-act]");
   const li = ev.target.closest("li");
@@ -170,7 +182,11 @@ async function loadSettings() {
   f.exclude.value = s.exclude.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
-$("#settings-form").addEventListener("submit", async (e) => {
+const settingsForm = $("#settings-form");
+$("#settings-nav").innerHTML = [...settingsForm.querySelectorAll("h3")].map((h, n) => { h.id = "set-" + n; return `<button type="button" data-to="set-${n}">${esc(h.textContent)}</button>`; }).join("");
+$("#settings-nav").addEventListener("click", (e) => { const b = e.target.closest("[data-to]"); if (b) document.getElementById(b.dataset.to).scrollIntoView({ block: "start" }); });
+settingsForm.addEventListener("input", (e) => { if (!e.target.closest("#look")) $("#saved").textContent = "Not saved yet"; });
+settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
   const lines = (t) => t.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -211,33 +227,41 @@ $("#quit").addEventListener("click", async () => {
 // ---------------------------------------------------------------- Graph token bar (Teams + Mail)
 async function renderGraphBar() {
   const s = await api("GET", "/api/graph/status");
-  const status = s.has_token
-    ? `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span> <span>token valid ${s.expires_min} min</span>`
-    : `<span class="warn">No valid token.</span>`;
+  const waiting = s.watch && s.watch.active ? `<div class="token-wait">Waiting for the token: in the Graph Explorer window sign in if asked,
+    open the <b>Access token</b> tab and click its copy button. It is saved here automatically.</div>` : "";
+  const fields = `<button class="token-get ${s.has_token ? "" : "primary"}">Get ${s.has_token ? "a new" : "a"} token</button>
+    <input type="password" placeholder="...or paste the access token here" aria-label="Graph access token" class="token-input">
+    <button class="token-save">${s.has_token ? "Replace" : "Connect"}</button>`;
   document.querySelectorAll(".graphbar").forEach((bar) => {
-    bar.innerHTML = `${status}
-      <button class="token-get primary">${s.has_token ? "Get a new token" : "Get token"}</button>
-      <input type="password" placeholder="...or paste the access token here" class="token-input">
-      <button class="token-save">${s.has_token ? "Replace token" : "Connect"}</button>
-      ${s.watch && s.watch.active ? `<div class="token-wait">Waiting for the token: in the Graph Explorer window sign in if asked,
-        open the <b>Access token</b> tab and click its copy button. It is saved here automatically.</div>` : ""}`;
+    if (bar.contains(document.activeElement) && document.activeElement.value) return;  // a token is being pasted
+    const inRecap = bar.id === "recap-token";
+    bar.innerHTML = s.has_token && !inRecap
+      ? `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span> <span class="muted">${s.expires_min} min left</span>
+         <details class="token-more" ${waiting ? "open" : ""}><summary>New token</summary><div class="row">${fields}</div></details>${waiting}`
+      : `${s.has_token ? `<span class="ok">Connected${s.user ? " as " + esc(s.user) : ""}</span>` : `<div class="token-why"><b>Connect to your mail, Teams and calendar.</b> <span class="muted">A token from
+         Microsoft Graph Explorer, valid for about an hour: press Get a token, sign in, copy it there.</span></div>`}${fields}${waiting}`;
     bar.querySelector(".token-get").onclick = async () => {
       try { await api("POST", "/api/graph/token/fetch"); watchGraphToken(s.has_token ? s.expires_min : -1); renderGraphBar(); }
-      catch (e) { alert(e.message); }
+      catch (e) { say(e.message); }
     };
     bar.querySelector(".token-save").onclick = async () => {
       const token = bar.querySelector(".token-input").value.trim();
       if (!token) return;
       try {
         const r = await api("POST", "/api/graph/token", { token });
+        bar.querySelector(".token-input").value = "";
         renderGraphBar();
-        if (r.resumed_jobs) loadJobs();
-        if ($("#teams").classList.contains("active")) loadChats(true);
-        if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
-        if ($("#org").classList.contains("active")) loadOrgChain();
-      } catch (e) { alert(e.message); }
+        tokenSaved(r.resumed_jobs);
+      } catch (e) { say(e.message); }
     };
   });
+}
+function tokenSaved(resumed) {
+  if (resumed) loadJobs();
+  if ($("#recap").classList.contains("active")) { recapOpen.token = false; loadRecap(); }
+  if ($("#teams").classList.contains("active")) loadChats(true);
+  if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
+  if ($("#org").classList.contains("active")) loadOrgChain();
 }
 let graphWatch = null;
 function watchGraphToken(before) {  // poll until the copied token is caught (or the 5 minutes run out)
@@ -247,12 +271,9 @@ function watchGraphToken(before) {  // poll until the copied token is caught (or
     if (s.watch.active) return watchGraphToken(before);
     renderGraphBar();
     if (s.watch.result === "saved") {
-      toast("Token saved");
-      loadJobs();
-      if ($("#teams").classList.contains("active")) loadChats(true);
-      if ($("#mail").classList.contains("active") && !foldersLoaded) loadFolders();
-      if ($("#org").classList.contains("active")) loadOrgChain();
-    } else if (s.watch.result && s.watch.result !== "timeout") alert(s.watch.result);
+      toast("Connected");
+      tokenSaved(true);
+    } else if (s.watch.result && s.watch.result !== "timeout") say(s.watch.result);
   }, 1500);
 }
 async function graphCall(method, path, body) {
@@ -309,9 +330,9 @@ $("#chat-refresh").addEventListener("click", () => loadChats(true));
 $("#chat-all").addEventListener("change", (e) => document.querySelectorAll("#chats input").forEach((c) => (c.checked = e.target.checked)));
 $("#chat-export").addEventListener("click", async () => {
   const ids = [...document.querySelectorAll("#chats input:checked")].map((c) => c.value);
-  if (!ids.length) return alert("Select chats first.");
+  if (!ids.length) return say("Select chats first.");
   try { await graphCall("POST", "/api/teams/export", { ids, range: rangeOf("teams") }); loadJobs(); }
-  catch (e) { alert(e.message); }
+  catch (e) { say(e.message); }
 });
 
 // ---------------------------------------------------------------- Mail
@@ -342,9 +363,9 @@ $("#mail-all").addEventListener("change", (e) => document.querySelectorAll("#thr
 $("#mail-export").addEventListener("click", async () => {
   const items = [...document.querySelectorAll("#threads input:checked")].map((c) => threads[Number(c.value)])
     .map((t) => ({ id: t.id, subject: t.subject }));
-  if (!items.length) return alert("Select threads first.");
+  if (!items.length) return say("Select threads first.");
   try { await graphCall("POST", "/api/mail/export", { items, range: rangeOf("mail") }); loadJobs(); }
-  catch (e) { alert(e.message); }
+  catch (e) { say(e.message); }
 });
 
 // ---------------------------------------------------------------- Jira
@@ -377,7 +398,7 @@ async function renderJiraBar(check) {
     const btn = bar.querySelector(".token-save");
     btn.disabled = true; btn.textContent = "Checking...";
     try { await api("POST", "/api/jira/token", { token }); toast("Token saved"); }
-    catch (e) { alert(e.message); }
+    catch (e) { say(e.message); }
     renderJiraBar(false);
   };
   const clr = bar.querySelector(".token-clear");
@@ -412,7 +433,7 @@ function jiraOptions() {
 }
 async function jiraDownload(seed) {
   try { await api("POST", "/api/jira/download", { seed, options: jiraOptions() }); loadJobs(); watchJira(); }
-  catch (e) { alert(e.message); }
+  catch (e) { say(e.message); }
 }
 $("#jira-quick").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -440,11 +461,11 @@ $("#jira-search").addEventListener("submit", async (e) => {
 $("#jira-all").addEventListener("change", (e) => document.querySelectorAll("#jira-results input").forEach((c) => (c.checked = e.target.checked)));
 $("#jira-dl-sel").addEventListener("click", () => {
   const keys = [...document.querySelectorAll("#jira-results input:checked")].map((c) => c.value);
-  if (!keys.length) return alert("Select issues first.");
+  if (!keys.length) return say("Select issues first.");
   jiraDownload({ mode: "keys", value: keys.join(",") });
 });
 $("#jira-dl-all").addEventListener("click", () => {
-  if (!jiraLast.jql) return alert("Search first.");
+  if (!jiraLast.jql) return say("Search first.");
   jiraDownload({ mode: "jql", value: jiraLast.jql });
 });
 async function loadJiraDownloaded() {
@@ -466,11 +487,11 @@ async function jiraRefresh(keys) {
   try {
     await api("POST", "/api/jira/refresh", { keys, options: { attachments: $(".jira-opts [name=attachments]").checked } });
     loadJobs(); watchJira();
-  } catch (e) { alert(e.message); }
+  } catch (e) { say(e.message); }
 }
 $("#jira-refresh-sel").addEventListener("click", () => {
   const keys = [...document.querySelectorAll("#jira-downloaded input:checked")].map((c) => c.value);
-  if (!keys.length) return alert("Select downloaded issues first.");
+  if (!keys.length) return say("Select downloaded issues first.");
   jiraRefresh(keys);
 });
 $("#jira-refresh-all").addEventListener("click", () => jiraRefresh([]));
@@ -511,11 +532,11 @@ $("#org-search").addEventListener("submit", async (e) => {
   $("#org-found").querySelectorAll("button").forEach((b) => (b.onclick = () => pickOrg(found[Number(b.dataset.i)])));
 });
 $("#org-export").addEventListener("click", async () => {
-  if (!orgRoot) return alert("Pick a person first: one of your managers or a search result.");
+  if (!orgRoot) return say("Pick a person first: one of your managers or a search result.");
   try {
     const job = await graphCall("POST", "/api/org/export", { id: orgRoot.id, depth: Number($("#org-depth").value), above: $("#org-above").checked });
     loadJobs(); waitOrgJob(job.id);
-  } catch (e) { alert(e.message); }
+  } catch (e) { say(e.message); }
 });
 function waitOrgJob(id) {  // open the chart as soon as the export is done
   setTimeout(async () => {
@@ -624,7 +645,7 @@ async function loadMeetings() {
         <span class="tlink"></span></small>`;
       now.querySelector(".start").onclick = async () => {
         try { await api("POST", "/api/meetings/start", { title: now.querySelector(".title").value }); loadMeetings(); }
-        catch (e) { alert(e.message); }
+        catch (e) { say(e.message); }
       };
     }
   }
@@ -677,30 +698,30 @@ $("#meeting-list").addEventListener("click", async (e) => {
     li.classList.contains("open") ? openMeetings.add(li.dataset.id) : openMeetings.delete(li.dataset.id);
     return;
   }
-  if (act === "open") { try { await api("POST", `/api/meetings/${li.dataset.id}/open`, {}); } catch (err) { alert(err.message); } return; }
+  if (act === "open") { try { await api("POST", `/api/meetings/${li.dataset.id}/open`, {}); } catch (err) { say(err.message); } return; }
   if (act === "cal") {
     try { const r = await api("POST", `/api/meetings/${li.dataset.id}/calendar`, {});
-      if (!r.calendar) alert("No Teams meeting on your calendar at that time (an ad-hoc call has no attendee list)."); }
-    catch (err) { alert(err.message); }
+      if (!r.calendar) say("No Teams meeting on your calendar at that time (an ad-hoc call has no attendee list)."); }
+    catch (err) { say(err.message); }
     loadMeetings(); return;
   }
   if (act === "sum") {
-    try { await api("POST", `/api/meetings/${li.dataset.id}/summarize`, {}); } catch (err) { alert(err.message); }
+    try { await api("POST", `/api/meetings/${li.dataset.id}/summarize`, {}); } catch (err) { say(err.message); }
     loadMeetings(); return;
   }
   if (act === "del" && !confirm("Delete this recording (audio and live transcript)? The exported Markdown stays.")) return;
   try {
     await api(act === "del" ? "DELETE" : "POST", `/api/meetings/${li.dataset.id}` + (act === "final" ? "/finalize" : ""));
-  } catch (err) { alert(err.message); }
+  } catch (err) { say(err.message); }
   loadMeetings();
 });
 
 $("#update-all").onclick = async () => {
   const b = $("#update-all"); b.disabled = true;
   try { const r = await api("POST", "/api/meetings/update-all", {});
-    alert(`${r.updated} transcripts updated, ${r.with_attendees} with attendees from the calendar.` +
+    say(`${r.updated} transcripts updated, ${r.with_attendees} with attendees from the calendar.` +
           (r.token ? "" : " Set a Graph token in the Teams tab to fill in the attendees."));
-  } catch (err) { alert(err.message); }
+  } catch (err) { say(err.message); }
   b.disabled = false; loadMeetings();
 };
 
@@ -798,16 +819,16 @@ async function loadAI() {
       <div class="row">${missing.map((m) => `<button class="ai-pull" data-model="${esc(m)}">Download ${esc(m)}</button>`).join("")}</div>${pull}` : ""}`;
   $("#ai-refresh").onclick = loadAI;
   const install = $("#ai-install");
-  if (install) install.onclick = async () => { install.disabled = true; try { await api("POST", "/api/llm/install"); } catch (err) { alert(err.message); } loadAI(); };
+  if (install) install.onclick = async () => { install.disabled = true; try { await api("POST", "/api/llm/install"); } catch (err) { say(err.message); } loadAI(); };
   const start = $("#ai-start");
-  if (start) start.onclick = async () => { start.disabled = true; try { await api("POST", "/api/llm/start"); } catch (err) { alert(err.message); } loadAI(); };
+  if (start) start.onclick = async () => { start.disabled = true; try { await api("POST", "/api/llm/start"); } catch (err) { say(err.message); } loadAI(); };
   document.querySelectorAll(".ai-pull").forEach((b) => (b.onclick = async () => {
-    try { await api("POST", "/api/llm/pull", { model: b.dataset.model }); } catch (err) { alert(err.message); } loadAI();
+    try { await api("POST", "/api/llm/pull", { model: b.dataset.model }); } catch (err) { say(err.message); } loadAI();
   }));
   document.querySelectorAll(".ai-delete").forEach((b) => (b.onclick = async () => {
     if (!confirm(`Delete ${b.dataset.model}? You can download it again here.`)) return;
     b.disabled = true;
-    try { await api("POST", "/api/llm/delete", { model: b.dataset.model }); } catch (err) { alert(err.message); } loadAI();
+    try { await api("POST", "/api/llm/delete", { model: b.dataset.model }); } catch (err) { say(err.message); } loadAI();
   }));
   const sel = $("#ai-model"), cur = sel.value || s.model;
   sel.innerHTML = [...new Set([s.model, ...(s.models || []).map((m) => m.name)])].map((m) => `<option>${esc(m)}</option>`).join("");

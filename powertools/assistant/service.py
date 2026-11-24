@@ -35,6 +35,8 @@ SAID_IN = ("profile.md", "style.md", "matters/", "people/")   # memory worth quo
 OVERLAP = timedelta(minutes=10)
 KEEP_DAYS = {"fyi": 30, "ignore": 14, "closed": 60}
 NOT_SORTED = {"category": "fyi", "summary": "", "action": "", "due": "", "person": "", "quote": "", "decision": False, "commitments": []}
+UNDOABLE = ("done", "not_mine", "mute", "snooze", "category")
+UNDO_FIELDS = ("status", "until", "done_at", "user_category", "reviewed")
 LABELS = {"mail": "Mail", "teams": "Teams", "jira": "Jira", "meeting": "Meeting"}
 
 
@@ -77,6 +79,7 @@ class Assistant:
         self.job = None
         self.current = ""            # what the running update does now
         self.talk: list[dict] = []   # the Ask conversation of this session
+        self._undo: dict = {}        # the last change of an item, for the Undo in the window
         from .drafts import Drafts
         self.drafts = Drafts(self)
 
@@ -430,7 +433,10 @@ class Assistant:
         day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         since = min(day_ago, self.data["last"].get("began", day_ago))   # new in the last update, at least the last day
         recent = [i for i in items if i["status"] == "open" and i["category"] == "fyi" and i["seen"] >= since and not i.get("error")]
-        ignored = [i for i in items if i["category"] == "ignore"]
+        ignored = [i for i in items if i["category"] == "ignore" and i["status"] == "open"]
+        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        closed = [i for i in items if (i["status"] == "snoozed" and i["key"] not in shown) or
+                  (i["status"] in ("done", "dropped") and i.get("done_at", "") >= week_ago)]
         by_last = dict(key=lambda i: i["last"], reverse=True)
         mine = sorted((i for i in items if i["key"] in shown and i["category"] in ("todo", "reply")), **by_last)
         waiting = sorted((i for i in items if i["key"] in shown and i["category"] == "waiting"), key=lambda i: i["last"])
@@ -456,6 +462,7 @@ class Assistant:
                 "owed": [p for p in promises if not p["mine"]],
                 "changed": sorted(recent, **by_last), "ignored": sorted(ignored, **by_last)[:200],
                 "unsorted": [i for i in items if i.get("error")],
+                "closed": sorted(closed, key=lambda i: i.get("done_at") or i.get("until") or "", reverse=True),
                 "events": events, "matters": matters, "suggested": self._suggested(items),
                 "updated": self.data["updated"], "last": self.data["last"], "job": job, "cursor": self.data["cursor"],
                 "current": self.current if job and job["state"] in ("queued", "running") else "",
@@ -477,10 +484,22 @@ class Assistant:
         with self._lock:
             i = self.item(key)
             before = self._cat(i)
-            if action == "done":
+            if action in UNDOABLE:
+                self._undo = {"key": key, "item": {k: i[k] for k in UNDO_FIELDS if k in i}, "muted": list(self.data["muted"]),
+                              "corrections": list(self.data["corrections"])}
+            if action == "undo":
+                if not self._undo or self._undo["key"] != key:
+                    raise ValueError("there is nothing to undo any more")
+                for k in UNDO_FIELDS:
+                    i.pop(k, None)
+                i.update(self._undo["item"])
+                self.data["muted"], self.data["corrections"], self._undo = self._undo["muted"], self._undo["corrections"], {}
+            elif action == "done":
                 i.update(status="done", done_at=now_iso())
             elif action == "reopen":
                 i["status"] = "open"
+                i.pop("until", None)
+                i.pop("done_at", None)
             elif action == "not_mine":
                 i.update(status="dropped", done_at=now_iso())
                 self._learn(i, before, "ignore")

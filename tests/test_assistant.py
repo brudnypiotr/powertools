@@ -242,6 +242,26 @@ def test_corrections_teach_and_are_counted(tmp_path):
         a.act("mail:none", "done")
 
 
+def test_the_last_change_can_be_undone_and_closed_items_are_listed(tmp_path):
+    a, g = make(tmp_path)
+    a.update({"kind": "days", "days": 10})
+    keys = lambda group: {i["key"] for i in a.view()[group]}
+    for action, value in (("done", ""), ("not_mine", ""), ("mute", ""), ("snooze", "2999-01-01"), ("category", "fyi")):
+        a.act("teams:c1", action, value)
+        assert "teams:c1" not in keys("mine")
+        a.act("teams:c1", "undo")
+        assert "teams:c1" in keys("mine") and a.data["corrections"] == [] and a.data["muted"] == []
+    with pytest.raises(ValueError, match="nothing to undo"):
+        a.act("teams:c1", "undo")
+    a.act("teams:c1", "done")
+    a.act("mail:cv1", "snooze", "2999-01-01")
+    assert keys("closed") == {"teams:c1", "mail:cv1"}
+    with pytest.raises(ValueError):
+        a.act("teams:c1", "undo")                       # only the last change
+    a.act("teams:c1", "reopen")
+    assert keys("closed") == {"mail:cv1"} and "teams:c1" in keys("mine")
+
+
 def test_snooze_hides_until_the_day_and_promises_can_be_closed(tmp_path):
     a, g = make(tmp_path)
     a.update({"kind": "days", "days": 10})

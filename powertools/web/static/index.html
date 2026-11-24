@@ -19,7 +19,7 @@
     <button data-tab="dictation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
     <button id="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>More</span></button>
     <div id="more-nav" class="hidden">
-    <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
+    <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Recordings</span></button>
     <button data-tab="writing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4M14 20h6"/></svg><span>Writing</span></button>
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
@@ -49,7 +49,7 @@
     </div>
     <div class="row">
       <h2>History</h2>
-      <input id="search" type="search" placeholder="Search">
+      <input id="search" type="search" placeholder="Search" aria-label="Search the history">
     </div>
     <ul id="history" class="rows"></ul>
   </section>
@@ -57,7 +57,7 @@
   <section id="writing" class="tab">
     <div class="card">
       <div class="muted small" id="w-hint">Select an English text anywhere and press the wording hotkey, or paste it here.</div>
-      <textarea id="w-text" rows="6" placeholder="Paste an e-mail or a message"></textarea>
+      <textarea id="w-text" aria-label="Text to check" rows="6" placeholder="Paste an e-mail or a message"></textarea>
       <div class="row"><span id="w-status" class="muted"></span>
         <button class="w-style" data-style="professional" title="Rewrite: clear and polite, for a work e-mail">More professional</button>
         <button class="w-style" data-style="casual" title="Rewrite: friendly, for a chat">More casual</button>
@@ -68,22 +68,27 @@
   </section>
 
   <section id="recap" class="tab active">
-    <div class="card graphbar"></div>
-    <div id="recap-bar" class="card recapbar hidden">
-      <button id="recap-update" class="primary">Update</button>
-      <select id="recap-range"><option value="new" selected>since the last one</option><option value="1">last day</option><option value="3">last 3 days</option>
-        <option value="7">last 7 days</option><option value="14">last 2 weeks</option><option value="30">last 30 days</option><option value="since">since date...</option></select>
-      <input id="recap-since" type="date" class="hidden">
-      <span id="recap-briefs"><button data-brief="day">Brief me</button><button data-brief="week">Week in 10 lines</button>
-        <button data-brief="upward">Brief upward</button><button data-brief="leave">Back from leave</button></span>
+    <div id="recap-head">
+      <div id="recap-bar" class="recapbar hidden">
+        <button id="recap-update" class="primary">Update</button>
+        <select id="recap-range" aria-label="How far back"><option value="new" selected>since the last one</option><option value="1">last day</option><option value="3">last 3 days</option>
+          <option value="7">last 7 days</option><option value="14">last 2 weeks</option><option value="30">last 30 days</option><option value="since">since date...</option></select>
+        <input id="recap-since" type="date" class="hidden" aria-label="Since date">
+        <span id="recap-status" class="muted small"></span>
+        <span class="grow"></span>
+        <details id="recap-briefs" class="menu"><summary>Brief</summary><div>
+          <button data-brief="day">Brief me for today</button><button data-brief="week">The week in 10 lines</button>
+          <button data-brief="upward">Brief for my manager</button><button data-brief="leave">I was away: what did I miss?</button></div></details>
+        <span id="recap-where"></span><button id="recap-conn" class="chip"></button>
+      </div>
+      <div id="recap-progress" class="hidden"><span></span></div>
+      <div id="recap-token" class="card graphbar hidden"></div>
+      <div id="recap-tabs" class="seg hidden" role="tablist" aria-label="Recap"><button role="tab" data-view="today">Today <i></i></button><button role="tab" data-view="matters">Matters <i></i></button>
+        <button role="tab" data-view="meetings">Meetings <i></i></button><button role="tab" data-view="drafts">Drafts <i></i></button><button role="tab" data-view="people">People <i></i></button>
+        <button role="tab" data-view="ask">Ask <i></i></button></div>
     </div>
-    <div id="recap-status" class="muted small"></div>
     <div id="recap-now"></div>
-    <div id="recap-brief"></div>
-    <div id="recap-tabs" class="seg hidden"><button data-view="today">Today <i></i></button><button data-view="matters">Matters <i></i></button>
-      <button data-view="meetings">Meetings <i></i></button><button data-view="drafts">Drafts <i></i></button><button data-view="people">People <i></i></button>
-      <button data-view="ask">Ask <i></i></button></div>
-    <div id="recap-view"></div>
+    <div id="recap-view"><div class="empty muted">Loading...</div></div>
   </section>
 
   <section id="meetings" class="tab">
@@ -96,7 +101,7 @@
   <section id="teams" class="tab">
     <div class="card graphbar"></div>
     <div class="row">
-      <input id="chat-filter" type="search" placeholder="Filter by name or title">
+      <input id="chat-filter" aria-label="Filter chats" type="search" placeholder="Filter by name or title">
       <select id="chat-type">
         <option value="">All chats</option><option value="oneOnOne">1:1</option>
         <option value="group">Group</option><option value="meeting">Meeting</option>
@@ -104,7 +109,7 @@
       <button id="chat-refresh">Refresh</button>
     </div>
     <div class="card list-card"><table class="list"><thead><tr>
-      <th><input type="checkbox" id="chat-all"></th><th>Chat</th><th>Type</th><th>Last activity</th><th>Exported up to</th>
+      <th><input type="checkbox" id="chat-all" aria-label="Select all chats"></th><th>Chat</th><th>Type</th><th>Last activity</th><th>Exported up to</th>
     </tr></thead><tbody id="chats"><tr><td colspan="5">Paste a token above, then Refresh.</td></tr></tbody></table></div>
     <div class="row exportbar"><span class="range" data-for="teams"></span>
       <button id="chat-export" class="primary">Export selected</button></div>
@@ -121,7 +126,7 @@
       <button class="primary">Search</button>
     </form>
     <div class="card list-card"><table class="list"><thead><tr>
-      <th><input type="checkbox" id="mail-all"></th><th>Subject</th><th>People</th><th>Msgs</th><th>Last</th><th>Exported up to</th>
+      <th><input type="checkbox" id="mail-all" aria-label="Select all threads"></th><th>Subject</th><th>People</th><th>Msgs</th><th>Last</th><th>Exported up to</th>
     </tr></thead><tbody id="threads"><tr><td colspan="6">Search to list threads.</td></tr></tbody></table></div>
     <div class="row exportbar"><span class="range" data-for="mail"></span>
       <button id="mail-export" class="primary">Export selected</button></div>
@@ -187,15 +192,15 @@
     </form>
     <div id="jira-jql" class="muted small"></div>
     <div class="card list-card"><table class="list"><thead><tr>
-      <th><input type="checkbox" id="jira-all"></th><th>Key</th><th>Summary</th><th>Type</th><th>Status</th><th>Updated</th><th>Downloaded</th>
+      <th><input type="checkbox" id="jira-all" aria-label="Select all issues"></th><th>Key</th><th>Summary</th><th>Type</th><th>Status</th><th>Updated</th><th>Downloaded</th>
     </tr></thead><tbody id="jira-results"><tr><td colspan="7">Search, or paste keys above.</td></tr></tbody></table></div>
     <div class="row exportbar"><button id="jira-dl-all">Download all matches</button>
       <button id="jira-dl-sel" class="primary">Download selected</button></div>
     <div class="jobs" data-kind="jira"></div>
-    <div class="row"><h2>Downloaded</h2><input id="jira-dl-filter" type="search" placeholder="Filter">
+    <div class="row"><h2>Downloaded</h2><input id="jira-dl-filter" aria-label="Filter downloaded issues" type="search" placeholder="Filter">
       <button id="jira-refresh-sel">Update selected</button><button id="jira-refresh-all" class="primary">Update all</button></div>
     <div class="card list-card"><table class="list"><thead><tr>
-      <th><input type="checkbox" id="jira-dl-check"></th><th>Key</th><th>Summary</th><th>Status</th><th>Updated in Jira</th><th>Downloaded</th><th>Last result</th>
+      <th><input type="checkbox" id="jira-dl-check" aria-label="Select all downloaded issues"></th><th>Key</th><th>Summary</th><th>Status</th><th>Updated in Jira</th><th>Downloaded</th><th>Last result</th>
     </tr></thead><tbody id="jira-downloaded"></tbody></table></div>
   </section>
 
@@ -205,12 +210,12 @@
       <label class="check"><input type="radio" name="ai-provider" value="local"> On this laptop (Ollama): nothing leaves it</label>
       <div id="ai-usage" class="muted small"></div></div>
     <div class="card" id="copilot-card"><h3>GitHub Copilot</h3><div id="copilot-status" class="muted">Not checked yet.</div>
-      <div class="row"><button id="copilot-check">Check sign-in</button><button id="copilot-test">Ask it once</button><select id="copilot-model"></select></div>
+      <div class="row"><button id="copilot-check">Check sign-in</button><button id="copilot-test">Ask it once</button><select id="copilot-model" aria-label="Copilot model"></select></div>
       <details><summary>Sign in with a GitHub token (2 minutes, works on every laptop)</summary>
         <ol><li>Open <a href="https://github.com/settings/personal-access-tokens/new?name=powertools&amp;description=GitHub+Copilot+for+powertools" target="_blank" rel="noopener">github.com: new fine-grained token</a> in the account that has the Copilot licence.</li>
           <li><b>Resource owner</b>: your own account. <b>Expiration</b>: up to a year. <b>Repository access</b>: public repositories.</li>
           <li><b>Permissions</b> → tab <b>Account</b> → Add permissions → <b>Copilot Requests</b>.</li><li>Generate, copy, paste here. It is kept encrypted for your Windows user.</li></ol>
-        <form id="copilot-token" class="row"><input type="password" name="token" placeholder="github_pat_..."><button class="primary">Save</button><button type="button" id="copilot-forget">Forget it</button></form></details>
+        <form id="copilot-token" class="row"><input type="password" name="token" aria-label="GitHub token" placeholder="github_pat_..."><button class="primary">Save</button><button type="button" id="copilot-forget">Forget it</button></form></details>
       <div id="copilot-result"></div></div>
     <div class="card"><h3>Which model is right more often?</h3>
       <div class="row"><select id="cmp-provider"><option value="copilot">GitHub Copilot</option><option value="local">This laptop</option></select>
@@ -228,7 +233,9 @@
   </section>
 
   <section id="settings" class="tab">
+    <div id="settings-nav" class="chips"></div>
     <form id="settings-form" class="card form">
+      <h3>Dictation</h3>
       <label>Hotkey <input name="hotkey" placeholder="alt+q"><small>e.g. alt+q, ctrl+shift+space, f9</small></label>
       <label>Model
         <select name="model">
@@ -251,20 +258,13 @@
         large-v3 → turbo): the big ones are very slow on the CPU</label>
       <label class="check"><input type="checkbox" name="paste"> Paste into the active window (off: only copy)</label>
       <label class="check"><input type="checkbox" name="restore_clipboard"> Restore the previous clipboard after pasting</label>
-      <label class="check"><input type="checkbox" name="open_window_on_start"> Open this window when the app starts</label>
-      <label class="check"><input type="checkbox" name="app_window"> Open as an app window (Edge, no browser bars)</label>
-      <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
-        <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
-      <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
-      <h3>Look</h3>
-      <div id="look" class="look"><label>Name <input id="look-name" maxlength="40" placeholder="powertools"></label>
-        <label>Accent <input id="look-accent" type="color"></label><label>Sidebar <input id="look-sidebar" type="color"></label>
-        <label>Sidebar, current tab <input id="look-sidebar_active" type="color"></label></div>
-      <div class="row look-row"><button type="button" id="look-save">Apply</button><label class="filebtn">Import branding.zip<input id="look-zip" type="file" accept=".zip" hidden></label>
-        <button type="button" id="look-pack">Make branding.zip</button><button type="button" id="look-reset">Reset</button></div>
-      <small>Logo and background come from the zip (logo.png or .svg, background.png or .jpg). Only on this laptop; the organisation's
-        repository can carry it for everyone (docs/DISTRIBUTION.md).</small>
-      <h3>Recap</h3>
+      <h3>Words</h3>
+      <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
+      <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
+        <small>Whisper is nudged to spell these words this way (Parakeet ignores it: use Replacements).</small></label>
+      <label>Replacements <textarea name="replacements" rows="6" placeholder="merlo => Merlot"></textarea>
+        <small>One rule per line: <code>heard => wanted</code>. Whole words, case-insensitive.</small></label>
+            <h3>Recap</h3>
       <label>Never read <textarea name="exclude" rows="4" placeholder="one per line: a person, a word in a title, or folder: Name"></textarea>
         <small>Checked before anything is kept or shown to a model; also removes what was read before.</small></label>
       <label>Memory folder <input name="memory_dir" placeholder="Documents\powertools\memory"><small>Plain Markdown. Point it into OneDrive to have it on other devices.</small></label>
@@ -287,12 +287,6 @@
         Ctrl+W is possible, but then it no longer closes tabs anywhere.</small></label>
       <label>Wording result <select name="wording_mode"><option value="review">Show mistakes and a better version (Writing tab)</option>
         <option value="replace">Replace the selection with the better version right away</option></select></label>
-      <h3>Jira</h3>
-      <label>Jira site <input name="jira_url" placeholder="https://yoursite.atlassian.net">
-        <small>Token: the Windows Credential Manager entry jira-token when it exists, else paste one in the Jira tab.</small></label>
-      <label>Jira e-mail <input name="jira_email" placeholder="you@company.com"><small>Your Atlassian sign-in; needed for Jira Cloud.</small></label>
-      <label class="check"><input type="checkbox" name="jira_attachments"> Download Jira attachments by default</label>
-      <label>Skip Jira attachments over (MB) <input name="jira_max_attachment_mb" type="number" min="1" max="2000"></label>
       <h3>Meetings</h3>
       <label class="check"><input type="checkbox" name="notifications"> Windows notifications (call noticed, recording, transcript saved)</label>
       <label class="check"><input type="checkbox" name="meeting_prompt"> Ask "Record?" when a Teams call starts</label>
@@ -313,13 +307,27 @@
         <small>While recording it toggles "Me" muted and still reaches Teams (Ctrl+Shift+M is Teams' own mute), so one key mutes both.
         Muting with the mouse in Teams is not seen: use the key, or the Mute button in the Meetings tab or the tray. Every recording starts unmuted. <span id="teams-link"></span></small></label>
       <label class="check"><input type="checkbox" name="meeting_summary"> After the transcript: summary and key points from the chosen model</label>
-      <h3>Dictation details</h3>
-      <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
-      <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
-        <small>Whisper is nudged to spell these words this way (Parakeet ignores it: use Replacements).</small></label>
-      <label>Replacements <textarea name="replacements" rows="6" placeholder="merlo => Merlot"></textarea>
-        <small>One rule per line: <code>heard => wanted</code>. Whole words, case-insensitive.</small></label>
-      <div class="row"><button type="submit">Save</button><span id="saved"></span></div>
+      <h3>Jira</h3>
+      <label>Jira site <input name="jira_url" placeholder="https://yoursite.atlassian.net">
+        <small>Token: the Windows Credential Manager entry jira-token when it exists, else paste one in the Jira tab.</small></label>
+      <label>Jira e-mail <input name="jira_email" placeholder="you@company.com"><small>Your Atlassian sign-in; needed for Jira Cloud.</small></label>
+      <label class="check"><input type="checkbox" name="jira_attachments"> Download Jira attachments by default</label>
+      <label>Skip Jira attachments over (MB) <input name="jira_max_attachment_mb" type="number" min="1" max="2000"></label>
+      <h3>Window and exports</h3>
+      <label class="check"><input type="checkbox" name="open_window_on_start"> Open this window when the app starts</label>
+      <label class="check"><input type="checkbox" name="app_window"> Open as an app window (Edge, no browser bars)</label>
+      <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
+        <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
+      <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
+      <h3>Look</h3>
+      <div id="look" class="look"><label>Name <input id="look-name" maxlength="40" placeholder="powertools"></label>
+        <label>Accent <input id="look-accent" type="color"></label><label>Sidebar <input id="look-sidebar" type="color"></label>
+        <label>Sidebar, current tab <input id="look-sidebar_active" type="color"></label></div>
+      <div class="row look-row"><button type="button" id="look-save">Apply</button><label class="filebtn">Import branding.zip<input id="look-zip" type="file" accept=".zip" hidden></label>
+        <button type="button" id="look-pack">Make branding.zip</button><button type="button" id="look-reset">Reset</button></div>
+      <small>Logo and background come from the zip (logo.png or .svg, background.png or .jpg). Only on this laptop; the organisation's
+        repository can carry it for everyone (docs/DISTRIBUTION.md).</small>
+      <div class="savebar"><button type="submit" class="primary">Save</button><span id="saved" role="status"></span></div>
     </form>
   </section>
 
@@ -339,12 +347,12 @@
     its own taskbar icon and pinning.</span><button id="install-do" class="hidden">Install as app</button></div>
   <div id="about-pending"></div>
   <details><summary class="muted">Take updates from another repository</summary>
-    <form id="about-source" class="row"><input name="remote" placeholder="https://github.com/organisation/powertools.git"><button>Switch</button></form><div id="about-source-note" class="muted small"></div></details>
+    <form id="about-source" class="row"><input name="remote" aria-label="Repository address" placeholder="https://github.com/organisation/powertools.git"><button>Switch</button></form><div id="about-source-note" class="muted small"></div></details>
   <h3>Changelog</h3>
   <ul id="about-log" class="changelog"></ul>
 </dialog>
 <dialog id="idea-box"><form class="form"><h2>I have an idea</h2><p class="muted">An idea, a problem, a wish. You can dictate it. Next step: GitHub opens with the text filled in; you read it and press Submit there.</p>
-  <textarea name="text" rows="6" placeholder="What would help you?"></textarea>
+  <textarea name="text" aria-label="Your idea" rows="6" placeholder="What would help you?"></textarea>
   <label class="check"><input type="checkbox" name="diagnostics" checked> Add counters (version, model, number of items and errors; no text, no names)</label>
   <div class="row"><button class="primary">Open on GitHub</button><button type="button" class="close">Cancel</button><span class="err"></span></div></form></dialog>
 <script src="/org_chart.js"></script>
