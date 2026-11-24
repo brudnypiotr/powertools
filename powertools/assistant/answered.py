@@ -58,7 +58,7 @@ class Answers(Part):
             self.check_quietly()
 
     def _open(self) -> list[dict]:
-        return [i for i in self.state.open() if i["category"] in ("todo", "reply") and i["source"] in ("mail", "teams")]
+        return [i for i in self.state.open() if i["category"] in ("todo", "reply") and i["source"] in ("mail", "teams") and not self.kit.excluded(i)]
 
     def _run(self, job: Job) -> None:
         self.progress.job = job

@@ -45,16 +45,17 @@ class Digest(Part):
         self.sorting.sort(todo, job, self.progress.say)
         self.progress.step("matching to matters")          # Stop pressed while sorting ends here
         fresh = [i for i in self.state.all() if i.get("fresh") and not i.get("pending") and not i.get("error")]
-        unmatched = self.filing.match(fresh)
-        if unmatched:
-            problems.append(f"{len(unmatched)} conversation(s) could not be matched to matters; the next Update tries again")
-        touched = self.filing.to_matters(fresh)
-        for i in fresh:              # a job that ends before this line matches them next time
-            if i["key"] not in unmatched:
-                i.pop("fresh")
+        unfiled = self.filing.match(fresh)
+        touched, failed = self.filing.to_matters(fresh)
+        unfiled |= failed
+        if unfiled:
+            problems.append(f"{len(unfiled)} conversation(s) could not be filed under matters; the next Update tries again")
         self.filing.update_files(touched, self.progress.step)
         if self.kit.settings["auto_drafts"]:
             self._draft(fresh)
+        for i in fresh:              # a job that ends before this line files them next time
+            if i["key"] not in unfiled:
+                i.pop("fresh")
         return todo
 
     def _draft(self, fresh: list[dict]) -> None:

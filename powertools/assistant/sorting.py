@@ -8,15 +8,19 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .. import clock
 from ..llm import LLMError
-from . import answered, skills
+from . import answered, collect, skills
 from .drafts import Drafts
 from .kit import Kit, Part
 from .text import cut
 
 log = logging.getLogger("powertools.assistant")
 NOT_SORTED = {"category": "fyi", "summary": "", "action": "", "due": "", "person": "", "quote": "", "decision": False, "commitments": []}
-KEPT = ("matter", "matter_by", "first_seen", "draft", "status", "done_at", "done_by", "category", "user_category", "summary", "action", "due",
+KEPT = ("matter", "matter_by", "first_seen", "draft", "status", "until", "done_at", "done_by", "category", "user_category", "summary", "action", "due",
         "person", "quote", "decision", "commitments", "by")
+
+
+def one_to_one(i: dict) -> bool:
+    return len(collect.names(i)) <= 1
 
 
 class Sorting(Part):
@@ -25,31 +29,38 @@ class Sorting(Part):
         self.drafts = drafts
 
     def merge(self, found: list[dict]) -> list[dict]:
-        """New and changed conversations go to the model; the others keep what is known about them."""
-        todo = []
+        """What goes to the model: new and changed conversations, and what could not be sorted last time (no model, the
+        limit, the app was closed). The others keep what is known about them."""
         with self.state.lock:
-            for new in found:
-                old = self.state.data["items"].get(new["key"])
-                if old and old.get("last") == new["last"] and old.get("category") and not old.get("error") and not old.get("pending"):
-                    continue
-                # until it is sorted again it stays where it was
-                keep = {k: old[k] for k in KEPT if old and k in old}
-                item = {**new, "first_seen": clock.now(), "status": "open", **keep, "seen": clock.now(), "pending": True, "fresh": True}
-                if not (new["last_from_me"] and item["status"] in ("done", "dropped")):
-                    item["status"] = "open"           # a new message of someone else opens it again, my own does not
-                # I wrote something since it was sorted, even when someone had the last word
-                item["wrote"] = new["last_from_me"] or bool(old and answered.newer(new.get("mine_at", ""), old["last"]))
-                if old and old.get("user_category"):
-                    item["filed"] = old["user_category"]
-                self.state.data["items"][new["key"]] = item
-                todo.append(item)
-            chosen = {t["key"] for t in todo}
-            # sorted badly last time (no model, limit) or not at all (the app was closed): try again
-            todo += [i for k, i in self.state.data["items"].items() if (i.get("error") or i.get("pending")) and k not in chosen]
+            items = self.state.data["items"]
+            todo = [self._merged(new, items.get(new["key"])) for new in found if self._changed(new, items.get(new["key"]))]
+            items.update({i["key"]: i for i in todo})
+            chosen = {i["key"] for i in todo}
+            again = [i for i in items.values() if (i.get("error") or i.get("pending")) and i["key"] not in chosen]
         for i in todo:
-            if i.get("draft") and not i.get("error") and not self.drafts.overtaken(i["draft"], i["last_from_me"]):
+            if i.get("draft") and not self.drafts.overtaken(i["draft"], by_me=i["wrote"]):
                 i.pop("draft")
-        return todo
+        return todo + again
+
+    @staticmethod
+    def _changed(new: dict, old: dict | None) -> bool:
+        sorted_well = bool(old) and bool(old.get("category")) and not old.get("error") and not old.get("pending")
+        return not sorted_well or old["last"] != new["last"]
+
+    @staticmethod
+    def _merged(new: dict, old: dict | None) -> dict:
+        """Until it is sorted again a conversation stays where it was."""
+        old = old or {}
+        item = {**new, "first_seen": clock.now(), "status": "open", **{k: old[k] for k in KEPT if k in old}, "seen": clock.now(),
+                "pending": True, "fresh": True}
+        if not new["last_from_me"]:
+            item["status"] = "open"              # a new message of someone else opens it again, my own does not
+            item.pop("until", None)
+        # I wrote something since it was sorted, even when someone had the last word
+        item["wrote"] = new["last_from_me"] or bool(old) and answered.newer(new.get("mine_at", ""), old["last"])
+        if old.get("user_category"):
+            item["filed"] = old["user_category"]
+        return item
 
     def sort(self, todo: list[dict], job, said: Callable[[str], None]) -> None:
         broken: list[str] = []
@@ -94,11 +105,12 @@ class Sorting(Part):
         item.update(got)
         for k in ("error", "pending", "user_category", "reviewed"):
             item.pop(k, None)
-        if error and item["last_from_me"] and was == "reply":
+        mine = item["last_from_me"] and one_to_one(item)      # in a group the last word can be about something else
+        if error and mine and was == "reply":
             error = ""                 # a question the user answered needs no model to be closed
         if error:
             item["error"] = error
-        elif item["last_from_me"] and item["category"] == "reply":
+        elif mine and item["category"] == "reply":
             item.update(category="fyi", decision=False)
         if not error and item.get("wrote") and was in ("todo", "reply") and item["category"] in ("fyi", "ignore") and item["status"] == "open":
             item.update(status="done", done_at=clock.now(), done_by="answer", was=was)

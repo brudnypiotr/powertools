@@ -81,6 +81,15 @@ class Drafts(Part):
         self._write({**d, "old": "yes"})
         return True
 
+    def forget(self, key: str) -> None:
+        """Deletes every draft of a conversation that must not be read any more, closed ones too."""
+        gone = [p for p, text in self.memory.listed("drafts") if parse(text)[0].get("key") == key]
+        for p in gone:
+            p.unlink(missing_ok=True)
+        names_gone = {f"drafts/{p.name}" for p in gone}
+        if gone:
+            self.memory.purge_history(lambda e: e["file"] in names_gone)
+
     def close(self, did: str, status: str) -> None:
         if status not in ("used", "dropped"):
             raise ValueError("status must be used or dropped")

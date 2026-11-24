@@ -66,6 +66,26 @@ def bare(line: str) -> str:
     return line.strip().removeprefix("- ").strip()
 
 
+def edited(text: str, old: str, new: str) -> str | None:
+    """The text with the line `old` replaced by `new` ("" removes it); a new line goes to Notes. None: nothing to do."""
+    rows = text.splitlines()
+    # the timeline is history with sources: a correction of it is a new line, never a rewrite
+    at = [n for n, ln in enumerate(rows) if old and bare(ln) == bare(old) and not DATED.match(bare(ln))]
+    if len(at) > 1:
+        raise ValueError("that line is there more than once")
+    if at:
+        bullet = "- " if rows[at[0]].lstrip().startswith("- ") and not new.startswith("- ") else ""
+        rows[at[0]:at[0] + 1] = [bullet + new] if new else []
+        return "\n".join(rows) + "\n"
+    if not new:
+        if old:
+            raise ValueError("that line is not in the file")
+        return None
+    meta, body = parse(text)
+    body = with_section(body, "Notes", [*section(body, "Notes"), new if new.startswith("- ") else "- " + new])
+    return render(meta, body) if meta else body.lstrip()
+
+
 class Memory:
     def __init__(self, root):
         self._root = root                  # a function: the folder can change in Settings
@@ -142,38 +162,37 @@ class Memory:
         """Line edits the user asked for: each changed line is marked (you). Edits that do not fit are skipped with a reason."""
         done = []
         for c in changes[:10]:
-            name, old, new = str(c.get("file", "")).strip(), str(c.get("old", "")).strip(), str(c.get("new", "")).strip()
-            new = " ".join(new.split())
+            name, old, new = str(c.get("file", "")).strip(), str(c.get("old", "")).strip(), " ".join(str(c.get("new", "")).split())
+            new = f"{new} {YOU}" if new and YOU not in new else new
+            result = {"id": "", "file": name, "old": old, "new": new, "error": ""}
             try:
                 with self.lock:
-                    self.path(name)
-                    text = self.read(name)
-                    lines = text.splitlines()
-                    if new and YOU not in new:
-                        new += f" {YOU}"
-                    # the timeline is history with sources: a correction of it is a new line, never a rewrite
-                    at = [i for i, ln in enumerate(lines) if old and bare(ln) == bare(old) and not DATED.match(bare(ln))]
-                    if old and not at and not new:
-                        raise ValueError("that line is not in the file")
-                    if at:
-                        if len(at) > 1:
-                            raise ValueError("that line is there more than once")
-                        bullet = "- " if lines[at[0]].lstrip().startswith("- ") and new and not new.startswith("- ") else ""
-                        lines[at[0]:at[0] + 1] = [bullet + new] if new else []
-                        out = "\n".join(lines) + "\n"
-                    elif new:
-                        line = new if new.startswith("- ") else "- " + new
-                        meta, body = parse(text)
-                        body = with_section(body or "", "Notes", section(body, "Notes") + [line])
-                        out = render(meta, body) if meta else body.lstrip()
-                    else:
-                        continue
-                    entry = self.write(name, out, why)
-                if entry:
-                    done.append({"id": entry["id"], "file": name, "old": old, "new": new, "error": ""})
+                    out = edited(self.read(name), old, new)
+                    entry = self.write(name, out, why) if out is not None else None
             except ValueError as e:
-                done.append({"id": "", "file": name, "old": old, "new": new, "error": str(e)})
+                done.append({**result, "error": str(e)})
+                continue
+            if entry:
+                done.append({**result, "id": entry["id"]})
         return done
+
+    def forget(self, item: dict) -> None:
+        """Takes a conversation out of its matter (a new exclusion): its line in the timeline and its key."""
+        with self.lock:
+            meta, body = self.matter(item["matter"])
+            mark = f"]({item['link']})" if item.get("link") else f"(source: {item['title']})"
+            meta["keys"] = [k for k in meta.get("keys") or [] if k != item["key"]]
+            body = with_section(body, "Timeline", [ln for ln in section(body, "Timeline") if mark not in ln])
+            files.write_text(self.path(f"matters/{item['matter']}.md"), render(meta, body))      # no copy in the history
+            self.purge_history(lambda e: mark in e["before"] or mark in e["after"])
+
+    def purge_history(self, hit) -> None:
+        for p in (self.root / ".history").glob("*.json"):
+            try:
+                if hit(json.loads(files.read_text(p))):
+                    p.unlink(missing_ok=True)
+            except (ValueError, KeyError):
+                continue
 
     # ------------------------------------------------------------------ matters
     def matters(self, every: bool = False) -> list[dict]:

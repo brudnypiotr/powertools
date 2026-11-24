@@ -240,13 +240,8 @@ def events(g, start: datetime, end: datetime, ex: Exclusions) -> list[dict]:
 
 
 def direct_reports(g) -> list[dict]:
-    try:
-        return [{"name": p.get("displayName", ""), "title": p.get("jobTitle") or "", "mail": p.get("mail") or "", "added": False}
-                for p in g.pages("/me/directReports", {"$select": "id,displayName,jobTitle,mail", "$top": "100"})
-                if p.get("displayName")]
-    except GraphError as e:
-        log.info("no direct reports: %s", e)
-        return []
+    return [{"name": p.get("displayName", ""), "title": p.get("jobTitle") or "", "mail": p.get("mail") or "", "added": False}
+            for p in g.pages("/me/directReports", {"$select": "id,displayName,jobTitle,mail", "$top": "100"}) if p.get("displayName")]
 
 
 def _name(p) -> str:

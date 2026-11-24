@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any
 
 from ..exclusions import Exclusions
+from .collect import names
 from .memory import Memory, parse
 from .state import State, age_days
 
@@ -24,6 +25,9 @@ class Kit:
 
     def exclusions(self) -> Exclusions:
         return Exclusions(self.settings["exclude"])
+
+    def excluded(self, i: dict) -> bool:
+        return self.exclusions().hit(i["title"], i["people"], *names(i))
 
     def profile(self) -> str:
         text = parse(self.memory.read("profile.md"))[1].strip()

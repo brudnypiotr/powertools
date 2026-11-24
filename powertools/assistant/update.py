@@ -144,9 +144,13 @@ class Updates(Part):
 
     def _read_people(self) -> None:
         d = self.state.data
-        if not d["people"] or time.time() - d.get("people_at", 0) > PEOPLE_EVERY:
+        if d["people"] and time.time() - d.get("people_at", 0) < PEOPLE_EVERY:
+            return
+        try:
             d["people"] = collect.direct_reports(self.kit.graph.g) + [p for p in d["people"] if p.get("added")]
             d["people_at"] = time.time()
+        except GraphError as e:
+            log.info("no direct reports: %s", e)
 
     def _credits(self) -> float:
         usage = getattr(self.kit.llm, "usage", None)
@@ -162,12 +166,16 @@ class Updates(Part):
 
     # ------------------------------------------------------------------ tidying up
     def _forget_excluded(self) -> None:
-        """A new exclusion also removes what was read before it."""
-        ex = self.kit.exclusions()
-        with self.state.lock:
-            items = self.state.data["items"]
-            for k in [k for k, i in items.items() if ex.hit(i["title"], i["people"], *collect.names(i))]:
-                del items[k]
+        """A new exclusion also removes what was read before it, its drafts and its lines in the matters."""
+        for i in [i for i in self.state.all() if self.kit.excluded(i)]:
+            self.drafts.forget(i["key"])
+            if i.get("matter"):
+                try:
+                    self.kit.memory.forget(i)
+                except KeyError:
+                    pass                 # its matter is gone
+            with self.state.lock:
+                del self.state.data["items"][i["key"]]
 
     def prune(self) -> None:
         now = datetime.now(timezone.utc)

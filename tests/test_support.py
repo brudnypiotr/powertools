@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -52,7 +53,12 @@ def test_setup_can_still_close_the_running_app(server):  # noqa: F811
     app, base = server
     quits = []
     app.quit = lambda: quits.append(1)
-    assert raw(base + "/api/quit", method="POST").status == 200 and quits    # setup.ps1 has no key
+    assert raw(base + "/api/quit", method="POST").status == 200    # setup.ps1 has no key
+    for _ in range(50):
+        if quits:
+            break
+        time.sleep(0.02)                                             # the answer goes out before the app quits
+    assert quits
 
 
 def test_unlock_opens_a_window_with_the_key_and_tells_nobody(server, monkeypatch):  # noqa: F811
