@@ -123,6 +123,7 @@ def mail_item(g, me: dict, cid: str, subject: str, ex: Exclusions) -> dict | Non
     return {
         "key": "mail:" + cid, "source": "mail", "title": subject, **_people(everybody, me), "last": _sent(last),
         "link": last.get("webLink", ""), "msg_id": last.get("id", ""), "count": len(msgs), "last_from_me": _address(last) in mine,
+        "mine_at": max((_sent(m) for m in msgs if _address(m) in mine), default=""),
         "automated": bool(others) and all(AUTOMATED.search(s) for s in others), "keys": issue_keys(subject, text), "text": text,
     }
 
@@ -161,10 +162,12 @@ def chat_item(g, me: dict, c: dict, since: datetime, until: datetime) -> dict | 
     for m in msgs[-15:]:
         t = export.local(export.parse_time(m["createdDateTime"])).strftime("%Y-%m-%d %H:%M")
         lines.append(f"{teams.sender(m)} {t}: {short(teams.render_message(m, {}), 600)}")
+    when, what = teams.reaction(msgs[-1], me.get("id", ""))
     text = f"Teams {KINDS.get(c['type'], 'chat')}: {c['title']}\n\n" + "\n".join(lines)
     return {
         "key": "teams:" + c["id"], "source": "teams", "title": c["title"], "kind": c["type"], **_people(c["members"], me),
-        "last": msgs[-1]["createdDateTime"], "link": c.get("web", ""), "msg_id": "", "count": len(msgs),
+        "last": max(msgs[-1]["createdDateTime"], when), "reacted": what,
+        "mine_at": max([m["createdDateTime"] for m in msgs if me.get("id") and teams.sender_id(m) == me["id"]] + [when]), "link": c.get("web", ""), "msg_id": "", "count": len(msgs),
         "last_from_me": bool(me.get("id")) and teams.sender_id(msgs[-1]) == me["id"], "automated": False,
         "keys": issue_keys(c["title"], text), "text": text,
     }

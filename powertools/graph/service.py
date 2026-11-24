@@ -58,6 +58,7 @@ class GraphService:
         self.g = Graph(self.tokens.get)
         self.jobs = Jobs()
         self.me: dict = {}
+        self.on_token = lambda: None     # a new token is there and no job waited for it
         self._chats: list[dict] = []
         self._chats_at = 0.0
         self.watch: dict = {"active": False, "until": 0.0, "result": ""}
@@ -78,6 +79,8 @@ class GraphService:
             self.tokens.clear()
             raise ValueError("Graph rejected this token; copy a fresh one from Graph Explorer") from e
         resumed = self.jobs.resume_paused()
+        if not resumed:
+            self.on_token()
         return {**self.status(), "resumed_jobs": resumed}
 
     def watch_clipboard(self, seconds: int = 300, read=None, clear=None, interval: float = 1.0) -> dict:

@@ -70,6 +70,10 @@ class Mailbox:
     def pages(self, path, params=None, headers=None, max_items=100_000):
         yield from self.get(path, params, headers).get("value", [])[:max_items]
 
+    def batch(self, paths):
+        self._token()
+        return self.g.batch(paths)
+
     def reply_draft(self, *a, **k):
         self._token()
         return {"webLink": "https://outlook.example.invalid/draft"}
@@ -90,12 +94,18 @@ def build(home: Path, cut: int = 0):
         who, cv = t.addr(name, short + "@example.invalid"), f"cv{n}"
         g.threads[cv] = [t.mail("m" + cv, cv, title, 3 + n * 7, t.ME_ADDR if c == "waiting" else who, summary + " Please answer.",
                                 (who,) if c == "waiting" else (t.ME_ADDR,))]
+    app.llm.local.available = lambda: {"installed": True, "running": True}     # the same with and without Ollama
     m = model()
     m.available = app.llm.available
     app.assistant.llm, app.graph.g = m, Mailbox(app, g, cut)
     for i in range(3):
         app.store.add("raw", "Please move the meeting to Thursday and tell Anna about it. " * (1 + i), "en", 5, 0.6)
     return app, g
+
+
+def my_answer() -> dict:
+    return {"id": "t2", "messageType": "message", "createdDateTime": t.iso(0.1), "from": {"user": {"id": "u-me", "displayName": "Piotr B"}},
+            "body": {"contentType": "text", "content": "Sure, at 3 pm."}}
 
 
 def token(app, seconds: int = 3600) -> str:

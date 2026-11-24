@@ -56,7 +56,11 @@ class Usage:
 
     def today(self) -> dict:
         with self._lock:
-            return dict(self.days.get(self._day()) or {"calls": 0, "credits": 0.0, "tokens_in": 0, "tokens_out": 0, "by": {}})
+            return dict(self.days.get(self._day()) or {"estimated": 0, "calls": 0, "credits": 0.0, "tokens_in": 0, "tokens_out": 0, "by": {}})
+
+    def total(self) -> float:
+        with self._lock:
+            return sum(d["credits"] for d in self.days.values())
 
     def month(self) -> float:
         with self._lock:
@@ -69,6 +73,8 @@ class Brain:
         self.local = local or Ollama(settings)
         self.cloud = cloud or Copilot(settings)
         self.usage = usage or Usage()
+        self.cloud.spent = self.usage.total
+        self._aborted = 0            # counts the presses of Stop
 
     @property
     def is_cloud(self) -> bool:
@@ -91,7 +97,21 @@ class Brain:
         return {**a, "provider": self.settings["ai_provider"] or "local", "chosen": bool(self.settings["ai_provider"]),
                 "model": self.model, "credits_today": round(today["credits"], 2), "calls_today": today["calls"],
                 "tokens_today": today["tokens_in"] + today["tokens_out"], "limit": self.settings["copilot_daily_credits"],
-                "github_days": self.cloud.days_left() if self.is_cloud else None}
+                "credits_month": self.usage.month(), "github_days": self.cloud.days_left() if self.is_cloud else None,
+                "quota": self.quota() if self.is_cloud else None}
+
+    def quota(self, refresh: bool = False) -> dict | None:
+        """What is left of the account's credits: GitHub's last figure less what this app used since."""
+        q = self.cloud.quota(refresh)
+        if not q or q.get("left") is None:
+            return q
+        since = max(0.0, self.usage.total() - q["spent_then"])
+        return {**q, "left": round(max(0.0, q["left"] - since), 1), "used_pct": min(100.0, q["used_pct"] + 100 * since / q["entitlement"])}
+
+    def abort(self) -> None:
+        """Stop: whatever the user is waiting for now gets no answer (background work goes on)."""
+        self._aborted += 1
+        self.cloud.abort()
 
     def chat(self, system: str, user: str, schema: dict | None = None, priority: int = INTERACTIVE,
              max_tokens: int = 800, num_ctx: int = 4096, timeout: float = 180, model: str = "", task: str = "",
@@ -99,6 +119,13 @@ class Brain:
         """Like Ollama.chat, on the chosen provider (`provider` forces one: the comparison in the AI tab)."""
         cloud = provider == "copilot" if provider else self.is_cloud
         kw = dict(schema=schema, priority=priority, max_tokens=max_tokens, timeout=timeout, model=model)
+        before = self._aborted
+        text, stats = self._chat(cloud, system, user, num_ctx, task, kw)
+        if priority == INTERACTIVE and self._aborted != before:
+            raise LLMError("stopped")
+        return text, stats
+
+    def _chat(self, cloud: bool, system: str, user: str, num_ctx: int, task: str, kw: dict) -> tuple[str, dict]:
         if not cloud:
             return self.local.chat(system, user, num_ctx=num_ctx, **kw)
         limit = self.settings["copilot_daily_credits"]

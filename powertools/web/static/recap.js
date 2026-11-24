@@ -50,15 +50,16 @@ async function loadRecap() {
   if (on("matters")) renderMatters();
   if (on("meetings")) renderMeet();
   clearTimeout(recapTimer);
-  recapTimer = setTimeout(() => { if (["recap", "matters", "meetings"].some(on)) loadRecap(); }, running() ? 2000 : 60000);
+  recapTimer = setTimeout(() => { if (["recap", "matters", "meetings"].some(on)) loadRecap(); }, running() || R.checking ? 2000 : 60000);
 }
 
 // ---------------------------------------------------------------- Today: the list
 function rowsOf(tab) {   // [group name, rows, folded]
-  const item = (kind) => (i) => ({ id: i.key, i, kind, title: i.error ? "Not sorted: " + plain(i.title) : cap(i.action || i.summary || plain(i.title)), sub: `${i.person || i.people || SRC[i.source] || ""}${i.person || i.people ? ", " : " "}${plain(i.title)}`, tag: kind === "closed" && i.done_by === "answer" ? "you answered" : i.due || ago(i.last), hot: kind !== "closed" && (!!i.due || i.quiet) });
+  const item = (kind) => (i) => ({ id: i.key, i, kind, title: i.error ? "Not sorted: " + plain(i.title) : cap(i.action || i.summary || plain(i.title)), sub: `${i.person || i.people || SRC[i.source] || ""}${i.person || i.people ? ", " : " "}${plain(i.title)}`, tag: kind === "closed" && i.done_by === "answer" ? "you answered" : kind === "me" && i.wrote ? "you wrote" : i.due || ago(i.last), hot: kind !== "closed" && (!!i.due || i.quiet) });
   const prom = (mine) => (p) => ({ id: "p:" + p.id, p, kind: "promise", title: cap(p.what), sub: `${mine ? "You promised" + (p.to ? " " + p.to : "") : p.who + " promised"}, ${plain(p.title)}`, tag: p.due || ago(p.last), hot: !!p.due });
   if (tab === "me") return [["Decide", R.decisions.map(item("me"))], ["Do", [...R.mine.filter((i) => i.category === "todo").map(item("me")), ...R.promised.map(prom(true))]],
     ["Answer", R.mine.filter((i) => i.category === "reply").map(item("me"))], ["Not sorted yet", R.unsorted.map(item("chg"))],
+    ["You answered", R.answered.map(item("closed")), true],
     ["My texts", R.draft_list.filter((d) => !d.key).map((d) => ({ id: "d:" + d.id, d, kind: "text", title: d.title, sub: "Draft", tag: d.created.slice(5, 10), hot: false }))]];
   if (tab === "wait") return [["Quiet for long", R.waiting.filter((i) => i.quiet).map(item("wait"))], ["Still in time", R.waiting.filter((i) => !i.quiet).map(item("wait"))], ["Promised to me", R.owed.map(prom(false))]];
   return [["Changed", R.changed.map(item("chg"))], ["Ignored", R.ignored.map(item("chg")), true], ["Done and later", R.closed.map(item("closed")), true]];
@@ -75,8 +76,7 @@ function renderToday() {
   $("#today-status").title = [l.found !== undefined && `${l.found} conversations read in ${l.seconds} s`, l.credits && `${l.credits} AI credits`, R.reviewed && `you checked ${R.reviewed}, right ${R.agreed}`].filter(Boolean).join(", ");
   $("#recap-progress").classList.toggle("hidden", !w && job.state !== "needs_token");
   $("#recap-progress span").style.width = (job.total ? Math.round(100 * job.done / job.total) : 3) + "%";
-  $("#recap-update").disabled = w;
-  setText("#recap-update", w ? "Updating" : "Update");
+  setText("#recap-update", w ? "Stop" : "Update");
   $("#recap-update").classList.toggle("primary", !R.updated && R.setup_done);
   $("#recap").classList.toggle("solo", !R.setup_done);
   if (!R.setup_done) return renderSetup();
@@ -88,7 +88,9 @@ function renderToday() {
   const sug = V.tab === "me" && R.suggested.length ? `<h2>A new matter?</h2>${R.suggested.map((s) => `<div class="suggest" data-key="${esc(s.items[0].key)}"><input aria-label="Name of the matter" value="${esc(s.name)}"><span class="muted small">${esc(s.items.map((x) => plain(x.title)).join(", "))}</span>
     <div><button type="button" data-do="new_matter">Create it</button><button type="button" class="quietbtn" data-do="no_matter">No</button></div></div>`).join("")}` : "";
   const brief = V.tab === "me" ? `<button type="button" class="prow" data-row="" data-k="brief" aria-current="${V.mode === "brief"}"><span class="ptext"><b>Morning brief</b><span>${mineFirst().length ? `${count("me")} for you, ${((n) => (n === 1 ? "1 meeting" : n + " meetings"))(R.events.filter((e) => isToday(e.start)).length)} today` : "The day at a glance"}</span></span></button>` : "";
-  draw("#today-rows", problems + brief + groups.map(([name, rows, folded]) => (folded
+  const open = [...R.decisions, ...R.mine].some((i) => ["mail", "teams"].includes(i.source));
+  const checked = V.tab === "me" && R.updated && open && !w ? `<p class="checkline muted small">${R.checking ? "Looking for your answers..." : `Your answers seen until ${R.checked ? clockOf(R.checked * 1000) : clockOf(R.updated * 1000)}. <button type="button" class="inbtn" data-do="check" data-k="check">Check now</button>`}</p>` : "";
+  draw("#today-rows", problems + brief + checked + groups.map(([name, rows, folded]) => (folded
     ? `<button type="button" class="foldbtn" data-fold="${esc(name)}" data-k="fold-${esc(name)}" aria-expanded="${!!opened[name]}">${esc(name)} <i>${rows.length}</i></button>${opened[name] ? rows.map(rowHtml).join("") : ""}`
     : `<h2>${esc(name)}</h2>${rows.map(rowHtml).join("")}`)).join("") + sug + (groups.length || !R.updated ? "" : `<div class="empty"><b>Nothing here.</b></div>`) +
     (V.tab === "chg" && R.ask_feedback ? `<form class="feedback"><label>What did the Recap miss today?<input name="t" placeholder="One sentence; stays on this laptop"></label><button>Save</button></form>` : ""));
@@ -211,6 +213,7 @@ $("#today-rows").addEventListener("click", async (e) => {
   const row = e.target.closest("[data-row]"), fold = e.target.closest("[data-fold]"), b = e.target.closest("[data-do]");
   if (row) return showItem(row.dataset.row);
   if (fold) { opened[fold.dataset.fold] = !opened[fold.dataset.fold]; return renderToday(); }
+  if (b && b.dataset.do === "check") { try { await withToken(async () => { await api("POST", "/api/assistant/check"); setTimeout(loadRecap, 600); }); } catch (err) { say(err.message); } return; }
   if (b) { const s = b.closest(".suggest"); try { await act(s.dataset.key, b.dataset.do, s.querySelector("input").value); } catch (err) { say(err.message); } }
 });
 $("#today-rows").addEventListener("keydown", (e) => {   // arrows walk the list
@@ -227,6 +230,7 @@ $("#today-rows").addEventListener("submit", async (e) => {
 $("#today-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-seg]"); if (b) { V.tab = b.dataset.seg; V.sel = ""; V.mode = "brief"; renderToday(); } });
 $("#recap-range").addEventListener("change", (e) => $("#recap-since").classList.toggle("hidden", e.target.value !== "since"));
 $("#recap-update").addEventListener("click", async () => {
+  if (running()) { try { await api("POST", "/api/assistant/stop"); toast("Stopping; what is sorted stays", 3000); setTimeout(loadRecap, 400); } catch (e) { say(e.message); } return; }
   const v = $("#recap-range").value;
   const range = v === "new" ? { kind: "new" } : v === "since" ? { kind: "since", date: $("#recap-since").value } : { kind: "days", days: Number(v) };
   try { await api("POST", "/api/assistant/update", { range }); V.asked = null; setTimeout(loadRecap, 300); } catch (e) { say(e.message); }
@@ -238,13 +242,18 @@ async function ask(q, field) {
   f.disabled = true;
   if (field) field.value = "";
   f.placeholder = "Thinking...";
+  $("#ai-stop").classList.remove("hidden");
   try { await saveDraft(); await api("POST", "/api/assistant/ask", { question: q }); V.mode = "ask"; await bodyAsk(true); renderToday(); }
-  catch (err) { if (field) field.value = q; say(err.message); }
+  catch (err) { if (field) field.value = q; say(err.message === "stopped" ? "Stopped" : err.message); }
+  $("#ai-stop").classList.add("hidden");
   f.disabled = false; f.placeholder = "Ask, or tell me what changed: the deadline is Thursday"; f.focus();
 }
+$("#ai-stop").addEventListener("click", () => api("POST", "/api/ai/stop").catch((e) => say(e.message)));
 async function makeBrief(kind) {
+  $("#ai-stop").classList.remove("hidden");
   V.brief = { working: true }; V.mode = "brief"; renderBody(true);
-  try { V.brief = await api("POST", "/api/assistant/brief", { kind }); } catch (err) { V.brief = null; say(err.message); }
+  try { V.brief = await api("POST", "/api/assistant/brief", { kind }); } catch (err) { V.brief = null; say(err.message === "stopped" ? "Stopped" : err.message); }
+  $("#ai-stop").classList.add("hidden");
   renderBody(true);
 }
 async function todayClick(e) {

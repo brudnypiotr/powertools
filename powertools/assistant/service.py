@@ -22,8 +22,9 @@ from ..exclusions import Exclusions
 from ..graph.client import GraphError, TokenExpired
 from ..graph.service import resolve_since
 from ..jira.client import JiraError
+from ..jobs import Stopped
 from ..llm import LLMError
-from . import collect, skills
+from . import answered, collect, skills
 from .memory import Memory, parse, rank, section, with_section
 
 log = logging.getLogger("powertools.assistant")
@@ -38,7 +39,7 @@ KEPT = ("matter", "matter_by", "first_seen", "draft", "status", "done_at", "done
         "person", "quote", "decision", "commitments", "by")
 NOT_SORTED = {"category": "fyi", "summary": "", "action": "", "due": "", "person": "", "quote": "", "decision": False, "commitments": []}
 UNDOABLE = ("done", "not_mine", "mute", "snooze", "category")
-UNDO_FIELDS = ("status", "until", "done_at", "user_category", "reviewed")
+UNDO_FIELDS = ("status", "until", "done_at", "done_by", "user_category", "reviewed")
 LABELS = {"mail": "Mail", "teams": "Teams", "jira": "Jira", "meeting": "Meeting"}
 
 
@@ -89,6 +90,8 @@ class Assistant:
         self._lock = threading.RLock()
         self.data = self._load()
         self.job = None
+        self._check = None           # the last look for answers of the user's own
+        self._active = None          # the job whose Stop counts now
         self._plan: dict = {}        # range and sources of the Update, and what it read before the token ended
         self.current = ""            # what the running update does now
         self.talk: list[dict] = []   # the Ask conversation of this session
@@ -152,9 +155,66 @@ class Assistant:
         return self.job
 
     def _step(self, text: str) -> None:
+        if self._active is not None and self._active.stop:
+            raise Stopped
         self.current = text
 
+    def stop(self) -> None:
+        """Stop the running Update (or check): what is sorted stays, the range is read again next time."""
+        for job in (self.job, self._check, self._active):
+            if job is not None and job.state in ("queued", "running", "needs_token"):
+                self.graph.jobs.stop(job)
+
+    # ------------------------------------------------------------------ did I answer in the meantime?
+    def check_answers(self):
+        """Closes the questions the user answered since the last Update; None when there is nothing to look at."""
+        with self._lock:
+            if any(j is not None and j.state in ("queued", "running") for j in (self.job, self._check)):
+                raise ValueError("an update is running")
+            if not self.data["updated"] or not self._asked_of_me():
+                return None
+        self._check = self.graph.jobs.submit("Check answers", self._run_check, "recap")
+        return self._check
+
+    def watch_answers(self, stop: threading.Event, every: float = 300) -> None:
+        """Looks every five minutes while there is a token (Graph Explorer gives one for about an hour)."""
+        while not stop.wait(every):
+            self.check_answers_quietly()
+
+    def check_answers_quietly(self) -> None:
+        try:
+            if self.settings["check_answers"] and self.graph.tokens.get() and not self.graph.jobs.busy():
+                self.check_answers()
+        except Exception as e:
+            log.warning("looking for answers: %s", e)
+
+    def _asked_of_me(self) -> list[dict]:
+        return [i for i in self._open() if i["category"] in ("todo", "reply") and i["source"] in ("mail", "teams")]
+
+    def _run_check(self, job) -> None:
+        self._active = job
+        g, me, ex = self.graph.g, self.data["me"], Exclusions(self.settings["exclude"])
+        now, problems, found = datetime.now().astimezone(), [], []
+        for key in answered.find(g, me.get("id", ""), self._asked_of_me()):
+            i = self.item(key)
+            since, cid = export.parse_time(i["last"]), key.split(":", 1)[1]
+            try:
+                new = collect.mail_item(g, me, cid, i["title"], ex) if i["source"] == "mail" else collect.chat_item(
+                    g, me, {"id": cid, "title": i["title"], "members": collect.names(i), "type": i.get("kind", ""), "web": i["link"]}, since, now)
+            except GraphError as e:
+                log.warning("answer in %s: %s", key, e)
+                continue
+            if new:
+                found.append(new)
+        if found:
+            self._digest(found, job, problems)
+        self.data["checked"] = time.time()
+        self._save()
+        self.current = ""
+        job.note(f"{len(found)} answered")
+
     def _run(self, job) -> None:
+        self._active = job
         plan = self._plan
         since, sources = plan["since"], plan["sources"]
         plan["began"] = began = plan["began"] or datetime.now(timezone.utc)
@@ -198,6 +258,25 @@ class Assistant:
             self.data["people_at"] = time.time()
         self._forget_excluded(ex)
 
+        todo = self._digest(found, job, problems)
+        self._prune()
+        self._close_drafts()
+        # the cursor moves only when every chosen source was read (Update now and then with fewer sources is a look, not a sync)
+        if not again and set(SOURCES) <= set(sources):
+            self.data["cursor"] = began.strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.data["updated"] = self.data["checked"] = time.time()
+        errors = sum(bool(i.get("error")) for i in todo)
+        if errors:
+            problems.append(f"{errors} conversation(s) could not be sorted; the next Update tries them again")
+        self.data["last"] = {"found": len(found), "new": len(todo), "seconds": round(time.time() - t0), "problems": problems,
+                             "credits": round(self._credits() - c0, 2), "model": self.llm.model, "since": since.isoformat(),
+                             "began": began.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        self._save()
+        self.current = ""
+        job.note(f"done in {self.data['last']['seconds']} s")
+
+    def _digest(self, found: list[dict], job, problems: list[str]) -> list[dict]:
+        """Sort what is new, match it to matters, update their files, write drafts. Returns what was new."""
         todo = self._merge(found)
         job.total, job.done = len(todo), 0
         job.note(f"{len(found)} conversation(s), {len(todo)} new or changed")
@@ -214,21 +293,7 @@ class Assistant:
         self._states(touched)
         if self.settings["auto_drafts"]:
             self._auto_drafts(fresh)
-        self._prune()
-        self._close_drafts()
-        # the cursor moves only when every chosen source was read (Update now and then with fewer sources is a look, not a sync)
-        if not again and set(SOURCES) <= set(sources):
-            self.data["cursor"] = began.strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.data["updated"] = time.time()
-        errors = sum(bool(i.get("error")) for i in todo)
-        if errors:
-            problems.append(f"{errors} conversation(s) could not be sorted; the next Update tries them again")
-        self.data["last"] = {"found": len(found), "new": len(todo), "seconds": round(time.time() - t0), "problems": problems,
-                             "credits": round(self._credits() - c0, 2), "model": self.llm.model, "since": since.isoformat(),
-                             "began": began.strftime("%Y-%m-%dT%H:%M:%SZ")}
-        self._save()
-        self.current = ""
-        job.note(f"done in {self.data['last']['seconds']} s")
+        return todo
 
     def _credits(self) -> float:
         usage = getattr(self.llm, "usage", None)
@@ -255,6 +320,8 @@ class Assistant:
                 item = {**new, "first_seen": now_iso(), "status": "open", **keep, "seen": now_iso(), "pending": True, "fresh": True}
                 if not (new["last_from_me"] and item["status"] in ("done", "dropped")):
                     item["status"] = "open"           # a new message of someone else opens it again, my own does not
+                # I wrote something since it was sorted, even when someone had the last word
+                item["wrote"] = new["last_from_me"] or bool(old and answered.newer(new.get("mine_at", ""), old["last"]))
                 if old and old.get("user_category"):
                     item["filed"] = old["user_category"]
                 self.data["items"][new["key"]] = item
@@ -272,6 +339,8 @@ class Assistant:
         prompt = {"me": self.me, "profile": self.profile(), "corrections": self.corrections_text()}
 
         def one(item: dict) -> None:
+            if job.stop:
+                return                 # stays "pending": sorted next time
             ignored = dict(category="ignore", action="", due="", person="", quote="", decision=False, commitments=[])
             error = ""
             if item["key"] in self.data["muted"]:
@@ -294,13 +363,14 @@ class Assistant:
             with self._lock:
                 self._settle(item, got, error)
             job.done += 1
-            self._step(f"sorting {job.done}/{job.total}: {item['title'][:70]}")
+            self.current = f"sorting {job.done}/{job.total}: {item['title'][:70]}"
 
         with ThreadPoolExecutor(max_workers=getattr(self.llm, "parallel", 1)) as pool:
             for n, _ in enumerate(pool.map(one, todo), 1):
                 if n % 10 == 0:
                     self._save()
         self._save()
+        self._step("sorted")           # Stop pressed while sorting ends here
 
     def _settle(self, item: dict, got: dict, error: str) -> None:
         """The answer of the model, with what the code knows better: after the user's own answer nobody waits for it."""
@@ -308,15 +378,18 @@ class Assistant:
         item.update(got)
         for k in ("error", "pending", "user_category", "reviewed"):
             item.pop(k, None)
+        if error and item["last_from_me"] and was == "reply":
+            error = ""                 # a question the user answered needs no model to be closed
         if error:
             item["error"] = error
         elif item["last_from_me"] and item["category"] == "reply":
             item.update(category="fyi", decision=False)
-        if not error and item["last_from_me"] and was in ("todo", "reply") and item["category"] in ("fyi", "ignore") and item["status"] == "open":
-            item.update(status="done", done_at=now_iso(), done_by="answer")
+        if not error and item.get("wrote") and was in ("todo", "reply") and item["category"] in ("fyi", "ignore") and item["status"] == "open":
+            item.update(status="done", done_at=now_iso(), done_by="answer", was=was)
 
     def classify(self, item: dict, prompt: dict, provider: str = "") -> dict:
-        hint = "\n\n(The latest message is from me.)" if item["last_from_me"] else ""
+        hint = "\n\n(The latest message is from me.)" if item["last_from_me"] else "\n\n(I wrote here since it was asked.)" if item.get("wrote") else ""
+        hint += f"\n\n(I reacted to the latest message with {item['reacted']}.)" if item.get("reacted") else ""
         hint += f"\n\n(Before the newest message I filed this conversation as {item['filed']}.)" if item.get("filed") else ""
         a = skills.TRIAGE.run(self.llm, cut(item["text"]) + hint, priority=skills.BACKGROUND, provider=provider, **prompt)
         stats = a.pop("_stats", {})
@@ -536,6 +609,8 @@ class Assistant:
                 "waiting": waiting, "promised": [p for p in promises if p["mine"]],
                 "owed": [p for p in promises if not p["mine"]],
                 "changed": sorted(recent, **by_last), "ignored": sorted(ignored, **by_last)[:200],
+                "answered": [i for i in closed if i.get("done_by") == "answer" and i.get("done_at", "") >= day_ago],
+                "checked": self.data.get("checked", 0), "checking": bool(self._check and self._check.state in ("queued", "running")),
                 "unsorted": [i for i in items if i.get("error")],
                 "closed": sorted(closed, key=lambda i: i.get("done_at") or i.get("until") or "", reverse=True),
                 "events": events, "matters": matters, "suggested": self._suggested(items),
@@ -574,8 +649,10 @@ class Assistant:
                 i.update(status="done", done_at=now_iso())
             elif action == "reopen":
                 i["status"] = "open"
-                i.pop("until", None)
-                i.pop("done_at", None)
+                if i.get("done_by") == "answer":
+                    i["user_category"] = i["was"]        # not settled after all: back to where it was
+                for k in ("until", "done_at", "done_by"):
+                    i.pop(k, None)
             elif action == "not_mine":
                 i.update(status="dropped", done_at=now_iso())
                 self._learn(i, before, "ignore")

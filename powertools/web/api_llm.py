@@ -99,6 +99,18 @@ def ai_usage(h):
                  "provider": s["ai_provider"], "model": h.app.llm.model})
 
 
+@route("POST", "/api/ai/quota")
+def ai_quota(h):
+    """Ask GitHub now; the answer shows with one of the next /api/state."""
+    h.send(200, {"quota": h.app.llm.quota(refresh=True)})
+
+
+@route("POST", "/api/ai/stop")
+def ai_stop(h):
+    h.app.llm.abort()
+    h.send(200, {"stopped": True})
+
+
 @route("GET", "/api/ai/copilot")
 def ai_copilot(h):
     h.send(200, h.app.llm.cloud.status())

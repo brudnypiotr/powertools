@@ -53,6 +53,7 @@ DEFAULTS: dict = {
     "memory_dir": "",            # "" = Documents\\powertools\\memory (never the export folder: that one may be a shared inbox)
     "exclude": [],               # never read: people, words in a title, "folder: <mail folder>"
     "setup_done": False,         # the first-start questions of the Recap were answered
+    "check_answers": True,       # every 5 minutes with a token: questions answered in Teams or by mail close themselves
     "auto_drafts": True,         # an Update also drafts answers (kept in the app, never sent)
     "silence_days": 3,           # waiting for others: quiet after this many days
     "matter_quiet_days": 14,     # a matter without news for this long is asked about

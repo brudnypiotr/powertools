@@ -168,6 +168,7 @@ class App:
         from .assistant.service import Assistant
 
         self.assistant = Assistant(self.settings, self.graph, self.llm, self.jira, self.meetings)
+        self.graph.on_token = self.assistant.check_answers_quietly
         self.focus: dict = {"tab": "", "seq": 0}   # the window switches to this tab when seq changes
         self.last_poll = 0.0                       # when an open window last asked for the state
         self._quit = threading.Event()
@@ -237,7 +238,7 @@ class App:
             return "dictation in progress"
         if self.meetings.current:
             return "a meeting is being recorded"
-        if any(j.state in ("queued", "running") for j in self.graph.jobs.all):
+        if self.graph.jobs.busy():
             return "an export is running"
         from .web.api_llm import INSTALL, PULL
         if INSTALL["state"] == "running" or PULL["state"] == "running":
@@ -428,6 +429,7 @@ class App:
         self.teams = TeamsLink(self.meetings.set_muted)
         self.teams.start()
         self._watch_engine()
+        threading.Thread(target=self.assistant.watch_answers, args=(self._quit,), name="answers", daemon=True).start()
         if open_browser and self.settings["open_window_on_start"]:
             self.open_window()
 

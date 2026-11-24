@@ -22,7 +22,8 @@ class Job:
     run: Callable[["Job"], None]
     kind: str = ""                 # recap | teams | mail | org | jira: the tab that lists the job
     id: int = field(default_factory=lambda: next(_ids))
-    state: str = "queued"          # queued | running | done | error | needs_token
+    state: str = "queued"          # queued | running | done | error | needs_token | stopped
+    stop: bool = False             # the user pressed Stop: the job ends at its next step
     done: int = 0
     total: int = 0
     notes: list[str] = field(default_factory=list)
@@ -39,6 +40,10 @@ class Job:
     def view(self) -> dict:
         return {k: getattr(self, k) for k in ("id", "kind", "title", "state", "done", "total", "notes", "files", "error",
                                               "result", "started", "finished")}
+
+
+class Stopped(Exception):
+    """The user pressed Stop; what was done so far is kept."""
 
 
 class Jobs:
@@ -61,6 +66,14 @@ class Jobs:
             self._q.put(j)
         return len(paused)
 
+    def stop(self, job: Job) -> None:
+        job.stop = True
+        if job.state in ("queued", "needs_token"):
+            job.state = "stopped"
+
+    def busy(self) -> bool:
+        return any(j.state in ("queued", "running") for j in self.all)
+
     def get(self, job_id: int) -> Job:
         for j in self.all:
             if j.id == job_id:
@@ -70,12 +83,16 @@ class Jobs:
     def _worker(self) -> None:
         while True:
             job = self._q.get()
+            if job.state == "stopped":
+                continue
             job.state, job.started = "running", job.started or time.time()
             try:
                 job.run(job)
                 job.state = "done"
             except TokenExpired:
                 job.state, job.error = "needs_token", "The Graph token expired. Paste a new one; the export continues."
+            except Stopped:
+                job.state = "stopped"
             except GraphError as e:
                 job.state, job.error = "error", str(e)
             except Exception as e:

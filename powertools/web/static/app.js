@@ -97,8 +97,19 @@ function renderSide(llm, g) {
   const cloud = llm.provider === "copilot";
   setText("#side-model", cloud ? modelName(llm.model) : llm.model || "");
   setText("#side-tokens", cloud ? `${thousands(llm.tokens_today)} tokens today` : "on this laptop");
-  setText("#side-credits", cloud ? `${(llm.credits_today || 0).toFixed(1)}${llm.limit ? ` of ${llm.limit}` : ""} credits` : "nothing leaves it");
-  $("#side-bar").classList.toggle("hidden", !cloud || !llm.limit);
+  const q = cloud && llm.quota, left = q && q.left !== null && q.left !== undefined, few = (n) => Number(n).toLocaleString([], { maximumFractionDigits: n < 100 ? 1 : 0 });
+  setText("#side-credits", !cloud ? "nothing leaves it" : `${(llm.credits_today || 0).toFixed(1)}${llm.limit ? ` of ${llm.limit}` : ""} credits today`);
+  $("#side-quota").classList.toggle("hidden", !q);
+  if (q) {
+    setText("#side-unit", q.unit);
+    setText("#side-pct", q.unlimited ? "unlimited" : left ? Math.round(q.used_pct) + "% used" : "?");
+    $("#side-fill").style.width = left ? Math.max(2, Math.min(100, q.used_pct)) + "%" : "0";
+    $("#side-fill").className = !left ? "" : q.used_pct >= 90 ? "bad" : q.used_pct >= 70 ? "warn" : "";
+    setText("#side-left", left ? `${few(q.left)} of ${few(q.entitlement)} left` : "");
+    setText("#side-reset", `new in ${q.days_left} day${q.days_left === 1 ? "" : "s"} (${q.work_days_left} working)`);
+    $("#side-quota").title = `${q.plan ? `Plan ${q.plan}. ` : ""}Read from GitHub at ${new Date(q.checked * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, less what powertools used since; powertools this month: ${few(llm.credits_month || 0)}. Click to read it now.`;
+  }
+  $("#side-bar").classList.toggle("hidden", !cloud || !llm.limit || !!left);
   $("#side-bar span").style.width = Math.min(100, 100 * (llm.credits_today || 0) / (llm.limit || 1)) + "%";
   const m = g.expires_min || 0;
   setLabel("#side-graph", g.has_token ? `${m} min` : "expired", !g.has_token ? "bad" : m < 10 ? "warn" : "good");
@@ -107,6 +118,9 @@ function renderSide(llm, g) {
   $("#side-github-renew").classList.toggle("hidden", !known || d > 7);
   if (known) setLabel("#side-github", d > 0 ? `${d} day${d === 1 ? "" : "s"}` : "expired", d < 1 ? "bad" : d < 8 ? "warn" : "good");
 }
+const askQuota = () => api("POST", "/api/ai/quota").then(() => toast("Asking GitHub...")).catch((e) => say(e.message));
+$("#side-quota").addEventListener("click", askQuota);
+$("#side-quota").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); askQuota(); } });
 $("#side-renew").addEventListener("click", () => { showTab("recap"); openConnect(); });
 $("#side-github-renew").addEventListener("click", () => { showTab("ai"); $("#copilot-card details").open = true; });
 
@@ -194,7 +208,7 @@ async function loadSettings() {
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir", "jira_url", "jira_email",
     "jira_max_attachment_mb", "memory_dir", "silence_days", "matter_quiet_days", "copilot_daily_credits", "copilot_effort", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
   for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments",
-    "small_on_cpu", "dictation_cleanup", "auto_drafts"]) f[k].checked = s[k];
+    "small_on_cpu", "dictation_cleanup", "auto_drafts", "check_answers"]) f[k].checked = s[k];
   const llmModels = (installed, suggested) => {
     const names = [...new Set([...installed, ...suggested, s.llm_model].filter(Boolean))];
     f.llm_model.innerHTML = names.map((m) => `<option value="${esc(m)}">${esc(m)}${installed.includes(m) ? "" : " (not downloaded)"}</option>`).join("");
@@ -224,7 +238,7 @@ settingsForm.addEventListener("submit", async (e) => {
     meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
     meeting_mute_sync: f.meeting_mute_sync.checked, meeting_summary: f.meeting_summary.checked, meeting_mute_hotkey: f.meeting_mute_hotkey.value.trim(),
-    exclude: lines(f.exclude.value), memory_dir: f.memory_dir.value.trim(), auto_drafts: f.auto_drafts.checked, silence_days: Number(f.silence_days.value),
+    exclude: lines(f.exclude.value), memory_dir: f.memory_dir.value.trim(), auto_drafts: f.auto_drafts.checked, check_answers: f.check_answers.checked, silence_days: Number(f.silence_days.value),
     matter_quiet_days: Number(f.matter_quiet_days.value), copilot_daily_credits: Number(f.copilot_daily_credits.value), copilot_effort: f.copilot_effort.value,
     llm_model: f.llm_model.value, llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
     dictation_cleanup: f.dictation_cleanup.checked, wording_hotkey: f.wording_hotkey.value, wording_mode: f.wording_mode.value,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..graph.client import TokenExpired
 from ..llm import LLMError
 from .api_graph import guarded
 from .server import route
@@ -38,6 +39,22 @@ def update(h):
     b = h.json_body()
     # without a token the job is made all the same: it pauses at once and goes on when the token is there
     h.app.assistant.update(b.get("range"), b.get("sources"))
+    h.send(200, h.app.assistant.view())
+
+
+@route("POST", "/api/assistant/check")
+@guarded
+def check(h):
+    """Did I answer in the meantime? Needs a token now (the window then waits for one and calls again)."""
+    if not h.app.graph.tokens.get():
+        raise TokenExpired("no valid token")
+    h.app.assistant.check_answers()
+    h.send(200, h.app.assistant.view())
+
+
+@route("POST", "/api/assistant/stop")
+def stop(h):
+    h.app.assistant.stop()
     h.send(200, h.app.assistant.view())
 
 

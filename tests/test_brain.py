@@ -18,6 +18,9 @@ class Fake:
     def available(self):
         return {"installed": False, "running": False}
 
+    def quota(self, refresh=False):
+        return None
+
     def days_left(self):
         return 6
 

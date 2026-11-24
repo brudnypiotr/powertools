@@ -82,6 +82,9 @@ class FakeGraph:
             return ME
         raise AssertionError(path)
 
+    def batch(self, paths):
+        return [self.get(p.split("?")[0]) for p in paths]
+
     def pages(self, path, params=None, headers=None, max_items=100_000):
         yield from self.get(path, params, headers).get("value", [])[:max_items]
 
@@ -90,9 +93,13 @@ class Jobs:
     def __init__(self):
         self.all = []
 
+    def stop(self, job):
+        job.stop = True
+
     def submit(self, title, run, kind=""):
-        job = Job(title, run, kind)
+        job = Job(title, run, kind, state="running")
         self.all.append(job)
+        self.now = job
         try:
             run(job)
             job.state = "done"

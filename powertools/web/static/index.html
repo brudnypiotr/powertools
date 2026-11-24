@@ -33,7 +33,9 @@
   </nav>
   <div class="side-space"></div>
   <div class="side-box" id="side-box">
-    <div><b id="side-model"></b><span id="side-tokens"></span><span id="side-credits"></span><div class="side-bar hidden" id="side-bar" aria-hidden="true"><span></span></div></div>
+    <div><b id="side-model"></b>
+      <div id="side-quota" class="hidden" role="button" tabindex="0" title="Read it from GitHub now"><div class="side-token"><span id="side-unit">AI credits</span><span id="side-pct"></span></div><div class="side-bar" aria-hidden="true"><span id="side-fill"></span></div><span id="side-left"></span><span id="side-reset"></span></div>
+      <span id="side-tokens"></span><span id="side-credits"></span><div class="side-bar hidden" id="side-bar" aria-hidden="true"><span></span></div></div>
     <div class="side-tokens"><div class="side-token"><span>Graph token</span><span class="label" id="side-graph"></span></div><button id="side-renew" type="button">Renew</button>
       <div id="side-github-row" class="hidden"><div class="side-token"><span>GitHub token</span><span class="label" id="side-github"></span></div><button id="side-github-renew" type="button">Renew</button></div></div>
   </div>
@@ -85,7 +87,7 @@
       <div class="pane-scroll" id="today-rows"></div>
     </div>
     <div class="pane-main">
-      <form id="ask-form" class="askline"><input name="q" autocomplete="off" aria-label="Ask" placeholder="Ask, or tell me what changed: the deadline is Thursday"></form>
+      <form id="ask-form" class="askline"><input name="q" autocomplete="off" aria-label="Ask" placeholder="Ask, or tell me what changed: the deadline is Thursday"><button type="button" id="ai-stop" class="hidden">Stop</button></form>
       <div class="pane-body" id="today-body"><div class="empty muted">Loading...</div></div>
       <div class="pane-bar hidden" id="today-bar"></div>
     </div>
@@ -281,6 +283,8 @@
       <label>Never read <textarea name="exclude" rows="4" placeholder="one per line: a person, a word in a title, or folder: Name"></textarea>
         <small>Checked before anything is kept or shown to a model; also removes what was read before.</small></label>
       <label>Memory folder <input name="memory_dir" placeholder="Documents\powertools\memory"><small>Plain Markdown. Point it into OneDrive to have it on other devices.</small></label>
+      <label class="check"><input type="checkbox" name="check_answers"> Close questions I answered myself in Teams or by mail (looks every 5 minutes while
+        the Graph token is valid)</label>
       <label class="check"><input type="checkbox" name="auto_drafts"> Draft answers during an Update (kept in the app, never sent)</label>
       <label>Waiting for others is quiet after (days) <input name="silence_days" type="number" min="1" max="365"></label>
       <label>Ask about a matter without news after (days) <input name="matter_quiet_days" type="number" min="1" max="365"></label>

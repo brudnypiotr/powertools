@@ -19,7 +19,7 @@ import threading
 import time
 import urllib.request
 from concurrent import futures
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import data_dir
@@ -81,6 +81,25 @@ def parse_expiry(header: str) -> datetime | None:
         return None
 
 
+def quota_view(q: dict, now: datetime) -> dict:
+    """The figure GitHub reports for this account: AI credits under usage-based billing, else premium requests. The cycle
+    of an organisation ends on the 1st of the month, 00:00 UTC, unless GitHub says another time."""
+    snaps = q.get("snapshots") or {}
+    pick = (next((k for k, v in snaps.items() if v.get("tbb")), None) or next((k for k in snaps if "premium" in k or "credit" in k), None)
+            or next((k for k, v in snaps.items() if not v.get("unlimited")), None))
+    v = snaps.get(pick) or {}
+    known = bool(v) and not v.get("unlimited") and (v.get("entitlement") or 0) > 0
+    reset = datetime(now.year + (now.month == 12), now.month % 12 + 1, 1, tzinfo=timezone.utc)
+    if v.get("reset_ms"):
+        reset = datetime.fromtimestamp(v["reset_ms"] / 1000, timezone.utc)
+    days = max(0, (reset.date() - now.date()).days)
+    return {"plan": q.get("plan"), "unit": "AI credits" if q.get("tbb") or v.get("tbb") else "premium requests",
+            "unlimited": bool(v.get("unlimited")), "entitlement": v.get("entitlement") if known else None,
+            "left": round(max(0.0, v["entitlement"] - v["used"]), 1) if known else None,
+            "used_pct": 100.0 * v["used"] / v["entitlement"] if known else None, "reset": reset.isoformat(), "days_left": days,
+            "work_days_left": sum((now.date() + timedelta(days=n)).weekday() < 5 for n in range(days)), "checked": time.time()}
+
+
 class SecretStore:
     """The GitHub token, encrypted with Windows DPAPI for this user (a private plain file on other systems)."""
 
@@ -127,13 +146,16 @@ class Copilot:
         self._client_token = ""
         self._lock = threading.Lock()
         self._expiry: dict = {"token": "", "at": 0.0, "when": None, "busy": False}
+        self._quota: dict = {"at": 0.0, "busy": False, "view": None, "token": ""}
+        self.spent = lambda: 0.0             # credits this app used so far (the Brain's counter)
+        self._live: set = set()              # answers the user is waiting for, for Stop
 
     @property
     def model(self) -> str:
         return self.settings["copilot_model"]
 
     # ------------------------------------------------------------------ the SDK's event loop and runtime process
-    def _call(self, coro, timeout: float):
+    def _call(self, coro, timeout: float, live: bool = False):
         with self._lock:
             if self._loop is None:
                 self._loop = asyncio.new_event_loop()
@@ -141,11 +163,21 @@ class Copilot:
                 threading.Thread(target=self._loop.run_forever, name="copilot", daemon=True).start()
                 self._start_lock = asyncio.Lock()
         fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        if live:
+            self._live.add(fut)
         try:
             return fut.result(timeout)
+        except futures.CancelledError as e:
+            raise LLMError("stopped") from e
         except (TimeoutError, futures.TimeoutError) as e:   # two classes before Python 3.11
             fut.cancel()
             raise LLMError(f"GitHub Copilot did not answer in {timeout:.0f} s") from e
+        finally:
+            self._live.discard(fut)
+
+    def abort(self) -> None:
+        for fut in list(self._live):
+            fut.cancel()                     # the session of that answer is closed and deleted on the way out
 
     async def _ready(self):
         """The running client; started on the first call and again after the token changed."""
@@ -235,6 +267,41 @@ class Copilot:
             threading.Thread(target=ask, name="github-expiry", daemon=True).start()
         return None if e["when"] is None else max(0, (e["when"] - datetime.now(timezone.utc)).days)
 
+    def quota(self, refresh: bool = False) -> dict | None:
+        """What the account has left (None: not known yet). Asked in the background every 5 minutes; opens a session but
+        sends no prompt, so it costs nothing."""
+        token, q = self.secret.get(), self._quota
+        if q["token"] != token:
+            q.update(token=token, at=0.0, view=None)
+        if token and not q["busy"] and (refresh or time.time() - q["at"] > 300):
+            q.update(at=time.time(), busy=True)
+
+            def ask() -> None:
+                try:
+                    spent = self.spent()
+                    q["view"] = {**quota_view(self._call(self._read_quota(), 300), datetime.now(timezone.utc)), "spent_then": spent}
+                except Exception as e:
+                    log.info("quota: %s", explain(e))
+                finally:
+                    q["busy"] = False
+            threading.Thread(target=ask, name="copilot-quota", daemon=True).start()
+        return q["view"]
+
+    async def _read_quota(self) -> dict:
+        client = await self._ready()
+        session = await client.create_session(**self._isolated())
+        try:
+            try:
+                q = await session.rpc.quota.refresh()
+            except Exception:
+                q = await session.rpc.quota.get()
+            snaps = {k: {"entitlement": v.entitlement_requests, "used": v.used_requests, "remaining_pct": v.remaining_percentage,
+                         "unlimited": v.is_unlimited_entitlement, "reset_ms": v.reset_date_epoch_ms, "tbb": v.token_based_billing}
+                     for k, v in (q.snapshots or {}).items()}
+            return {"plan": str(getattr(q.plan_tier, "value", q.plan_tier)), "tbb": q.is_tbb_user, "snapshots": snaps}
+        finally:
+            await self._discard(client, session)
+
     def set_token(self, token: str) -> dict:
         self.secret.set(token)
         return self.status()
@@ -242,11 +309,7 @@ class Copilot:
     # ------------------------------------------------------------------ chat
     async def _ask(self, system: str, user: str, schema: dict | None, model: str, timeout: float):
         client = await self._ready()
-        work = str(self.home / "work")
-        kw: dict = dict(model=model, system_message={"mode": "replace", "content": system}, working_directory=work,
-                        tools={"available_tools": []}, permissions={"on_request": _reject},
-                        skills={"enabled": False}, enable_config_discovery=False,
-                        instructions={"skip_custom_instructions": True})
+        kw = self._isolated(model=model, system_message={"mode": "replace", "content": system})
         effort = self.settings["copilot_effort"]
         if effort:
             try:
@@ -272,11 +335,20 @@ class Copilot:
                 log.info("no usage figures: %s", e)
             return text, tin, tout, credits
         finally:
-            try:
-                await session.disconnect()
-                await client.delete_session(session.session_id)   # nothing of the conversation stays on disk
-            except Exception as e:
-                log.info("closing the Copilot session: %s", e)
+            await self._discard(client, session)
+
+    def _isolated(self, **more) -> dict:
+        """A session that can only answer with text: no tools, skills or instructions, in an empty folder."""
+        return {"working_directory": str(self.home / "work"), "tools": {"available_tools": []}, "permissions": {"on_request": _reject},
+                "skills": {"enabled": False}, "enable_config_discovery": False, "instructions": {"skip_custom_instructions": True}, **more}
+
+    @staticmethod
+    async def _discard(client, session) -> None:
+        try:
+            await session.disconnect()
+            await client.delete_session(session.session_id)   # nothing of the conversation stays on disk
+        except Exception as e:
+            log.info("closing the Copilot session: %s", e)
 
     def chat(self, system: str, user: str, schema: dict | None = None, priority: int = INTERACTIVE,
              max_tokens: int = 800, num_ctx: int = 0, timeout: float = 180, model: str = "") -> tuple[str, dict]:
@@ -286,7 +358,8 @@ class Copilot:
         for attempt in (1, 2):
             used = self._client
             try:
-                text, tin, tout, credits = self._call(self._ask(system, user, schema, model, timeout), timeout + 120)
+                text, tin, tout, credits = self._call(self._ask(system, user, schema, model, timeout), timeout + 120,
+                                                  live=priority == INTERACTIVE)
                 break
             except LLMError:
                 raise

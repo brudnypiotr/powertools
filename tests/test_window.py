@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 
 import pytest
 
@@ -175,3 +176,43 @@ def test_the_version_opens_about(win):
     page = win.open()
     page.click("#engine-foot")
     sync.expect(page.locator("#about-version")).to_have_text(re.compile(r"\d+\.\d+\.\d+"))
+
+
+def test_a_question_answered_in_teams_closes_by_itself(win):
+    page = win.open()
+    win.update()
+    see(page, "#today-rows", "Answer Jan")
+    win.g.chat_msgs.append(demo.my_answer())
+    page.click("[data-do=check]")
+    sync.expect(page.locator("#today-rows .foldbtn", has_text="You answered")).to_be_visible(timeout=15000)
+    sync.expect(page.locator("#today-rows")).not_to_contain_text("Answer Jan")
+    page.locator("#today-rows .foldbtn", has_text="You answered").click()
+    win.row("Answer Jan")
+    page.click("[data-do=reopen]")
+    sync.expect(page.locator("#today-rows .foldbtn", has_text="You answered")).to_have_count(0)
+
+
+def test_an_update_can_be_stopped(win):
+    page = win.open()
+    real = win.app.assistant.classify
+    win.app.assistant.classify = lambda *a, **k: (time.sleep(0.4), real(*a, **k))[1]
+    page.select_option("#recap-range", "30")
+    page.click("#recap-update")
+    sync.expect(page.locator("#recap-update")).to_have_text("Stop")
+    page.click("#recap-update")
+    sync.expect(page.locator("#recap-update")).to_have_text("Update", timeout=15000)
+    assert win.app.assistant.job.state == "stopped"
+
+
+def test_what_is_left_of_the_credits_is_in_the_menu(win):
+    page = win.open()
+    win.app.llm.cloud.days_left = lambda: 213
+    win.app.llm.cloud.quota = lambda refresh=False: {"left": 2564.6, "entitlement": 4000, "used_pct": 35.9, "unit": "AI credits", "spent_then": 0.0,
+                                                     "days_left": 6, "work_days_left": 4, "plan": "business", "unlimited": False, "checked": 0}
+    win.app.settings.update({"ai_provider": "copilot"})
+    see(page, "#side-left", "2,565 of 4,000 left")
+    see(page, "#side-reset", "new in 6 days (4 working)")
+    see(page, "#side-pct", "36% used")
+    page.set_viewport_size({"width": 1000, "height": 680})
+    page.click("#more")
+    sync.expect(page.locator("#engine-foot")).to_be_in_viewport()

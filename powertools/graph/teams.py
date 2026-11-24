@@ -83,6 +83,13 @@ def sender_id(m: dict) -> str:
     return ((m.get("from") or {}).get("user") or {}).get("id", "")
 
 
+def reaction(m: dict, user_id: str) -> tuple[str, str]:
+    """(when, what) of this user's newest reaction to a message; empty strings when there is none."""
+    mine = [(r.get("createdDateTime") or "", r.get("reactionType") or "") for r in m.get("reactions") or []
+            if ((r.get("user") or {}).get("user") or {}).get("id") == user_id]
+    return max(mine, default=("", ""))
+
+
 def share_id(url: str) -> str:
     return "u!" + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
 
