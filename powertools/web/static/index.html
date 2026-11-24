@@ -14,24 +14,28 @@
 <aside class="side">
   <div class="brand"><img src="/dot-192.png" alt="" class="logo">powertools</div>
   <nav>
-    <button data-tab="dictation" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
-    <button data-tab="writing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4M14 20h6"/></svg><span>Writing</span></button>
-    <button data-tab="recap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Recap</span></button>
+    <button data-tab="recap" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Recap</span></button>
+    <button data-tab="dictation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
+    <button id="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>More</span></button>
+    <div id="more-nav" class="hidden">
     <button data-tab="meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Meetings</span></button>
+    <button data-tab="writing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4M14 20h6"/></svg><span>Writing</span></button>
     <button data-tab="teams"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Teams</span></button>
     <button data-tab="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>Mail</span></button>
     <button data-tab="jira"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 12 12 21 3 12z"/><path d="m12 8 4 4-4 4-4-4z"/></svg><span>Jira</span></button>
     <button data-tab="org"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v5M6 17v-5h12v5"/></svg><span>Org</span></button>
-    <button data-tab="ai"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>Local AI</span></button>
+    <button data-tab="ai"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>AI</span></button>
     <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
     <button data-tab="diagnostics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Diagnostics</span></button>
+    </div>
   </nav>
+  <button id="idea" class="idea" title="Tell us an idea or a problem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg><span>I have an idea</span></button>
   <button class="side-foot" id="engine-foot" title="About, changelog and updates"></button>
 </aside>
 
 <main class="main">
 <div id="prompt" class="prompt hidden"></div>
-  <section id="dictation" class="tab active">
+  <section id="dictation" class="tab">
     <div class="hero">
       <button id="toggle" class="mic" title="Start / stop dictation">
         <svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
@@ -62,22 +66,23 @@
     <div id="w-result"></div>
   </section>
 
-  <section id="recap" class="tab">
+  <section id="recap" class="tab active">
     <div class="card graphbar"></div>
-    <form id="recap-form" class="card searchform">
-      <label>Range <select name="days">
-        <option value="1">Last day</option><option value="2" selected>Last 2 days</option><option value="3">Last 3 days</option>
-        <option value="7">Last 7 days</option><option value="14">Last 2 weeks</option><option value="30">Last 30 days</option>
-        <option value="since">Since date...</option></select></label>
-      <label class="since hidden">Since <input type="date" name="since"></label>
-      <label class="check"><input type="checkbox" name="mail" checked> Mail (Inbox)</label>
-      <label class="check"><input type="checkbox" name="teams" checked> Teams chats</label>
-      <button class="primary">Recap</button>
-    </form>
+    <div id="recap-bar" class="card recapbar hidden">
+      <button id="recap-update" class="primary">Update</button>
+      <select id="recap-range"><option value="new" selected>since the last one</option><option value="1">last day</option><option value="3">last 3 days</option>
+        <option value="7">last 7 days</option><option value="14">last 2 weeks</option><option value="30">last 30 days</option><option value="since">since date...</option></select>
+      <input id="recap-since" type="date" class="hidden">
+      <span id="recap-briefs"><button data-brief="day">Brief me</button><button data-brief="week">Week in 10 lines</button>
+        <button data-brief="upward">Brief upward</button><button data-brief="leave">Back from leave</button></span>
+    </div>
     <div id="recap-status" class="muted small"></div>
     <div id="recap-now"></div>
-    <div id="recap-list"></div>
-    <div class="jobs" data-kind="recap"></div>
+    <div id="recap-brief"></div>
+    <div id="recap-tabs" class="seg hidden"><button data-view="today">Today <i></i></button><button data-view="matters">Matters <i></i></button>
+      <button data-view="meetings">Meetings <i></i></button><button data-view="drafts">Drafts <i></i></button><button data-view="people">People <i></i></button>
+      <button data-view="ask">Ask <i></i></button></div>
+    <div id="recap-view"></div>
   </section>
 
   <section id="meetings" class="tab">
@@ -194,6 +199,23 @@
   </section>
 
   <section id="ai" class="tab">
+    <div class="card"><h3>Where the model runs</h3>
+      <label class="check"><input type="radio" name="ai-provider" value="copilot"> GitHub Copilot: the text goes to GitHub; needs a Copilot licence</label>
+      <label class="check"><input type="radio" name="ai-provider" value="local"> On this laptop (Ollama): nothing leaves it</label>
+      <div id="ai-usage" class="muted small"></div></div>
+    <div class="card" id="copilot-card"><h3>GitHub Copilot</h3><div id="copilot-status" class="muted">Not checked yet.</div>
+      <div class="row"><button id="copilot-check">Check sign-in</button><button id="copilot-test">Ask it once</button><select id="copilot-model"></select></div>
+      <details><summary>Sign in with a GitHub token (2 minutes, works on every laptop)</summary>
+        <ol><li>Open <a href="https://github.com/settings/personal-access-tokens/new?name=powertools&amp;description=GitHub+Copilot+for+powertools" target="_blank" rel="noopener">github.com: new fine-grained token</a> in the account that has the Copilot licence.</li>
+          <li><b>Resource owner</b>: your own account. <b>Expiration</b>: up to a year. <b>Repository access</b>: public repositories.</li>
+          <li><b>Permissions</b> → tab <b>Account</b> → Add permissions → <b>Copilot Requests</b>.</li><li>Generate, copy, paste here. It is kept encrypted for your Windows user.</li></ol>
+        <form id="copilot-token" class="row"><input type="password" name="token" placeholder="github_pat_..."><button class="primary">Save</button><button type="button" id="copilot-forget">Forget it</button></form></details>
+      <div id="copilot-result"></div></div>
+    <div class="card"><h3>Which model is right more often?</h3>
+      <div class="row"><select id="cmp-provider"><option value="copilot">GitHub Copilot</option><option value="local">This laptop</option></select>
+        <select id="cmp-limit"><option>10</option><option selected>30</option><option>60</option></select><button id="cmp-run">Compare</button></div>
+      <div class="muted small">Sorts conversations of the last updates again on that model and compares with what you confirmed in the Recap ("Why is this here?" → That is right, or a moved item).</div>
+      <div id="cmp-result"></div></div>
     <div class="card" id="ai-status"><span class="muted">Checking the GPU and Ollama...</span></div>
     <div class="card">
       <h3>Can this laptop run it?</h3>
@@ -233,14 +255,24 @@
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
-      <h3>Local AI (Ollama)</h3>
+      <h3>Recap</h3>
+      <label>Never read <textarea name="exclude" rows="4" placeholder="one per line: a person, a word in a title, or folder: Name"></textarea>
+        <small>Checked before anything is kept or shown to a model; also removes what was read before.</small></label>
+      <label>Memory folder <input name="memory_dir" placeholder="Documents\powertools\memory"><small>Plain Markdown. Point it into OneDrive to have it on other devices.</small></label>
+      <label class="check"><input type="checkbox" name="auto_drafts"> Draft answers during an Update (kept in the app, never sent)</label>
+      <label>Waiting for others is quiet after (days) <input name="silence_days" type="number" min="1" max="365"></label>
+      <label>Ask about a matter without news after (days) <input name="matter_quiet_days" type="number" min="1" max="365"></label>
+      <h3>GitHub Copilot</h3>
+      <label>Daily limit (AI credits, 0 = none) <input name="copilot_daily_credits" type="number" min="0" max="5000"></label>
+      <label>Thinking <select name="copilot_effort"><option value="low">low (fast, cheap)</option><option value="medium">medium</option><option value="high">high</option><option value="">the model's default</option></select></label>
+      <h3>Model on this laptop (Ollama)</h3>
       <label>Model <select name="llm_model"></select>
-        <small>Test and download models in the Local AI tab.</small></label>
+        <small>Test and download models in the AI tab.</small></label>
       <label>Where it runs <select name="llm_gpu"><option value="auto">GPU as far as it fits, the rest on the CPU</option>
         <option value="cpu">CPU only (the GPU stays with Whisper)</option></select></label>
       <label>Keep the model loaded (minutes) <input name="llm_keep_alive_min" type="number" min="0" max="120">
         <small>Longer = faster next call, but it holds memory. Whisper unloads it anyway before it loads a model on the GPU.</small></label>
-      <label class="check"><input type="checkbox" name="dictation_cleanup"> Clean up dictation with the local model (fillers,
+      <label class="check"><input type="checkbox" name="dictation_cleanup"> Clean up dictation with the chosen model (fillers,
         repetitions, punctuation); the raw transcript stays in the history</label>
       <label>Wording hotkey <input name="wording_hotkey" placeholder="alt+w"><small>Select a text, press it: English corrections.
         Ctrl+W is possible, but then it no longer closes tabs anywhere.</small></label>
@@ -271,7 +303,7 @@
       <label>Mute hotkey <input name="meeting_mute_hotkey" placeholder="ctrl+shift+m (empty: off)">
         <small>While recording it toggles "Me" muted and still reaches Teams (Ctrl+Shift+M is Teams' own mute), so one key mutes both.
         Muting with the mouse in Teams is not seen: use the key, or the Mute button in the Meetings tab or the tray. Every recording starts unmuted. <span id="teams-link"></span></small></label>
-      <label class="check"><input type="checkbox" name="meeting_summary"> After the transcript: summary and key points from the local model</label>
+      <label class="check"><input type="checkbox" name="meeting_summary"> After the transcript: summary and key points from the chosen model</label>
       <h3>Dictation details</h3>
       <label>Beam size <input name="beam_size" type="number" min="1" max="10"><small>5 = default; 1 = fastest</small></label>
       <label>Vocabulary <textarea name="vocabulary" rows="6" placeholder="one word or name per line"></textarea>
@@ -297,10 +329,17 @@
   <div class="about-update" id="install-box"><span id="install-text" class="muted">Install the window as an app to get
     its own taskbar icon and pinning.</span><button id="install-do" class="hidden">Install as app</button></div>
   <div id="about-pending"></div>
+  <details><summary class="muted">Take updates from another repository</summary>
+    <form id="about-source" class="row"><input name="remote" placeholder="https://github.com/organisation/powertools.git"><button>Switch</button></form><div id="about-source-note" class="muted small"></div></details>
   <h3>Changelog</h3>
   <ul id="about-log" class="changelog"></ul>
 </dialog>
+<dialog id="idea-box"><form class="form"><h2>I have an idea</h2><p class="muted">An idea, a problem, a wish. You can dictate it. Next step: GitHub opens with the text filled in; you read it and press Submit there.</p>
+  <textarea name="text" rows="6" placeholder="What would help you?"></textarea>
+  <label class="check"><input type="checkbox" name="diagnostics" checked> Add counters (version, model, number of items and errors; no text, no names)</label>
+  <div class="row"><button class="primary">Open on GitHub</button><button type="button" class="close">Cancel</button><span class="err"></span></div></form></dialog>
 <script src="/org_chart.js"></script>
 <script src="/app.js"></script>
+<script src="/recap.js"></script>
 </body>
 </html>

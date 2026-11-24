@@ -1,13 +1,19 @@
-"""Minimal Microsoft Graph client: GET with paging, binary download, 429 back-off, typed errors."""
+"""Minimal Microsoft Graph client: GET with paging, binary download, 429 back-off, typed errors.
+
+The client reads. The token may allow more, so every POST is checked against WRITES: a $batch of GETs, and a reply that
+lands in the Outlook Drafts folder. There is no way to send a mail or a message through it.
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Callable, Iterator
 
 log = logging.getLogger("powertools.graph")
 BASE = "https://graph.microsoft.com/v1.0"
+WRITES = re.compile(re.escape(BASE) + r"/(\$batch|me/messages/[^/?#]+/createReply(All)?)")
 
 
 class TokenExpired(Exception):
@@ -28,6 +34,8 @@ class Graph:
         self.s = requests.Session()
 
     def _request(self, url: str, params: dict | None, headers: dict | None, stream: bool = False, body: dict | None = None):
+        if body is not None and not WRITES.fullmatch(url):
+            raise ValueError(f"powertools does not write to {url}")
         token = self._token()
         if not token:
             raise TokenExpired("no valid token")
@@ -82,6 +90,13 @@ class Graph:
             time.sleep(min(wait, 30))
             todo = again
         return out
+
+    def reply_draft(self, message_id: str, comment: str, everyone: bool = False) -> dict:
+        """A reply in the Drafts folder (HTML comment above the quoted thread); the user sends it from Outlook."""
+        from urllib.parse import quote
+
+        action = "createReplyAll" if everyone else "createReply"
+        return self._request(f"{BASE}/me/messages/{quote(message_id, safe='')}/{action}", None, None, body={"comment": comment}).json()
 
     def pages(self, path: str, params: dict | None = None, headers: dict | None = None,
               max_items: int = 100_000) -> Iterator[dict]:

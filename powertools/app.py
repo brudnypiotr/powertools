@@ -1,7 +1,7 @@
 """Wiring: settings, history, Whisper engine, recorder, dictation, hotkey, tray, overlay and the window.
 
 Threads: tkinter overlay on the main thread, tray detached, web server, hotkey hook, Whisper worker.
-The local model (Ollama) runs in its own process; dictation clean-up, wording and recap call it over HTTP.
+The language model (Brain) is the local one (Ollama, its own process) or GitHub Copilot, as the user chose.
 """
 
 from __future__ import annotations
@@ -133,13 +133,13 @@ class App:
 
         self.selftest = selftest
         from . import cleanup
-        from .llm import Ollama
+        from .brain import Brain
         from .wording import Wording
 
         self.settings = Settings()
         self.store = Store(data_dir() / "history.sqlite")
         self.engine = Engine(self.settings["model"], self.settings["small_on_cpu"])
-        self.llm = Ollama(self.settings)
+        self.llm = Brain(self.settings)
         self.engine.before_gpu = self.llm.unload_all  # 6 GB: Whisper first, the model reloads when needed
         self.recorder = Recorder()
         self.overlay = None
@@ -165,9 +165,9 @@ class App:
         self.wording = Wording(self.settings, self.llm, deliver, self._on_wording_state, self.show_writing)
         self.wording_hotkey = None
         self.mute_hotkey = None
-        from .recap import Recap
+        from .assistant.service import Assistant
 
-        self.recap = Recap(self.settings, self.graph, self.llm)
+        self.assistant = Assistant(self.settings, self.graph, self.llm, self.jira, self.meetings)
         self.focus: dict = {"tab": "", "seq": 0}   # the window switches to this tab when seq changes
         self.last_poll = 0.0                       # when an open window last asked for the state
         self._quit = threading.Event()
@@ -459,6 +459,7 @@ class App:
                 self.recorder.stop()
             self.tray.stop()
             self.engine.stop()
+            self.llm.stop()
             self.httpd.shutdown()
             try:
                 (data_dir() / "port.txt").unlink()

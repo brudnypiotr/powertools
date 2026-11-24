@@ -46,6 +46,16 @@ DEFAULTS: dict = {
     "jira_email": "",            # Atlassian e-mail (Jira Cloud sign-in)
     "jira_attachments": True,
     "jira_max_attachment_mb": 25,
+    "ai_provider": "",           # "" = not chosen yet (local); "local" = Ollama; "copilot" = GitHub Copilot (text leaves the laptop)
+    "copilot_model": "gpt-6-luna",
+    "copilot_effort": "low",     # reasoning effort; "" = the model's default
+    "copilot_daily_credits": 80, # AI credits per day, 0 = no limit
+    "memory_dir": "",            # "" = Documents\\powertools\\memory (never the export folder: that one may be a shared inbox)
+    "exclude": [],               # never read: people, words in a title, "folder: <mail folder>"
+    "setup_done": False,         # the first-start questions of the Recap were answered
+    "auto_drafts": True,         # an Update also drafts answers (kept in the app, never sent)
+    "silence_days": 3,           # waiting for others: quiet after this many days
+    "matter_quiet_days": 14,     # a matter without news for this long is asked about
     "llm_model": "gemma4:e4b",   # Ollama model for clean-up, wording and recap (Local AI tab: test, download)
     "llm_gpu": "auto",           # "auto" = as much on the GPU as fits; "cpu" = leave the GPU to Whisper
     "llm_keep_alive_min": 5,     # minutes the model stays loaded after a call (0 = unload right away)
@@ -58,6 +68,12 @@ MODELS = ["turbo", "large-v3", "medium", "small", "parakeet-v3"]
 
 def output_dir(settings) -> "Path":
     d = Path(settings["output_dir"]) if settings["output_dir"] else Path.home() / "Documents" / "powertools"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def memory_dir(settings) -> "Path":
+    d = Path(settings["memory_dir"]) if settings["memory_dir"] else Path.home() / "Documents" / "powertools" / "memory"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -77,6 +93,18 @@ def validate(key: str, value):
             raise ValueError(f"{key} cannot be empty")
     if key == "meeting_mute_hotkey":
         value = str(value).strip().lower()
+    if key == "ai_provider" and value not in ("", "local", "copilot"):
+        raise ValueError("ai_provider must be 'local' or 'copilot'")
+    if key == "copilot_model":
+        value = str(value).strip()
+        if not value or any(c.isspace() for c in value):
+            raise ValueError("copilot_model must be a model id, e.g. gpt-6-luna")
+    if key == "copilot_effort" and value not in ("", "low", "medium", "high"):
+        raise ValueError("copilot_effort must be '', 'low', 'medium' or 'high'")
+    if key == "copilot_daily_credits":
+        value = int(value)
+        if not 0 <= value <= 5000:
+            raise ValueError("copilot_daily_credits must be 0..5000")
     if key == "llm_model":
         value = str(value).strip()
         if not value or any(c.isspace() for c in value):
@@ -89,9 +117,13 @@ def validate(key: str, value):
             raise ValueError("llm_keep_alive_min must be 0..120")
     if key == "wording_mode" and value not in ("review", "replace"):
         raise ValueError("wording_mode must be 'review' or 'replace'")
-    if key == "vocabulary":
+    if key in ("silence_days", "matter_quiet_days"):
+        value = int(value)
+        if not 1 <= value <= 365:
+            raise ValueError(f"{key} must be 1..365")
+    if key in ("vocabulary", "exclude"):
         if not isinstance(value, list):
-            raise ValueError("vocabulary must be a list")
+            raise ValueError(f"{key} must be a list")
         value = [str(w).strip() for w in value if str(w).strip()]
     if key == "replacements":
         if not isinstance(value, list):

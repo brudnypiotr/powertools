@@ -4,7 +4,7 @@
 .DESCRIPTION
   1. Finds Python 3.11+ (any, the embeddable one too: the overlay uses Win32 directly, not tkinter); installs
      Python 3.12 per-user from python.org only when there is none.
-  2. Creates .venv and installs requirements.txt (faster-whisper + CUDA libraries, ~1.5 GB the first time).
+  2. Creates .venv and installs requirements.txt; with an NVIDIA GPU also requirements-gpu.txt (CUDA, ~1.2 GB more).
      Unpacks Portable Git to %LOCALAPPDATA%\powertools\git when there is no git (Update in the app needs it).
   3. Creates the shortcuts (desktop, Start menu) and, unless -NoAutostart, a Startup entry.
   4. Runs the self-test. Writes setup.log; records setup\version.txt in local\setup-version.txt.
@@ -144,6 +144,7 @@ Step 'Python' 'OK' ("{0} {1}" -f $py.version, $py.exe)
 $vpy = Join-Path $Venv 'Scripts\python.exe'
 $NewVenv = "$Venv.new"
 $Req = Join-Path $Repo 'requirements.txt'
+$GpuReq = Join-Path $Repo 'requirements-gpu.txt'
 $Probe = 'import faster_whisper, onnx_asr, numpy, requests, pystray, PIL, keyboard, pyperclip, sounddevice'
 
 function Test-Venv([string]$Dir) {
@@ -184,6 +185,19 @@ function Remove-Dir([string]$Dir) {
   try { Remove-Item $Dir -Recurse -Force -ErrorAction Stop; return $true } catch { return $false }
 }
 
+function Test-Nvidia {
+  # $true when there is an NVIDIA GPU (or when Windows does not say: then install the CUDA libraries as before)
+  try { return (@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object { $_.Name -match 'NVIDIA' }).Count -gt 0) }
+  catch { return $true }
+}
+
+function Install-Packages([string]$Python) {
+  # pip exit code: requirements.txt, then the CUDA libraries where they are of use
+  $code = Invoke-Native $Python @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $Req)
+  if ($code -eq 0 -and $HasGpu) { $code = Invoke-Native $Python @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $GpuReq) }
+  return $code
+}
+
 function New-Venv([string]$Dir) {
   # Creates $Dir with $py and installs requirements.txt; $true on success
   if (-not (Remove-Dir $Dir)) { Step 'venv' 'WARN' "could not clear $Dir"; return $false }
@@ -193,12 +207,13 @@ function New-Venv([string]$Dir) {
     $code = Invoke-Native $py.exe @('-m', 'virtualenv', $Dir)
     if ($code -ne 0) { Step 'venv' 'WARN' "could not create $Dir"; return $false }
   }
-  Write-Host 'Installing packages (first time: ~1.5 GB, a few minutes) ...'
-  $code = Invoke-Native (Join-Path $Dir 'Scripts\python.exe') @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $Req)
+  Write-Host ('Installing packages (first time: {0}, a few minutes) ...' -f $(if ($HasGpu) { '~1.5 GB' } else { '~350 MB, no NVIDIA GPU' }))
+  $code = Install-Packages (Join-Path $Dir 'Scripts\python.exe')
   if ($code -ne 0) { Step 'packages' 'WARN' 'pip install failed (see above)'; return $false }
   return (Test-Venv $Dir)
 }
 
+$HasGpu = Test-Nvidia
 $null = Stop-Powertools
 $cfg = Join-Path $Venv 'pyvenv.cfg'
 $foreign = (Test-Path $cfg) -and ((Get-Content $cfg -Raw) -match 'woynich-wiki')  # built on another app's Python
@@ -207,7 +222,7 @@ $healthy = Test-Venv $Venv
 if ($healthy -and -not $foreign) {
   # the normal case: bring the packages up to date in place (pip only adds or upgrades, the venv keeps working)
   Write-Host 'Updating packages ...'
-  $code = Invoke-Native $vpy @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', $Req)
+  $code = Install-Packages $vpy
   if ($code -ne 0) { Step 'packages' 'WARN' 'pip install failed (see above); the current packages stay' }
   else { Step 'packages' 'OK' 'requirements.txt' }
 } else {

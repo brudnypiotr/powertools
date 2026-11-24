@@ -2,13 +2,16 @@
 
 Personal Windows toolkit (work in progress): dictation with local Whisper, meeting recording with
 transcription, exporting Teams chats and mail (Microsoft Graph) and Jira issues as Markdown sources for a wiki, and a
-local language model (Ollama) for dictation clean-up, English corrections and a recap of mail and chats.
+**Recap** for people who run many things at once through other people: what is mine, what I wait for, what changed, with
+matters, drafts, meeting cards and a memory in Markdown. The language model is the local one (Ollama) or GitHub Copilot,
+as you choose.
 Everything runs in user space: no admin rights, PowerShell 5.1, private Python.
 
 ## Dictation (step 1)
 
 Double-click `powertools.cmd` (a git clone, or the ZIP from GitHub unpacked anywhere: the setup turns a ZIP copy into a clone of github.com/brudnypiotr/powertools so Update works). The first start runs the setup (no admin rights): a Python with tkinter
-(found or installed per-user), `.venv`, faster-whisper with the CUDA libraries (~1.5 GB), shortcuts on the
+(found or installed per-user), `.venv`, faster-whisper (with an NVIDIA GPU also the CUDA libraries, ~1.5 GB together,
+else ~350 MB), shortcuts on the
 desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to skip that one).
 
 - **Alt+Q** (anywhere) starts recording; **Alt+Q** again stops, transcribes locally and pastes into the
@@ -19,8 +22,8 @@ desktop, in the Start menu and in Startup (`setup\setup.ps1 -NoAutostart` to ski
 - Quit: tray icon > Quit, Diagnostics > Quit, or Ctrl+C in `powertools.cmd --console`.
 - The window (tray icon > Open window) has the history, "Fix a word" (adds a replacement rule and the word
   to the vocabulary) and the settings: hotkey, model, language, microphone, vocabulary, replacements.
-- Nothing leaves the laptop: audio is never saved, history is text only in
-  `%LOCALAPPDATA%\powertools\history.sqlite`.
+- Speech stays on the laptop: audio is never saved, history is text only in
+  `%LOCALAPPDATA%\powertools\history.sqlite`. (Dictation clean-up, off by default, uses the model chosen in the AI tab.)
 
 `powertools.cmd --console` runs with the log in the window; `powertools.cmd --setup` repeats the setup.
 
@@ -149,16 +152,16 @@ Needs Python 3.10+ (a per-user install or one installed earlier by another setup
 
 ## Local AI (step 5)
 
-A small local model through [Ollama](https://github.com/ollama/ollama/releases/latest): the Local AI tab downloads the
+A small local model through [Ollama](https://github.com/ollama/ollama/releases/latest): the AI tab downloads the
 official Windows ZIP from GitHub and unpacks it to `%LOCALAPPDATA%\powertools\ollama` (no installer, no admin rights).
-Nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
+With this model nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
 
-- **Local AI tab**: the NVIDIA GPU and its VRAM (total, free now), one-click local Ollama setup from the GitHub ZIP
+- **AI tab**: the NVIDIA GPU and its VRAM (total, free now), one-click local Ollama setup from the GitHub ZIP
   (or Start it when already unpacked), the installed models, Download buttons for `gemma4:e2b` and `gemma4:e4b`, and
   **Test the model**: it loads the model, corrects a short English message once and reports tokens/s, load time, how
   much of the model sits on the GPU and the VRAM before/after, with a verdict (fast / usable / slow).
 - **GPU sharing** (6 GB): before Whisper loads a model on the GPU it asks Ollama to unload; a server started by
-  powertools keeps 1 GB of VRAM free (`OLLAMA_GPU_OVERHEAD`); Settings > Local AI > "CPU only" leaves the GPU to
+  powertools keeps 1 GB of VRAM free (`OLLAMA_GPU_OVERHEAD`); Settings > "CPU only" leaves the GPU to
   Whisper; Parakeet V3 for dictation leaves the GPU to the model. "Keep the model loaded" (default 5 min).
 - **Dictation clean-up** (Settings, off by default): after Whisper the model removes fillers and repetitions and fixes
   punctuation. An answer much shorter or longer than the transcript, an error or a timeout keeps the transcript. The
@@ -167,9 +170,49 @@ Nothing leaves the laptop: powertools talks to Ollama on 127.0.0.1 only.
   copied (the clipboard comes back), the window opens on the **Writing** tab with the mistakes (wrong → better · why)
   and a better version to edit and copy. "Replace the selection right away" pastes the better version over the
   selection instead. The Writing tab also checks pasted text. Ctrl+W works too, but then it no longer closes tabs.
-- **Recap** tab: mail (Inbox and all its subfolders) and Teams chats of the last day / 2 days / week / 2 weeks /
-  30 days or since a date, sorted by the model into **To do**, **To answer**, **Good to know** and **Ignore**, each with a one-line summary, the
-  next step, a deadline when one is mentioned, and a link to Outlook/Teams. Automatic senders (no-reply, notifications)
-  go to Ignore without the model. An experiment: move an item to the right group when the model is wrong, and the tab
-  counts how often it was right. Results stay in `%LOCALAPPDATA%\powertools\recap.json`; a conversation is classified
-  again only when it has a new message.
+
+## GitHub Copilot (optional)
+
+AI tab > "Where the model runs". Never a default: until you choose it, everything stays with the local model. With
+Copilot the text of mail, chats, Jira issues and meeting summaries is sent to GitHub Copilot; the Recap always shows
+where the model runs. **Prerequisite: a GitHub account with a Copilot licence.**
+
+- Sign-in: a fine-grained GitHub token with **Copilot Requests** (steps in the AI tab, kept with DPAPI), else the user
+  already signed in to the Copilot CLI. The SDK downloads its runtime from GitHub on first use and checks its SHA-256.
+- Every question is a session of its own without tools, skills, MCP or custom instructions, in an empty folder, deleted
+  afterwards. The model can only answer with text.
+- The AI tab counts calls and AI credits by task; Settings has a daily limit (default 80). **Compare** sorts
+  conversations of the last updates on the other model: how often it agrees with you, how long, how many credits.
+
+## Recap
+
+First start: five questions (role, what you run, who you must not miss, what came too late, what must never be read).
+Then one button, **Update**: mail (Inbox with subfolders, and Sent), Teams chats, Jira issues you are assigned to, watch
+or reported, the calendar of the next week and finished meeting summaries; only what is new since the last full Update.
+
+- **Today**: *Decisions waiting for me* · *Mine* (to do, to answer) · *Waiting for* (also threads only you wrote in;
+  "quiet for N days") · *Promised by me* / *to me* · meetings today · *Changed* · *Ignored*. "Why is this here?" shows
+  the sentence that decided it. Move, mute, snooze or close an item; corrections go into the next prompts.
+- **Matters** (a project, a case, a problem): created only by you; the Recap suggests. A conversation belongs to a matter
+  by its Jira key or thread, else by the model when a word of the matter's name is in the text, else it asks. States:
+  active, waiting, parked (comes back on a date), closed.
+- **Meetings**: "Prepare me" makes a card: goal, what I know, open from before, what to ask, agenda.
+- **Drafts** are written in the app and stay there; say what is wrong and it corrects the draft, and proposes a style
+  rule you can accept. **Nothing is ever sent**: the Graph client refuses every write except a reply put into the Outlook
+  *Drafts* folder (needs Mail.ReadWrite in the token), and only when you click it.
+- **People**: your direct reports and anyone you add: what is open both ways, your notes, a 1:1 card. No scores, no
+  response times.
+- **Ask**: answers from the memory and the items, with sources. Say what is different ("no, the deadline is Thursday") and
+  it changes the memory file, marked `(you)`, with Undo. A change that does not come from your words is only proposed.
+- **Brief me**, **Week in 10 lines**, **Brief upward**, **Back from leave**.
+
+Memory: Markdown in `Documents\powertools\memory` (Settings > Memory folder), readable and editable without the app.
+Lines with `(you)` are never overwritten; every write can be undone. Items and their text are in
+`%LOCALAPPDATA%\powertools\assistant.json`. **Never read** (Settings): people, words in a title, `folder: Name`; checked
+before anything is kept or shown to a model. Quotes and promises the model gives are checked against the source word by
+word. **I have an idea** opens a filled-in GitHub issue; you read it and submit it there.
+
+## Your own copy for an organisation
+
+See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+

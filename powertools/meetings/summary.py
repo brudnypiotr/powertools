@@ -1,4 +1,4 @@
-"""A summary and the key points of a meeting, written by the local model (Ollama) after the final transcript.
+"""A summary and the key points of a meeting, written by the chosen model (local or Copilot) after the final transcript.
 
 Long meetings do not fit the model's context: the transcript is cut into parts of about CHUNK_CHARS, each part gets
 its own notes, and one more call joins them. The result goes into the Markdown file above "## Transcript".
@@ -77,7 +77,8 @@ def segments_from_md(md: str) -> list[dict]:
 
 
 def _ask(llm, system: str, user: str) -> dict:
-    content, _ = llm.chat(system, user, SCHEMA, priority=BACKGROUND, max_tokens=1200, num_ctx=NUM_CTX, timeout=900)
+    content, _ = llm.chat(system, user, SCHEMA, priority=BACKGROUND, max_tokens=1200, num_ctx=NUM_CTX, timeout=900,
+                          task="meeting summary")
     data = parse_json(content)
     points = [str(p).strip() for p in data.get("key_points") or [] if str(p).strip()]
     return {"summary": str(data.get("summary") or "").strip(), "key_points": points}
@@ -103,14 +104,14 @@ def summarize(llm, meta: dict, segments: list[dict], step=lambda text: None) -> 
         result = _ask(llm, system_prompt(meta) + "\nYou get the notes of consecutive parts of the meeting, not the "
                       "transcript: join them into one summary and one list of key points for the whole meeting.",
                       "\n\n".join(notes))
-    return {**result, "model": llm.settings["llm_model"] if hasattr(llm, "settings") else "",
+    return {**result, "model": getattr(llm, "model", ""),
             "seconds": round(time.time() - t0, 1)}
 
 
 def section(result: dict) -> str:
     out = ["## Summary", "", result["summary"], "", "## Key points", ""]
     out += [f"- {p}" for p in result["key_points"]] or ["_(none)_"]
-    note = f"_Written by the local model{' ' + result['model'] if result.get('model') else ''} from the transcript "
+    note = f"_Written by the model{' ' + result['model'] if result.get('model') else ''} from the transcript "
     return "\n".join(out + ["", note + "below; check it against the transcript._", "", ""])
 
 

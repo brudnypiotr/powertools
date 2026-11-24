@@ -7,7 +7,6 @@ PyAudioWPatch; sys_platform == "win32"
 pystray
 pillow
 faster-whisper
+microsoft-copilot-sdk==2.0.1   # GitHub Copilot (the successor of github-copilot-sdk); its runtime is downloaded on first use
 onnx-asr[hub]    # Parakeet; onnxruntime itself comes with faster-whisper
 av<19            # av 19 dropped open(metadata_errors=...), which faster-whisper 1.2 still passes
-nvidia-cublas-cu12; sys_platform == "win32"
-nvidia-cudnn-cu12; sys_platform == "win32"

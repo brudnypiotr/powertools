@@ -94,6 +94,20 @@ def app_installed() -> bool:
     return bool(installed_profile(web_app_id(f"http://127.0.0.1:{PORT}/")))
 
 
+@route("POST", "/api/update/source")
+def update_source(h):
+    """Follow another repository (the organisation's own copy) from now on."""
+    from .. import updater
+
+    remote = str(h.json_body().get("remote", "")).strip()
+    if not remote.startswith("https://") or any(c.isspace() for c in remote):
+        raise ValueError("the repository address must start with https://")
+    try:
+        h.send(200, updater.switch(remote))
+    except updater.GitError as e:
+        raise ValueError(str(e)) from e
+
+
 @route("POST", "/api/update")
 def update(h):
     from .. import updater

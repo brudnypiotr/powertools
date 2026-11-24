@@ -62,6 +62,7 @@ def about(fetch: bool = False) -> dict:
             attach()  # a half-connected ZIP copy (setup's fetch failed): finish connecting it now
         info["commit"] = git("rev-parse", "--short", "HEAD")
         info["branch"] = git("rev-parse", "--abbrev-ref", "HEAD")
+        info["remote"] = git("remote", "get-url", "origin")
         info["changelog"] = _log("HEAD", 40)
         info["dirty"] = bool(git("status", "--porcelain", "--untracked-files=no"))
         if fetch:
@@ -88,11 +89,13 @@ def has_commit(root: Path = ROOT) -> bool:
 
 
 def update_source(root: Path = ROOT) -> dict:
-    """Official remote and branch from setup/sources.json."""
-    try:
-        u = json.loads((root / "setup" / "sources.json").read_text(encoding="utf-8")).get("update") or {}
-    except (OSError, ValueError):
-        u = {}
+    """Remote and branch from setup/site.json (an organisation's own copy has one), else from setup/sources.json."""
+    u: dict = {}
+    for name in ("sources.json", "site.json"):
+        try:
+            u = {**u, **(json.loads((root / "setup" / name).read_text(encoding="utf-8")).get("update") or {})}
+        except (OSError, ValueError):
+            pass
     return {"remote": u.get("remote") or "https://github.com/brudnypiotr/powertools.git", "branch": u.get("branch") or "main"}
 
 
@@ -136,6 +139,37 @@ def attach(root: Path = ROOT) -> dict:
         return {"attached": True, "remote": url, "commit": g("rev-parse", "--short", "HEAD"),
                 "message": f"connection to {url} ({src['branch']}) finished"}
     return {"attached": False, "remote": url, "message": f"already connected to {url}"}
+
+
+def switch(remote: str, root: Path = ROOT) -> dict:
+    """Take updates from another repository from now on. Only when it can be read and continues this copy's history
+    (its branch contains the current commit), so the next Update is an ordinary fast-forward. Local files stay."""
+    exe = git_exe()
+    if not exe:
+        raise GitError("git not found")
+
+    def g(*args: str, timeout: int = 120) -> str:
+        r = subprocess.run([exe, *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, creationflags=FLAGS)
+        if r.returncode != 0:
+            raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
+        return r.stdout.strip()
+
+    branch = update_source(root)["branch"]
+    g("fetch", "-q", remote, branch, timeout=600)     # asks for the sign-in when the repository is private
+    try:
+        g("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")
+    except GitError as e:
+        raise GitError("that repository does not continue this version: update first, or ask who maintains it") from e
+    old = g("remote", "get-url", "origin")
+    g("remote", "set-url", "origin", remote)
+    try:
+        g("fetch", "-q", "origin", timeout=600)
+        g("branch", "-q", "-u", f"origin/{branch}")
+    except GitError:
+        g("remote", "set-url", "origin", old)
+        raise
+    return {"remote": remote, "before": old}
 
 
 def update() -> dict:

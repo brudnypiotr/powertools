@@ -1,11 +1,10 @@
-"""Window API for the local model (Ollama): status and test, model download, wording and recap."""
+"""Window API for the language model: Ollama (status, test, download), GitHub Copilot (sign-in, usage), wording."""
 
 from __future__ import annotations
 
 import threading
 
 from ..llm import LLMError
-from .api_graph import guarded
 from .server import route
 
 INSTALL: dict = {"state": "", "status": "", "completed": 0, "total": 0, "error": ""}
@@ -14,7 +13,7 @@ PULL: dict = {"model": "", "state": "", "status": "", "completed": 0, "total": 0
 
 @route("GET", "/api/llm/status")
 def llm_status(h):
-    h.send(200, {**h.app.llm.status(), "install": dict(INSTALL), "pull": dict(PULL), "engine": h.app.engine.status()})
+    h.send(200, {**h.app.llm.local.status(), "install": dict(INSTALL), "pull": dict(PULL), "engine": h.app.engine.status()})
 
 
 @route("POST", "/api/llm/install")
@@ -28,7 +27,7 @@ def llm_install(h):
 
     def run() -> None:
         try:
-            h.app.llm.install(progress)
+            h.app.llm.local.install(progress)
             INSTALL.update(state="done", status="installed")
         except LLMError as e:
             INSTALL.update(state="error", error=str(e))
@@ -39,16 +38,16 @@ def llm_install(h):
 
 @route("POST", "/api/llm/start")
 def llm_start(h):
-    if not h.app.llm.ensure_running():
+    if not h.app.llm.local.ensure_running():
         raise ValueError("Ollama is not installed: set it up in the Local AI tab, then try again")
-    h.send(200, h.app.llm.status())
+    h.send(200, h.app.llm.local.status())
 
 
 @route("POST", "/api/llm/test")
 def llm_test(h):
     model = str(h.json_body().get("model", "")).strip()
     try:
-        h.send(200, h.app.llm.test(model))
+        h.send(200, h.app.llm.local.test(model))
     except LLMError as e:
         raise ValueError(str(e)) from e
 
@@ -67,7 +66,7 @@ def llm_pull(h):
 
     def run() -> None:
         try:
-            h.app.llm.pull(model, progress)
+            h.app.llm.local.pull(model, progress)
             PULL.update(state="done", status="downloaded")
         except LLMError as e:
             PULL.update(state="error", error=str(e))
@@ -84,12 +83,51 @@ def llm_delete(h):
     if PULL["state"] == "running" and PULL["model"] == model:
         raise ValueError(f"{model} is downloading now")
     try:
-        h.app.llm.delete(model)
+        h.app.llm.local.delete(model)
     except LLMError as e:
         raise ValueError(str(e)) from e
     if PULL["model"] == model:
         PULL.update(model="", state="", status="", error="")
-    h.send(200, h.app.llm.status())
+    h.send(200, h.app.llm.local.status())
+
+
+# ------------------------------------------------------------------ GitHub Copilot
+@route("GET", "/api/ai/usage")
+def ai_usage(h):
+    u, s = h.app.llm.usage, h.app.settings
+    h.send(200, {"today": u.today(), "month": u.month(), "limit": s["copilot_daily_credits"],
+                 "provider": s["ai_provider"], "model": h.app.llm.model})
+
+
+@route("GET", "/api/ai/copilot")
+def ai_copilot(h):
+    h.send(200, h.app.llm.cloud.status())
+
+
+@route("POST", "/api/ai/copilot/token")
+def ai_copilot_token(h):
+    h.send(200, h.app.llm.cloud.set_token(str(h.json_body().get("token", ""))))
+
+
+@route("DELETE", "/api/ai/copilot/token")
+def ai_copilot_token_clear(h):
+    h.app.llm.cloud.secret.clear()
+    h.send(200, {"token": False})
+
+
+@route("POST", "/api/ai/copilot/test")
+def ai_copilot_test(h):
+    """The wording task once on Copilot: does it answer, how fast, how many credits."""
+    from .. import wording
+    from ..llm import TEST_TEXT, parse_json
+
+    try:
+        content, stats = h.app.llm.chat(wording.SYSTEM, TEST_TEXT, wording.SCHEMA, max_tokens=400, task="test",
+                                        provider="copilot")
+        answer = parse_json(content)
+    except LLMError as e:
+        raise ValueError(str(e)) from e
+    h.send(200, {**stats, "improved": answer.get("improved", ""), "issues": len(answer.get("issues") or [])})
 
 
 @route("GET", "/api/wording")
@@ -101,29 +139,3 @@ def wording_last(h):
 def wording_check(h):
     b = h.json_body()
     h.send(200, h.app.wording.check(str(b.get("text", "")), str(b.get("style", ""))))
-
-
-@route("GET", "/api/recap")
-def recap_view(h):
-    h.send(200, h.app.recap.view())
-
-
-@route("POST", "/api/recap")
-@guarded
-def recap_start(h):
-    b = h.json_body()
-    if not h.app.graph.status()["has_token"]:
-        return h.send(401, {"error": "token", "message": "Paste a fresh token from Graph Explorer."})
-    h.app.recap.start(dict(b.get("range", {})), list(b.get("sources", [])))
-    h.send(200, h.app.recap.view())
-
-
-@route("POST", "/api/recap/correct")
-def recap_correct(h):
-    b = h.json_body()
-    h.send(200, h.app.recap.correct(str(b.get("key", "")), str(b.get("category", ""))))
-
-
-@route("DELETE", "/api/recap")
-def recap_clear(h):
-    h.send(200, h.app.recap.clear())

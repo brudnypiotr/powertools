@@ -30,7 +30,7 @@ whisper worker ..... owns the GPU model; a queue of jobs (dictation first, then 
 meeting watcher .... every 5 s: registry (Teams on the mic?) + cached calendar event with a Teams link overlapping now
 recorder (subproc) . PyAudioWPatch: mic.wav + others.wav in 30 s chunks; a crash never takes the app down
 sync jobs .......... Graph exports and the recap, one at a time, on demand from the window
-local model ........ Ollama (own process, 127.0.0.1:11434): clean-up, wording, recap over HTTP; interactive calls first
+language model ..... Brain: Ollama (own process, 127.0.0.1:11434) or GitHub Copilot (SDK runtime, own process), as chosen
 ```
 
 Modules (`powertools/`): `app` (wiring, tray, popup), `web` (routes + static UI), `dictation`, `meetings`
@@ -42,7 +42,7 @@ Modules (`powertools/`): `app` (wiring, tray, popup), `web` (routes + static UI)
 **Dictation.** Toggle hotkey (Alt+Q by default). Record the selected mic → faster-whisper turbo with VAD →
 replacement rules → paste with Ctrl+V → restore the clipboard. `initial_prompt` from the user's word list.
 History (text only) in SQLite, with "add a correction" in the window. A post-processor hook exists for a future
-**local** LLM and is off; no text leaves the laptop.
+LLM and is off.
 
 **Meetings.** Watcher sees Teams on the microphone → popup "Record 'Title'?" (title and attendees from the
 calendar if an event with a Teams link is on now; otherwise "Teams call"). Two tracks: mic = **Me**, loopback of
@@ -90,6 +90,25 @@ Each step ships with unit tests that run on CI (`windows-latest`, dry) and a sho
 
 ## Out of scope
 
-Team channels, official Teams transcripts and recordings, anything needing admin consent or IT, cloud LLMs.
-The language model is local only (Ollama, step 5): the GPU is shared with Whisper, which unloads the model before it
-loads its own.
+Team channels, official Teams transcripts and recordings, anything needing admin consent or IT, sending anything.
+Cloud LLMs other than GitHub Copilot. The GPU is shared with Whisper, which unloads the local model before it loads its
+own.
+
+## The assistant (`powertools/assistant`)
+
+```
+Update -> collect (cursor, exclusions)            code
+       -> triage + promises, one conversation     model, small JSON; quotes checked by code
+       -> match to matters (keys, then model)     code, model; code checks the model's match
+       -> timeline, state, open list              code writes the files
+       -> drafts of answers                       model; kept in the app
+```
+
+1. Code reads and writes files; the model returns small JSON for one small question (`skills.py`).
+2. Every line in memory has a source or `(you)`; what the user said wins and is never overwritten.
+3. Mail and chats are data. Defences: no tools, JSON schemas, quote checks, a closed list of Graph writes, memory edits
+   only from the user's own words, a mark on texts that give orders to an AI.
+4. Nothing is sent. `graph/client.py` refuses every POST that is not in `WRITES`.
+5. Nothing disappears by itself: matters are parked; a failed or partial Update does not move the cursor; what could not
+   be sorted is shown as "Not sorted", never as "nothing to do".
+6. The truth is in the Markdown files; `assistant.json` is a working state.

@@ -1,6 +1,6 @@
 """Meeting sessions: start/stop the recorder subprocess, live transcription of 30 s chunks, the final pass with
 the accurate model, the Markdown file (Me / Others, calendar metadata, marked moments) and, after it, a summary with
-the key points from the local model.
+the key points from the chosen model.
 
 While "Me" is muted (the mute hotkey, Ctrl+Shift+M like Teams, the Mute button, or Teams' local API where it is
 allowed) the microphone track is not recorded: the file MUTED in the session folder tells the recorder to write
@@ -443,9 +443,9 @@ class MeetingManager:
 
     # ------------------------------------------------------------------ summary
     def summarize(self, session: Session) -> None:
-        """Summary and key points from the local model, written into the Markdown file above the transcript."""
+        """Summary and key points from the chosen model, written into the Markdown file above the transcript."""
         if not self.llm:
-            raise ValueError("no local model")
+            raise ValueError("no language model")
         md = Path(session.meta.get("md") or "")
         try:
             segs = json.loads((session.folder / "transcript.json").read_text(encoding="utf-8"))
@@ -458,7 +458,7 @@ class MeetingManager:
             self.on_change()
 
         session.meta.pop("summary_error", None)
-        step("waiting for the local model")
+        step("waiting for the model")
         session.save()
         try:
             result = summary.summarize(self.llm, session.meta, segs, step)

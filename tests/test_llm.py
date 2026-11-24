@@ -1,4 +1,4 @@
-"""Local model features against a fake Ollama and a fake Graph: clean-up guard, wording, recap, test verdict."""
+"""Local model features against a fake Ollama: clean-up guard, wording, test verdict."""
 
 import hashlib
 import json
@@ -6,12 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from powertools import cleanup, llm, recap, wording
+from powertools import cleanup, llm, wording
 from powertools.config import Settings
 from powertools.dictation import Dictation
 from powertools.store import Store
 from tests.test_app_core import FakeEngine, FakeRecorder
-from tests.test_graph_export import FakeGraph
 
 NOW = datetime.now(timezone.utc)
 
@@ -151,110 +150,6 @@ def test_available_is_cached(tmp_path, monkeypatch):
     assert o.available() == {"installed": False, "running": False}
     o.available(); o.available()
     assert len(calls) == 1
-
-
-# ---------------------------------------------------------------- recap
-class FakeJobs:
-    def __init__(self):
-        self.all = []
-
-    def submit(self, title, run, kind=""):
-        from powertools.jobs import Job
-        job = Job(title, run)
-        run(job)              # synchronous for the test
-        job.state = "done"
-        self.all.append(job)
-        return job
-
-
-class FakeService:
-    def __init__(self, g):
-        self.g, self.jobs = g, FakeJobs()
-
-
-ME = {"id": "u-me", "displayName": "Piotr B", "mail": "me@example.invalid", "userPrincipalName": "me@example.invalid"}
-
-
-def addr(name, a):
-    return {"emailAddress": {"name": name, "address": a}}
-
-
-def recap_graph():
-    asks = [{"id": "e1", "conversationId": "cv1", "subject": "Review of rule 12", "receivedDateTime": iso(5),
-             "from": addr("Anna", "anna@example.invalid"), "toRecipients": [addr("Piotr B", "me@example.invalid")],
-             "body": {"contentType": "text", "content": "Can you review rule 12 by Friday?"}, "webLink": "https://o/e1"}]
-    news = [{"id": "e2", "conversationId": "cv2", "subject": "Weekly digest", "receivedDateTime": iso(3),
-             "from": addr("News", "no-reply@example.invalid"), "body": {"contentType": "text", "content": "Top stories"}}]
-    answered = [{"id": "e3", "conversationId": "cv3", "subject": "Lunch", "receivedDateTime": iso(8),
-                 "from": addr("Ola", "ola@example.invalid"), "body": {"contentType": "text", "content": "Lunch?"}},
-                {"id": "e4", "conversationId": "cv3", "subject": "RE: Lunch", "sentDateTime": iso(7), "receivedDateTime": iso(7),
-                 "from": addr("Piotr B", "me@example.invalid"), "body": {"contentType": "text", "content": "Sure, 12:30"}}]
-    threads = {"cv1": asks, "cv2": news, "cv3": answered}
-
-    def messages(params):
-        f = params.get("$filter", "")
-        for cid, msgs in threads.items():
-            if f"'{cid}'" in f:
-                return {"value": msgs}
-        raise AssertionError(f)
-    inbox = {"value": news + answered[:1]}
-    folders = {"/me/mailFolders/inbox/childFolders": {"value": [{"id": "f-rules", "childFolderCount": 1},
-                                                                {"id": "f-empty", "childFolderCount": 0}]},
-               "/me/mailFolders/f-rules/childFolders": {"value": [{"id": "f-deep", "childFolderCount": 0}]},
-               "/me/mailFolders/f-rules/messages": {"value": []},
-               "/me/mailFolders/f-empty/messages": {"value": []},
-               "/me/mailFolders/f-deep/messages": {"value": asks}}
-    chat = {"value": [{"id": "c1", "chatType": "oneOnOne", "members": [{"displayName": "Jan", "userId": "u-jan"}],
-                       "lastMessagePreview": {"createdDateTime": iso(2)}, "webUrl": "https://t/c1"},
-                      {"id": "c2", "chatType": "group", "topic": "Old", "members": [],
-                       "lastMessagePreview": {"createdDateTime": iso(24 * 20)}}]}
-    chat_msgs = {"value": [{"id": "t1", "messageType": "message", "createdDateTime": iso(2),
-                            "from": {"user": {"id": "u-jan", "displayName": "Jan"}},
-                            "body": {"contentType": "text", "content": "Do you have a minute to answer my question?"}}]}
-    return FakeGraph({"/me/mailFolders/inbox/messages": inbox, **folders, "/me/messages": messages, "/me/chats": chat,
-                      "/chats/c1/messages": chat_msgs, "/me": ME})
-
-
-def test_recap_sorts_caches_and_learns(tmp_path):
-    s = Settings(tmp_path / "s.json")
-    def answer(user):
-        if "rule 12" in user:
-            return {"category": "todo", "summary": "Rule 12 review.", "action": "Review rule 12", "due": "Friday"}
-        if "Lunch" in user:
-            return {"category": "fyi", "summary": "Lunch agreed.", "action": "", "due": ""}
-        return {"category": "reply", "summary": "Jan has a question.", "action": "Answer Jan", "due": ""}
-    model = FakeLLM(answer)
-    r = recap.Recap(s, FakeService(recap_graph()), model, tmp_path / "recap.json")
-    r.start({"kind": "days", "days": 2}, ["mail", "teams"])
-    v = r.view()
-    by = {i["title"]: i for i in v["items"]}
-    assert set(by) == {"Review of rule 12", "Weekly digest", "Lunch", "Jan"}        # the 20-day-old chat is out
-    assert by["Weekly digest"]["category"] == "ignore" and by["Weekly digest"]["by"] == "rule"
-    assert by["Review of rule 12"]["action"] == "Review rule 12" and by["Review of rule 12"]["link"] == "https://o/e1"
-    assert by["Lunch"]["last_from_me"] and by["Lunch"]["category"] == "fyi"
-    assert [("(The latest message is from me.)" in c["user"]) for c in model.calls] == [False, False, True]
-    assert by["Jan"]["source"] == "teams" and by["Jan"]["category"] == "reply"
-    assert len(model.calls) == 3 and "Piotr B" in model.calls[0]["system"]
-    assert all("text" not in i for i in v["items"])                                  # the window never gets the bodies
-
-    r.correct("mail:cv3", "ignore")
-    assert r.view()["reviewed"] == 1 and r.view()["agreed"] == 0
-    # a second run asks the model only about what changed; the correction survives
-    r2 = recap.Recap(s, FakeService(recap_graph()), model, tmp_path / "recap.json")
-    r2.start({"kind": "days", "days": 2}, ["mail", "teams"])
-    assert len(model.calls) == 3
-    assert {i["key"]: i.get("user_category") for i in r2.view()["items"]}["mail:cv3"] == "ignore"
-    with pytest.raises(ValueError):
-        r2.start({"kind": "all"}, [])
-
-
-def test_recap_survives_a_model_error(tmp_path):
-    s = Settings(tmp_path / "s.json")
-    r = recap.Recap(s, FakeService(recap_graph()), FakeLLM(error="Ollama is not running"), tmp_path / "recap.json")
-    r.start({"kind": "days", "days": 2}, ["mail"])
-    items = r.view()["items"]
-    assert any(i.get("error") for i in items)
-    assert not r.data["cache"] or all("error" not in c for c in r.data["cache"].values())
 
 
 # ---------------------------------------------------------------- Ollama client + test verdict
@@ -500,24 +395,6 @@ def test_ollama_delete_unloads_then_removes(tmp_path, monkeypatch):
     calls.clear()
     o.delete("gemma4:e2b")                     # not loaded: nothing to unload
     assert [p for m, p, b in calls] == ["/api/ps", "/api/delete"]
-
-
-def test_recap_start_clears_the_old_one_and_shows_the_step(tmp_path):
-    s = Settings(tmp_path / "s.json")
-    r = recap.Recap(s, FakeService(recap_graph()), FakeLLM(lambda u: {"category": "fyi"}), tmp_path / "recap.json")
-    r.start({"kind": "days", "days": 2}, ["mail"])
-    assert r.view()["items"] and r.view()["current"] == ""                       # finished: no step shown
-
-    class Waiting(FakeJobs):
-        def submit(self, title, run, kind=""):
-            from powertools.jobs import Job
-            self.all.append(Job(title, run))                                     # queued behind an export
-            return self.all[-1]
-    r.graph.jobs = Waiting()
-    r.start({"kind": "days", "days": 7}, ["teams"])
-    v = r.view()
-    assert v["items"] == [] and v["range"]["days"] == 7 and "waiting" in v["current"]
-    assert r.data["cache"]                                                        # the cache stays
 
 
 def test_wording_style_rewrite_uses_its_own_prompt(tmp_path):

@@ -29,7 +29,8 @@ def clean(llm, text: str, vocabulary: list[str] | None = None, timeout: float = 
         return text, ""
     system = SYSTEM + (f"\nSpell these words exactly like this: {', '.join(vocabulary)}." if vocabulary else "")
     try:
-        out, _stats = llm.chat(system, text, max_tokens=int(words * 2.5) + 40, timeout=timeout)
+        out, _stats = llm.chat(system, text, max_tokens=int(words * 2.5) + 40, timeout=timeout,
+                               task="clean-up")
     except LLMError as e:
         log.warning("clean-up skipped: %s", e)
         return text, f"clean-up skipped: {e}"

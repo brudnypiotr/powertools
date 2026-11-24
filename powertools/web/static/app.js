@@ -16,6 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 document.querySelectorAll("nav button[data-tab]").forEach((b) =>
   b.addEventListener("click", () => {
     if (b.disabled) return;
+    if (b.closest("#more-nav")) openMore(true);
     document.querySelectorAll("nav button, .tab").forEach((e) => e.classList.remove("active"));
     b.classList.add("active");
     $("#" + b.dataset.tab).classList.add("active");
@@ -27,10 +28,13 @@ document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     if (b.dataset.tab === "meetings") loadMeetings();
     if (b.dataset.tab === "org") { renderGraphBar(); loadJobs(); loadOrgSaved(); if (!orgChain.length) loadOrgChain(); }
     if (b.dataset.tab === "writing") loadWording();
-    if (b.dataset.tab === "recap") { renderGraphBar(); loadRecap(); loadJobs(); }
+    if (b.dataset.tab === "recap") { renderGraphBar(); loadRecap(); }
     if (b.dataset.tab === "ai") loadAI();
     if (b.dataset.tab === "jira") { renderJiraBar(false); loadJiraDownloaded(); loadJobs(); loadJiraFields(); }
   }));
+
+function openMore(on) { $("#more-nav").classList.toggle("hidden", !on); $("#more").setAttribute("aria-expanded", on); }
+$("#more").addEventListener("click", () => openMore($("#more-nav").classList.contains("hidden")));
 
 // ---------------------------------------------------------------- status
 let lastId = null;
@@ -106,10 +110,10 @@ const ICONS = {
   fix: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
   del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
-function toast(text) {
+function toast(text, ms = 1400) {
   const t = Object.assign(document.createElement("div"), { className: "toast", textContent: text });
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1400);
+  setTimeout(() => t.remove(), ms);
 }
 $("#history").addEventListener("click", async (ev) => {
   const btn = ev.target.closest("[data-act]");
@@ -152,9 +156,9 @@ async function loadSettings() {
   f.input_device.innerHTML = `<option value="">Windows default</option>` +
     [...new Set([...devices, s.input_device].filter(Boolean))].map((d) => `<option>${esc(d)}</option>`).join("");
   for (const k of ["hotkey", "model", "language", "input_device", "beam_size", "output_dir", "jira_url", "jira_email",
-    "jira_max_attachment_mb", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
+    "jira_max_attachment_mb", "memory_dir", "silence_days", "matter_quiet_days", "copilot_daily_credits", "copilot_effort", "llm_gpu", "llm_keep_alive_min", "wording_hotkey", "wording_mode"]) f[k].value = s[k];
   for (const k of ["paste", "restore_clipboard", "open_window_on_start", "mail_attachments", "app_window", "jira_attachments",
-    "small_on_cpu", "dictation_cleanup"]) f[k].checked = s[k];
+    "small_on_cpu", "dictation_cleanup", "auto_drafts"]) f[k].checked = s[k];
   const llmModels = (installed, suggested) => {
     const names = [...new Set([...installed, ...suggested, s.llm_model].filter(Boolean))];
     f.llm_model.innerHTML = names.map((m) => `<option value="${esc(m)}">${esc(m)}${installed.includes(m) ? "" : " (not downloaded)"}</option>`).join("");
@@ -163,6 +167,7 @@ async function loadSettings() {
   llmModels([s.llm_model], []);
   api("GET", "/api/llm/status").then((st) => llmModels((st.models || []).map((m) => m.name), st.suggested || [])).catch(() => {});
   f.vocabulary.value = s.vocabulary.join("\n");
+  f.exclude.value = s.exclude.join("\n");
   f.replacements.value = s.replacements.map((r) => `${r.from} => ${r.to}`).join("\n");
 }
 $("#settings-form").addEventListener("submit", async (e) => {
@@ -179,6 +184,8 @@ $("#settings-form").addEventListener("submit", async (e) => {
     meeting_prompt: f.meeting_prompt.checked, notifications: f.notifications.checked, meeting_mic: f.meeting_mic.value, meeting_output: f.meeting_output.value,
     meeting_final_model: f.meeting_final_model.value, meeting_keep_audio_days: Number(f.meeting_keep_audio_days.value),
     meeting_mute_sync: f.meeting_mute_sync.checked, meeting_summary: f.meeting_summary.checked, meeting_mute_hotkey: f.meeting_mute_hotkey.value.trim(),
+    exclude: lines(f.exclude.value), memory_dir: f.memory_dir.value.trim(), auto_drafts: f.auto_drafts.checked, silence_days: Number(f.silence_days.value),
+    matter_quiet_days: Number(f.matter_quiet_days.value), copilot_daily_credits: Number(f.copilot_daily_credits.value), copilot_effort: f.copilot_effort.value,
     llm_model: f.llm_model.value, llm_gpu: f.llm_gpu.value, llm_keep_alive_min: Number(f.llm_keep_alive_min.value),
     dictation_cleanup: f.dictation_cleanup.checked, wording_hotkey: f.wording_hotkey.value, wording_mode: f.wording_mode.value,
     replacements: lines(f.replacements.value).filter((l) => l.includes("=>"))
@@ -699,14 +706,12 @@ $("#update-all").onclick = async () => {
 
 // ---------------------------------------------------------------- writing (wording hotkey + pasted text)
 let focusSeq = null, wordingSeen = null;
-function gateLocalAI(llm) {  // Writing and Recap need Ollama: greyed out until it is installed
+function gateLocalAI(llm) {  // Writing needs a model: greyed out until there is one
   const ok = !llm || llm.installed || llm.running;
-  for (const tab of ["writing", "recap"]) {
-    const b = document.querySelector(`nav button[data-tab="${tab}"]`);
-    b.disabled = !ok;
-    b.title = ok ? "" : "Needs Ollama: see the Local AI tab";
-    if (!ok && b.classList.contains("active")) showTab("ai");
-  }
+  const b = document.querySelector('nav button[data-tab="writing"]');
+  b.disabled = !ok;
+  b.title = ok ? "" : "Needs Ollama or GitHub Copilot: see the AI tab";
+  if (!ok && b.classList.contains("active")) showTab("ai");
 }
 function showTab(name) { const b = document.querySelector(`nav button[data-tab="${name}"]`); if (b && !b.classList.contains("active")) b.click(); }
 function followFocus(s) {
@@ -726,7 +731,7 @@ function renderWording(w) {
   const box = $("#w-result");
   if (!w || !w.state) { box.innerHTML = ""; return; }
   if (w.original && w.original !== $("#w-text").value && w.mode !== "window") $("#w-text").value = w.original;
-  if (w.state === "working") { $("#w-status").textContent = "Checking with the local model..."; box.innerHTML = ""; return; }
+  if (w.state === "working") { $("#w-status").textContent = "Checking with the model..."; box.innerHTML = ""; return; }
   $("#w-status").textContent = w.stats ? `${w.stats.model} · ${w.stats.total_s} s` : "";
   if (w.state === "error") { box.innerHTML = `<div class="card"><span class="err">${esc(w.error)}</span></div>`; return; }
   const issues = w.style ? "" : `<h3>Mistakes</h3>` + (w.issues.length ? `<ul class="issues">${w.issues.map((i) => `<li><span class="wrong">${esc(i.wrong)}</span> →
@@ -744,7 +749,7 @@ async function runWording(style) {
   if (!text) return $("#w-text").focus();
   const buttons = document.querySelectorAll("#w-check, .w-style");
   buttons.forEach((b) => (b.disabled = true));
-  $("#w-status").textContent = style ? "Rewriting with the local model..." : "Checking with the local model...";
+  $("#w-status").textContent = style ? "Rewriting with the model..." : "Checking with the model...";
   $("#w-result").innerHTML = "";
   try { renderWording(await api("POST", "/api/wording", { text, style })); }
   catch (e) { $("#w-status").textContent = ""; $("#w-result").innerHTML = `<div class="card"><span class="err">${esc(e.message)}</span></div>`; }
@@ -752,61 +757,6 @@ async function runWording(style) {
 }
 $("#w-check").addEventListener("click", () => runWording(""));
 document.querySelectorAll(".w-style").forEach((b) => b.addEventListener("click", () => runWording(b.dataset.style)));
-
-// ---------------------------------------------------------------- recap
-const GROUPS = [["todo", "To do"], ["reply", "To answer"], ["fyi", "Good to know"], ["ignore", "Ignore"]];
-let recapTimer = null;
-async function loadRecap() {
-  const r = await api("GET", "/api/recap");
-  const running = r.job && (r.job.state === "running" || r.job.state === "queued");
-  const rng = r.range || {};
-  const when = r.created ? new Date(r.created * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "";
-  $("#recap-status").textContent = !r.items.length && !running ? "No recap yet: pick a range and press Recap."
-    : `${when ? (running ? "Started " : "Made ") + when : ""}${rng.kind === "days" ? `, last ${rng.days} day(s)` : rng.date ? `, since ${rng.date}` : ""}` +
-      `${r.model ? " · " + r.model : ""}` +
-      (r.reviewed ? ` · you checked ${r.reviewed}: the model was right in ${r.agreed}` : " · move an item to the right group when the model is wrong");
-  const job = r.job || {};
-  $("#recap-form button").disabled = running;
-  const pct = job.total ? Math.round(100 * job.done / job.total) : 0;
-  $("#recap-now").innerHTML = running
-    ? `<div class="card recap-now"><b>Working:</b> ${esc(r.current || job.state)}
-        ${job.total ? `<div class="bar"><span style="width:${pct}%"></span></div><span class="muted small">${job.done} of ${job.total} sorted; they show up below as they are done</span>` : ""}
-        ${job.state === "queued" && r.ahead.length ? `<div class="muted small">First the job that is running now: ${esc(r.ahead.join(", "))}</div>` : ""}</div>`
-    : job.state === "needs_token" ? `<div class="card"><span class="warn">Paused: the token expired. Get a new token and the recap goes on.</span></div>`
-    : job.state === "error" ? `<div class="card"><span class="err">The recap stopped: ${esc(job.error)}</span></div>` : "";
-  $("#recap-list").innerHTML = GROUPS.map(([cat, label]) => {
-    const items = r.items.filter((i) => (i.user_category || i.category) === cat);
-    if (!items.length) return "";
-    return `<details class="card recap-group ${cat}" ${cat === "ignore" ? "" : "open"}><summary><b>${label}</b> <span class="muted">${items.length}</span></summary>
-      <ul class="recap-items">${items.map((i) => `<li>
-        <div class="recap-head"><span class="src">${i.source === "mail" ? "Mail" : "Teams"}</span>
-          ${i.link ? `<a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : `<b>${esc(i.title)}</b>`}
-          <span class="muted">${esc(i.people)} · ${ago(i.last)}${i.last_from_me ? " · last message yours" : ""}</span>
-          <select data-key="${esc(i.key)}" title="Move to the right group">${GROUPS.map(([c, l]) =>
-            `<option value="${c}" ${c === (i.user_category || i.category) ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-        ${i.summary ? `<div>${esc(i.summary)}</div>` : ""}
-        ${i.action ? `<div class="action">→ ${esc(i.action)}${i.due ? ` <span class="warn">(${esc(i.due)})</span>` : ""}</div>` : ""}
-        ${i.error ? `<div class="err small">${esc(i.error)}</div>` : ""}
-        ${i.user_category && i.user_category !== i.category ? `<div class="muted small">model said: ${esc(i.category)}</div>` : ""}</li>`).join("")}</ul></details>`;
-  }).join("");
-  clearTimeout(recapTimer);
-  if (running) recapTimer = setTimeout(() => { if ($("#recap").classList.contains("active")) loadRecap(); }, 2000);
-}
-$("#recap-form").days.addEventListener("change", (e) => $("#recap-form .since").classList.toggle("hidden", e.target.value !== "since"));
-$("#recap-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const range = f.days.value === "since" ? { kind: "since", date: f.since.value } : { kind: "days", days: Number(f.days.value) };
-  const sources = [f.mail.checked && "mail", f.teams.checked && "teams"].filter(Boolean);
-  try { await graphCall("POST", "/api/recap", { range, sources }); loadRecap(); loadJobs(); }
-  catch (err) { alert(err.message); }
-});
-$("#recap-list").addEventListener("change", async (e) => {
-  const sel = e.target.closest("select[data-key]");
-  if (!sel) return;
-  await api("POST", "/api/recap/correct", { key: sel.dataset.key, category: sel.value });
-  loadRecap();
-});
 
 // ---------------------------------------------------------------- local AI: GPU, Ollama, models, test
 let aiTimer = null;
@@ -862,7 +812,7 @@ async function loadAI() {
   const sel = $("#ai-model"), cur = sel.value || s.model;
   sel.innerHTML = [...new Set([s.model, ...(s.models || []).map((m) => m.name)])].map((m) => `<option>${esc(m)}</option>`).join("");
   sel.value = cur;
-  gateLocalAI(s);
+  renderProvider();
   clearTimeout(aiTimer);
   if ((p.state === "running" || inst.state === "running") && $("#ai").classList.contains("active")) aiTimer = setTimeout(loadAI, 1500);
 }
@@ -885,8 +835,63 @@ $("#ai-test").addEventListener("click", async () => {
   loadAI();
 });
 
+// ---------------------------------------------------------------- provider, GitHub Copilot, comparison
+async function renderProvider() {
+  const u = await api("GET", "/api/ai/usage");
+  document.querySelectorAll('input[name="ai-provider"]').forEach((r) => {
+    r.checked = r.value === (u.provider || "local");
+    r.onchange = async () => { await api("POST", "/api/settings", { ai_provider: r.value }); renderProvider(); };
+  });
+  const by = Object.entries(u.today.by || {}).map(([k, v]) => `${esc(k)} ${v.credits.toFixed(1)} (${v.calls})`).join(", ");
+  $("#ai-usage").innerHTML = `Copilot today: ${u.today.credits.toFixed(1)} of ${u.limit || "∞"} credits in ${u.today.calls} calls${by ? ": " + by : ""}. This month: ${u.month}.`;
+}
+function renderCopilot(c) {
+  $("#copilot-status").innerHTML = c.ok ? `<span class="ok">Signed in${c.login ? " as " + esc(c.login) : ""}</span>${c.token ? " with a token" : ""}${c.detail ? ` · <span class="warn">${esc(c.detail)}</span>` : ""}`
+    : `<span class="warn">${esc(c.detail || "not signed in")}</span>`;
+  const sel = $("#copilot-model");
+  sel.innerHTML = [...new Set([c.model, ...c.models])].map((m) => `<option ${m === c.model ? "selected" : ""}>${esc(m)}</option>`).join("");
+  sel.onchange = () => api("POST", "/api/settings", { copilot_model: sel.value });
+}
+$("#copilot-check").addEventListener("click", async (e) => {
+  e.target.disabled = true; $("#copilot-status").textContent = "Checking (the first time downloads the Copilot runtime)...";
+  try { renderCopilot(await api("GET", "/api/ai/copilot")); } catch (err) { $("#copilot-status").textContent = err.message; }
+  e.target.disabled = false;
+});
+$("#copilot-token").addEventListener("submit", async (e) => {
+  e.preventDefault(); $("#copilot-status").textContent = "Checking the token...";
+  try { renderCopilot(await api("POST", "/api/ai/copilot/token", { token: e.target.token.value })); e.target.token.value = ""; } catch (err) { $("#copilot-status").innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+});
+$("#copilot-forget").addEventListener("click", async () => { await api("DELETE", "/api/ai/copilot/token"); $("#copilot-status").textContent = "Token removed."; });
+$("#copilot-test").addEventListener("click", async (e) => {
+  e.target.disabled = true; $("#copilot-result").innerHTML = `<div class="muted">Asking...</div>`;
+  try { const t = await api("POST", "/api/ai/copilot/test"); $("#copilot-result").innerHTML = `<div class="ok">${esc(t.model)} answered in ${t.total_s} s, ${t.credits == null ? "credits unknown" : t.credits.toFixed(2) + " credits"}</div><div class="muted small">${esc(t.improved)}</div>`; }
+  catch (err) { $("#copilot-result").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+  e.target.disabled = false; renderProvider();
+});
+async function pollCompare() {
+  const c = await api("GET", "/api/ai/compare"), r = c.result || {};
+  $("#cmp-run").disabled = c.state === "running";
+  if (c.state === "running") { $("#cmp-result").innerHTML = `<div class="muted">Sorting again (after the running job)...</div>`; return setTimeout(pollCompare, 2000); }
+  $("#cmp-result").innerHTML = c.state === "error" ? `<div class="err">${esc(c.error)}</div>` : r.items === undefined ? "" : `<div class="verdict"><b>${r.items} sorted in ${r.seconds} s${r.credits ? `, ${r.credits} credits` : ""}</b>;
+    right in ${r.right} of ${r.reviewed} you checked; the same as before in ${r.same}${r.errors ? `; <span class="err">${r.errors} failed: ${esc(r.error)}</span>` : ""}</div>
+    <table class="list"><tr><th>Conversation</th><th>Now</th><th>Before</th><th>You</th></tr>${r.rows.filter((x) => x.now !== x.before || x.you).map((x) => `<tr><td>${esc(x.title)}</td><td>${x.now}</td><td>${x.before}</td><td>${x.you}</td></tr>`).join("")}</table>`;
+}
+$("#cmp-run").addEventListener("click", async () => { try { await api("POST", "/api/ai/compare", { provider: $("#cmp-provider").value, limit: Number($("#cmp-limit").value) }); pollCompare(); } catch (err) { toast(err.message, 4000); } });
+
+// ---------------------------------------------------------------- ideas
+const ideaBox = $("#idea-box");
+$("#idea").addEventListener("click", () => ideaBox.showModal());
+ideaBox.querySelector(".close").addEventListener("click", () => ideaBox.close());
+ideaBox.querySelector("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try { const r = await api("POST", "/api/idea", { text: f.text.value, diagnostics: f.diagnostics.checked }); window.open(r.url, "_blank", "noopener"); f.text.value = ""; ideaBox.close(); }
+  catch (err) { f.querySelector(".err").textContent = err.message; }
+});
+
 poll();
 loadHistory();
+addEventListener("DOMContentLoaded", () => { renderGraphBar(); loadRecap(); });
 
 // ---------------------------------------------------------------- about + update
 const dlg = $("#about");
@@ -900,7 +905,7 @@ async function loadAbout(fetchRemote) {
   $("#about-version").textContent = `v${a.version}${a.commit ? " · " + a.commit : ""}${a.branch ? " · " + a.branch : ""}`;
   const e = a.engine || {};
   const rows = [["Whisper", `${e.model || "?"}${e.device ? " on " + e.device + (e.compute ? "/" + e.compute : "") : ""} (${e.state || "?"})`],
-    ["Python", a.python], ["Folder", a.root]];
+    ["Python", a.python], ["Folder", a.root], ["Updates from", a.remote || "?"]];
   $("#about-info").innerHTML = rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("");
   $("#about-log").innerHTML = logItems(a.changelog || []);
   const pending = a.pending || [];
@@ -916,6 +921,11 @@ async function loadAbout(fetchRemote) {
 $("#engine-foot").addEventListener("click", () => { dlg.showModal(); loadAbout(true); });
 dlg.querySelector(".close").addEventListener("click", () => dlg.close());
 dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+$("#about-source").addEventListener("submit", async (e) => {
+  e.preventDefault(); $("#about-source-note").textContent = "Checking the repository (it may ask you to sign in to GitHub)...";
+  try { const r = await api("POST", "/api/update/source", { remote: e.target.remote.value.trim() }); $("#about-source-note").textContent = "Updates now come from " + r.remote; loadAbout(true); }
+  catch (err) { $("#about-source-note").textContent = err.message; }
+});
 $("#about-check").addEventListener("click", () => loadAbout(true));
 $("#about-do").addEventListener("click", async () => {
   $("#about-do").classList.add("hidden");

@@ -134,7 +134,7 @@ def test_llm_install_endpoint(server, monkeypatch):
     import time
 
     app, base = server
-    monkeypatch.setattr(app.llm, "install", lambda progress: (progress("downloading", 50, 100), "ollama.exe")[1])
+    monkeypatch.setattr(app.llm.local, "install", lambda progress: (progress("downloading", 50, 100), "ollama.exe")[1])
     r = call(base, "POST", "/api/llm/install", {})
     assert r["state"] in ("running", "done")
     for _ in range(50):
@@ -143,3 +143,41 @@ def test_llm_install_endpoint(server, monkeypatch):
             break
         time.sleep(0.02)
     assert st["install"]["state"] == "done" and st["install"]["completed"] == 50 and st["install"]["total"] == 100
+
+
+def test_recap_api_from_setup_to_memory(server, tmp_path):
+    app, base = server
+    app.settings.update({"memory_dir": str(tmp_path / "mem")})
+    v = call(base, "GET", "/api/assistant")
+    assert not v["setup_done"] and v["llm"]["provider"] == "local" and not v["llm"]["chosen"]
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(base, "POST", "/api/assistant/update", {})
+    assert e.value.code == 401                                                    # no token: asks for one
+    call(base, "POST", "/api/assistant/setup", {"provider": "local", "running": "Alpha"})
+    assert call(base, "GET", "/api/memory")["files"] == ["matters/alpha.md"]
+    f = call(base, "GET", "/api/memory/file?name=matters/alpha.md")
+    call(base, "POST", "/api/memory/file", {"name": f["name"], "text": f["text"] + "x\n", "opened": f["text"]})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(base, "POST", "/api/memory/file", {"name": f["name"], "text": "y", "opened": f["text"]})
+    assert e.value.code == 400                                                    # changed since it was opened
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(base, "GET", "/api/memory/file?name=../settings.md")
+    assert e.value.code == 400
+    assert call(base, "POST", "/api/matters/alpha/status", {"status": "parked"})[0]["status"] == "parked"
+    assert call(base, "GET", "/api/drafts") == {"drafts": [], "outlook": False}
+    assert call(base, "GET", "/api/ai/usage")["limit"] == 80
+
+
+def test_an_idea_is_a_filled_in_issue_without_private_text(server, tmp_path, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from powertools import feedback
+
+    app, base = server
+    app.settings.update({"memory_dir": str(tmp_path / "mem")})
+    monkeypatch.setattr(feedback, "repo_url", lambda: "https://github.com/o/r")
+    app.assistant.memory.create_matter("Secret merger")
+    u = call(base, "POST", "/api/idea", {"text": "Bigger buttons\nplease", "diagnostics": True})["url"]
+    q = parse_qs(urlparse(u).query)
+    assert u.startswith("https://github.com/o/r/issues/new?") and q["title"] == ["Bigger buttons"]
+    assert "matters 1" in q["body"][0] and "Secret" not in u

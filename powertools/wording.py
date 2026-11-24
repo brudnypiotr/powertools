@@ -107,7 +107,7 @@ class Wording:
             if not (a["installed"] or a["running"]):
                 # no Ollama on this laptop: only the red pill, no window and no Ctrl+C into the focused app
                 self.last = {"id": next(_ids), "state": "error", "original": "",
-                             "error": "Wording needs Ollama (Local AI tab)."}
+                             "error": "Wording needs Ollama or GitHub Copilot (AI tab)."}
                 self.on_state("error")
                 return
             text = self.copy().strip()
@@ -146,7 +146,7 @@ class Wording:
         try:
             # the answer holds the whole text again plus every faulty fragment twice: about a token per character
             n = len(text[:MAX_CHARS])
-            content, stats = self.llm.chat(system, text[:MAX_CHARS], SCHEMA, max_tokens=400 + n,
+            content, stats = self.llm.chat(system, text[:MAX_CHARS], SCHEMA, max_tokens=400 + n, task="wording",
                                            num_ctx=max(4096, 1000 + n // 3 + 400 + n))
             item.update(clean_answer(text, parse_json(content)), state="done", stats=stats)
         except LLMError as e:
