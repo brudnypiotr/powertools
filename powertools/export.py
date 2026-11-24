@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__
+from . import __version__, files
 
 
 def slug(text: str, limit: int = 60) -> str:
@@ -66,11 +66,7 @@ def range_label(since: datetime | None, until: datetime) -> str:
 
 
 def write(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
-    return path
+    return files.write_text(path, text)
 
 
 def safe_filename(name: str) -> str:

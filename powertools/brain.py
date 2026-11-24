@@ -6,13 +6,12 @@ counted per day (calls, tokens, AI credits) in usage.json, and the daily limit s
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import threading
 import time
 from pathlib import Path
 
+from . import files
 from .config import data_dir
 from .copilot import Copilot
 from .llm import INTERACTIVE, LLMError, Ollama
@@ -26,19 +25,25 @@ class Usage:
     def __init__(self, path: Path | None = None):
         self.path = path or data_dir() / "usage.json"
         self._lock = threading.Lock()
-        try:
-            self.days: dict = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            self.days = {}
+        self.days: dict = files.load_json(self.path)
 
     @staticmethod
     def _day() -> str:
         return time.strftime("%Y-%m-%d")
 
+    def _estimate(self, tokens: int) -> float:
+        """Credits of a call GitHub gave no figure for, from the calls it did (nothing known yet: one credit a call)."""
+        known = [d for d in self.days.values() if d["credits"] and not d.get("estimated")]
+        spent, seen = sum(d["credits"] for d in known), sum(d["tokens_in"] + d["tokens_out"] for d in known)
+        return round(spent / seen * tokens, 4) if seen and tokens else 1.0
+
     def add(self, task: str, stats: dict) -> None:
-        credits = stats.get("credits") or 0.0
+        credits = stats.get("credits")
         with self._lock:
             d = self.days.setdefault(self._day(), {"calls": 0, "credits": 0.0, "tokens_in": 0, "tokens_out": 0, "by": {}})
+            if credits is None:   # never free: the daily limit has to work without the figure too
+                credits = self._estimate((stats.get("prompt_tokens") or 0) + (stats.get("tokens") or 0))
+                d["estimated"] = d.get("estimated", 0) + 1
             d["calls"] += 1
             d["credits"] = round(d["credits"] + credits, 4)
             d["tokens_in"] += stats.get("prompt_tokens") or 0
@@ -47,9 +52,7 @@ class Usage:
             t["calls"] += 1
             t["credits"] = round(t["credits"] + credits, 4)
             self.days = dict(sorted(self.days.items())[-400:])
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.days), encoding="utf-8")
-            os.replace(tmp, self.path)
+            files.save_json(self.path, self.days)
 
     def today(self) -> dict:
         with self._lock:

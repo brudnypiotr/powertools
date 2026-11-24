@@ -79,6 +79,10 @@ def sender(m: dict) -> str:
     return "(unknown)"
 
 
+def sender_id(m: dict) -> str:
+    return ((m.get("from") or {}).get("user") or {}).get("id", "")
+
+
 def share_id(url: str) -> str:
     return "u!" + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
 

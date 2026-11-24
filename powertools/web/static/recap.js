@@ -8,7 +8,7 @@ const SRC = { mail: "Mail", teams: "Teams", jira: "Jira", meeting: "Meeting" };
 const clockOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const dayOf = (iso) => new Date(iso).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
-const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const plain = (t) => String(t || "").replace(/^((re|fw|fwd|aw|odp|pd)\s*:\s*)+/i, "") || t;
 const link = (u, text) => (url(u) ? `<a href="${url(u)}" target="_blank" rel="noopener">${esc(text)}</a>` : esc(text));
 const cap = (t) => { t = String(t || ""); return t.charAt(0).toUpperCase() + t.slice(1); };
@@ -55,7 +55,7 @@ async function loadRecap() {
 
 // ---------------------------------------------------------------- Today: the list
 function rowsOf(tab) {   // [group name, rows, folded]
-  const item = (kind) => (i) => ({ id: i.key, i, kind, title: i.error ? "Not sorted: " + plain(i.title) : cap(i.action || i.summary || plain(i.title)), sub: `${i.person || i.people || SRC[i.source] || ""}${i.person || i.people ? ", " : " "}${plain(i.title)}`, tag: i.due || ago(i.last), hot: !!i.due || i.quiet });
+  const item = (kind) => (i) => ({ id: i.key, i, kind, title: i.error ? "Not sorted: " + plain(i.title) : cap(i.action || i.summary || plain(i.title)), sub: `${i.person || i.people || SRC[i.source] || ""}${i.person || i.people ? ", " : " "}${plain(i.title)}`, tag: kind === "closed" && i.done_by === "answer" ? "you answered" : i.due || ago(i.last), hot: kind !== "closed" && (!!i.due || i.quiet) });
   const prom = (mine) => (p) => ({ id: "p:" + p.id, p, kind: "promise", title: cap(p.what), sub: `${mine ? "You promised" + (p.to ? " " + p.to : "") : p.who + " promised"}, ${plain(p.title)}`, tag: p.due || ago(p.last), hot: !!p.due });
   if (tab === "me") return [["Decide", R.decisions.map(item("me"))], ["Do", [...R.mine.filter((i) => i.category === "todo").map(item("me")), ...R.promised.map(prom(true))]],
     ["Answer", R.mine.filter((i) => i.category === "reply").map(item("me"))], ["Not sorted yet", R.unsorted.map(item("chg"))],
@@ -83,7 +83,8 @@ function renderToday() {
   if (job.state === "needs_token" && V.mode !== "connect" && V.asked !== job.id) { V.asked = job.id; V.mode = "connect"; }
   segments("#today-tabs", [["me", "For me", count("me")], ["wait", "Waiting", count("wait")], ["chg", "Changed", count("chg")]], V.tab, "seg");
   const groups = rowsOf(V.tab).filter(([, rows]) => rows.length);
-  const problems = !w && (l.problems || []).length ? `<div class="note">${l.problems.map(esc).join("<br>")}</div>` : "";
+  const said = job.state === "error" ? [`The last Update stopped: ${job.error}. Nothing is lost, press Update again.`] : l.problems || [];
+  const problems = !w && said.length ? `<div class="note">${said.map(esc).join("<br>")}</div>` : "";
   const sug = V.tab === "me" && R.suggested.length ? `<h2>A new matter?</h2>${R.suggested.map((s) => `<div class="suggest" data-key="${esc(s.items[0].key)}"><input aria-label="Name of the matter" value="${esc(s.name)}"><span class="muted small">${esc(s.items.map((x) => plain(x.title)).join(", "))}</span>
     <div><button type="button" data-do="new_matter">Create it</button><button type="button" class="quietbtn" data-do="no_matter">No</button></div></div>`).join("")}` : "";
   const brief = V.tab === "me" ? `<button type="button" class="prow" data-row="" data-k="brief" aria-current="${V.mode === "brief"}"><span class="ptext"><b>Morning brief</b><span>${mineFirst().length ? `${count("me")} for you, ${((n) => (n === 1 ? "1 meeting" : n + " meetings"))(R.events.filter((e) => isToday(e.start)).length)} today` : "The day at a glance"}</span></span></button>` : "";
@@ -130,13 +131,14 @@ function bodyItem(force) {
     ${i.orders ? `<div class="note">This text gives orders to an AI. Check it yourself.</div>` : ""}
     <dl><dt>From</dt><dd><b>${esc(i.person || i.people || "")}</b>${i.person || i.people ? ", " : ""}${SRC[i.source] || ""}, ${link(i.link, plain(i.title))}</dd>
     <dt>When</dt><dd>${new Date(i.last).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}${i.due ? ` <span class="ptag hot">${esc(i.due)}</span>` : ""}${i.quiet ? ` <span class="ptag hot">quiet for ${i.days} days</span>` : ""}</dd>
-    <dt>Matter</dt><dd><select data-do-change="matter" data-k="matter" aria-label="Matter"><option value="">none</option>${matters.map((m) => `<option value="${m.id}" ${m.id === i.matter ? "selected" : ""}>${esc(m.title)}</option>`).join("")}</select>
+    <dt>Matter</dt><dd><select data-do-change="matter" data-k="matter" aria-label="Matter"><option value="">none</option>${matters.map((m) => `<option value="${esc(m.id)}" ${m.id === i.matter ? "selected" : ""}>${esc(m.title)}</option>`).join("")}</select>
       ${i.maybe_title ? `<button type="button" class="inbtn" data-do="maybe" data-k="maybe">${esc(i.maybe_title)}?</button>` : ""}</dd>
     <dt>Why here</dt><dd>${i.error ? `<span class="err">${esc(i.error)}</span>` : i.quote ? `<q>${esc(i.quote)}</q>` : `<span class="muted">${i.by === "rule" ? "Automatic sender." : i.by === "you" ? "You decided it." : "The model gave no sentence that proves it: check the source."}</span>`}
       ${i.error ? "" : i.reviewed ? `<span class="muted small">Checked by you</span>` : `<button type="button" class="inbtn" data-do="right" data-k="right">That is right</button>`}</dd></dl>${d ? draftCard(d) : ""}`, force);
   const canDraft = ["mail", "teams"].includes(i.source) && ["me", "wait"].includes(r.kind);
   const first = closed ? `<button type="button" class="primary" data-do="reopen" data-k="a1">Bring it back</button>`
-    : d ? (i.source === "mail" ? `<button type="button" class="primary" data-do="outlook" data-k="a1">${d.outlook ? "In Outlook drafts" : "Put into Outlook drafts"}</button>` : `<button type="button" class="primary" data-do="copy" data-k="a1">Copy for Teams</button>`)
+    : d && i.source === "mail" && d.outlook && d.same ? (url(d.outlook) ? `<a class="btnlink primary" href="${url(d.outlook)}" target="_blank" rel="noopener" data-k="a1">Open it in Outlook</a>` : `<button type="button" class="primary" disabled data-k="a1">In Outlook drafts</button>`)
+    : d ? (i.source === "mail" ? `<button type="button" class="primary" data-do="outlook" data-k="a1">${d.outlook ? "Put the new text into Outlook drafts" : "Put into Outlook drafts"}</button>` : `<button type="button" class="primary" data-do="copy" data-k="a1">Copy for Teams</button>`)
     : canDraft ? `<button type="button" class="primary" data-do="draft" data-k="a1">${r.kind === "wait" ? "Write a reminder" : "Write a draft"}</button>` : `<button type="button" class="primary" data-do="done" data-k="a1">${r.kind === "chg" ? "Got it" : "Done"}</button>`;
   const second = closed ? "" : `${d || canDraft ? `<button type="button" data-do="done" data-k="a2">Done</button>` : ""}<details class="menu up"><summary data-k="later">Later</summary><div><button type="button" data-do="snooze" data-days="1">Tomorrow</button><button type="button" data-do="snooze" data-days="3">In 3 days</button><button type="button" data-do="snooze" data-days="7">In a week</button></div></details>`;
   const wrong = closed ? "" : `<span class="grow"></span><button type="button" class="quietbtn" data-do="wrong" aria-expanded="${V.wrong}" data-k="a4">This is wrong</button>`;
@@ -146,7 +148,8 @@ function bodyItem(force) {
 }
 const draftCard = (d) => `<div class="draftcard" data-did="${d.id}"><div class="row0"><label for="draft-text"><b>Draft${d.to ? " to " + esc(d.to) : ""}</b></label><span class="grow"></span><button type="button" class="quietbtn" data-do="drop" data-k="drop">Throw away</button></div>
   <textarea id="draft-text" data-k="draft-text" rows="${Math.min(14, Math.max(4, d.body.split("\n").length + 1))}">${esc(d.body)}</textarea>
-  <form class="fixline"><input name="remark" data-k="remark" aria-label="What to change" placeholder="What should change? Shorter, no greeting, say Thursday"><button data-k="fixit">Rewrite</button></form><div class="rule"></div></div>`;
+  <form class="fixline"><input name="remark" data-k="remark" aria-label="What to change" placeholder="What should change? Shorter, no greeting, say Thursday"><button data-k="fixit">Rewrite</button></form><div class="rule"></div></div>`
+  .replace("<textarea", `${d.old ? `<div class="note">Written before the newest message. <button type="button" class="inbtn" data-do="draft" data-k="redraft">Write a new one</button></div>` : ""}<textarea`);
 async function bodyAsk(force) {
   const talk = await api("GET", "/api/assistant/talk");
   if (V.mode !== "ask") return;
@@ -164,9 +167,9 @@ async function bodyAsk(force) {
 function openConnect(then) { if (then) pending = then; V.mode = "connect"; if (R && R.setup_done) renderToday(); else loadRecap(); }
 function bodyConnect(force) {
   const g = R.graph, paused = R.job && R.job.state === "needs_token", waiting = g.watch && g.watch.active;
-  const half = paused && R.job.total, step = waiting ? 1 : 0;
+  const half = paused && R.paused_at.startsWith("reading") && !/profile/.test(R.paused_at), step = waiting ? 1 : 0;
   draw("#today-body", `<h2 class="big">${half ? "One step to finish the Update" : pending ? "One step to go on" : paused ? "One step to read your mail" : g.has_token ? "Renew the access" : "One step to read your mail"}</h2>
-    <p class="lead">${half ? `Paused at ${R.job.done} of ${R.job.total}. It goes on where it stopped.` : "Microsoft gives access for about an hour at a time. It takes about ten seconds."}</p>
+    <p class="lead">${half ? `Paused while ${esc(R.paused_at.split(":")[0])}. What was read before it is kept.` : "Microsoft gives access for about an hour at a time. It takes about ten seconds."}</p>
     <ol class="steps3">${["Graph Explorer opens; sign in if it asks", "Open the Access token tab there and press copy", paused || pending ? "Come back: it goes on by itself" : "Come back: you are connected"].map((t, n) => `<li class="${n === step ? "now" : n < step ? "past" : ""}"><i>${n + 1}</i>${t}</li>`).join("")}</ol>
     <p><button type="button" class="primary" data-do="token-get" data-k="t1" ${waiting ? "disabled" : ""}>${waiting ? "Waiting for the copy..." : "Open Graph Explorer"}</button> <button type="button" class="quietbtn" data-do="token-no" data-k="t2">Not now</button></p>
     <details ${V.paste ? "open" : ""} id="token-paste"><summary class="muted">Paste it myself</summary><form class="fixline" id="token-form"><input type="password" name="token" data-k="t3" aria-label="Access token" placeholder="Access token"><button>Connect</button></form></details>
@@ -200,7 +203,7 @@ async function act(key, action, value) {
 }
 async function saveDraft() {
   const c = $("#today-body .draftcard"), t = c && c.querySelector("textarea"), d = c && R.draft_list.find((x) => x.id === c.dataset.did);
-  if (d && t.value !== d.body) { await api("POST", `/api/drafts/${d.id}`, { body: t.value }); d.body = t.value; }
+  if (d && t.value !== d.body) Object.assign(d, await api("POST", `/api/drafts/${d.id}`, { body: t.value }), { body: t.value });
   return d;
 }
 async function showItem(id) { await saveDraft().catch(() => {}); V.sel = id; V.mode = id ? "item" : "brief"; V.wrong = false; renderToday(); $("#today-body").scrollTop = 0; renderBody(true); }
@@ -288,7 +291,7 @@ $("#today-body").addEventListener("change", async (e) => {
   const s = e.target.closest("[data-do-change]");
   try {
     if (s) { s.blur(); return await act(find(V.sel).i.key, s.dataset.doChange, s.value); }
-    if (e.target.id === "draft-text") await saveDraft();
+    if (e.target.id === "draft-text") { await saveDraft(); renderToday(); }
   } catch (err) { say(err.message); }
 });
 $("#today-body").addEventListener("submit", async (e) => {
@@ -346,7 +349,7 @@ async function matterBody(id) {
     <h3>Decided</h3>${list((p.Decisions || []).map(esc))}${(p.Notes || []).length ? `<h3>Notes</h3>${list(p.Notes.map(esc))}` : ""}
     <h3>What happened</h3>${tl.length ? `<div class="lined">${tl.slice(0, 30).map((x) => { const s = x.match(/^(\d{4}-\d\d-\d\d) · (.*)$/); return `<div>${s ? `<time>${s[1].slice(5)}</time>` : ""}<span class="grow">${mdLine(s ? s[2] : x)}</span></div>`; }).join("")}</div>` : `<p class="muted">Nothing yet.</p>`}`);
   const live = ["active", "waiting"].includes(m.status);
-  bar("#matters-bar", `<form class="fixline grow" data-note="matters/${id}.md"><input name="note" data-k="mnote" aria-label="Note" placeholder="Add a note, or say what is different"><button data-k="mn">Add</button></form>${live ? `<button type="button" data-st="parked" data-k="park">Park</button><button type="button" class="quietbtn" data-st="closed" data-k="close">Close</button>` : `<button type="button" data-st="active" data-k="act">Make it active</button>`}<button type="button" class="quietbtn" data-file="matters/${id}.md" data-k="mf">Open the file</button>`);
+  bar("#matters-bar", `<form class="fixline grow" data-note="${esc(`matters/${id}.md`)}"><input name="note" data-k="mnote" aria-label="Note" placeholder="Add a note, or say what is different"><button data-k="mn">Add</button></form>${live ? `<button type="button" data-st="parked" data-k="park">Park</button><button type="button" class="quietbtn" data-st="closed" data-k="close">Close</button>` : `<button type="button" data-st="active" data-k="act">Make it active</button>`}<button type="button" class="quietbtn" data-file="${esc(`matters/${id}.md`)}" data-k="mf">Open the file</button>`);
 }
 async function personBody(name) {
   const p = await api("GET", "/api/people/card?name=" + encodeURIComponent(name));
@@ -364,8 +367,14 @@ async function matterFile(name) {
   if (draw("#matters-body", `<h2 class="big">${esc(name)}</h2><p class="muted">Plain Markdown. Lines with (you) are yours and stay.</p><textarea id="mem-text" data-k="mem" aria-label="File" rows="20" spellcheck="false">${esc(f.text)}</textarea>`)) { $("#matters-body").file = name; $("#matters-body").opened = f.text; }
   bar("#matters-bar", `<button type="button" class="primary" data-save="${esc(name)}" data-k="save">Save</button><span class="grow"></span><button type="button" class="quietbtn" data-folder="1" data-k="fold">Open the folder</button>`);
 }
-$("#matters-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-seg]"); if (b) { V.mTab = b.dataset.seg; V.mSel = ""; renderMatters(); } });
-$("#matters-rows").addEventListener("click", (e) => { const b = e.target.closest("[data-row]"); if (!b) return; if (V.mTab === "files") V.mFile = b.dataset.row; else V.mSel = b.dataset.row; document.activeElement.blur(); renderMatters(); $("#matters-body").scrollTop = 0; });
+async function saveFile() {   // true when there is nothing left to save
+  const box = $("#matters-body"), ta = $("#mem-text");
+  if (!ta || ta.value === box.opened) return true;
+  try { await api("POST", "/api/memory/file", { name: box.file, text: ta.value, opened: box.opened }); box.opened = ta.value; toast("Saved"); return true; }
+  catch (err) { say(err.message); return false; }
+}
+$("#matters-tabs").addEventListener("click", async (e) => { const b = e.target.closest("[data-seg]"); if (b && await saveFile()) { V.mTab = b.dataset.seg; V.mSel = ""; renderMatters(); } });
+$("#matters-rows").addEventListener("click", async (e) => { const b = e.target.closest("[data-row]"); if (!b || !await saveFile()) return; if (V.mTab === "files") V.mFile = b.dataset.row; else V.mSel = b.dataset.row; document.activeElement.blur(); renderMatters(); $("#matters-body").scrollTop = 0; });
 $("#matters-new").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -381,12 +390,12 @@ $("#matters-bar").addEventListener("click", async (e) => {
   if (!b || b.form) return;
   const d = b.dataset;
   try {
-    if (d.st) { await api("POST", `/api/matters/${V.mSel}/status`, { status: d.st, ...(d.st === "parked" ? { reason: "parked in the window", return_on: plusDays(30) } : {}) }); toast(d.st === "parked" ? "Parked; it comes back in 30 days" : d.st === "closed" ? "Closed" : "Active again"); return loadRecap(); }
+    if (d.st) { await api("POST", `/api/matters/${encodeURIComponent(V.mSel)}/status`, { status: d.st, ...(d.st === "parked" ? { reason: "parked in the window", return_on: plusDays(30) } : {}) }); toast(d.st === "parked" ? "Parked; it comes back in 30 days" : d.st === "closed" ? "Closed" : "Active again"); return loadRecap(); }
     if (d.file) { V.mTab = "files"; V.mFile = d.file; return renderMatters(); }
     if (d.one) return busyBtn(b, async () => { V.card = await api("POST", "/api/assistant/prep", { person: d.one }); V.meetTab = "ahead"; V.meet = V.card.id; showTab("meetings"); });
     if (d.rm) { await api("POST", "/api/people/remove", { name: d.rm }); V.mSel = ""; return loadRecap(); }
     if (d.folder) return await api("POST", "/api/memory/open");
-    if (d.save) { const box = $("#matters-body"), text = $("#mem-text").value; await api("POST", "/api/memory/file", { name: d.save, text, opened: box.opened }); box.opened = text; toast("Saved"); }
+    if (d.save) await saveFile();
   } catch (err) { say(err.message); }
 });
 $("#matters-bar").addEventListener("submit", async (e) => {
@@ -447,7 +456,7 @@ function renderSetup() {
   bar("#today-bar", "");
   draw("#today-body", `<form id="setup-form" class="form setup"><div class="steps" aria-hidden="true"><i></i><i></i><i></i></div>
     <fieldset><h2 class="big">Where should the model run?</h2>
-      <label class="pick"><input type="radio" name="provider" value="copilot"><span><b>GitHub Copilot</b><br>Good on every laptop, needs a Copilot licence. The text of your mail, chats and meetings is sent to GitHub Copilot.</span></label>
+      <label class="pick"><input type="radio" name="provider" value="copilot"><span><b>GitHub Copilot</b><br>Good on every laptop, needs a Copilot licence. The text of your mail, chats and meetings, and what you check in Writing, is sent to GitHub Copilot.</span></label>
       <label class="pick"><input type="radio" name="provider" value="local"><span><b>This laptop (Ollama)</b><br>Nothing leaves it. Needs a good GPU.</span></label></fieldset>
     <fieldset><h2 class="big">About your work</h2><p class="muted">You can dictate the answers; all of it can be changed later.</p>
       <label>What is your role, and what do people come to you for?<textarea name="role" rows="2"></textarea></label>

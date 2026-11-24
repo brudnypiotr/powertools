@@ -1,39 +1,50 @@
 """What came in: mail (Inbox tree and Sent), Teams chats, Jira issues of the user, finished meeting transcripts,
-and the calendar ahead. Exclusions are applied here, before any text is kept or shown to a model."""
+and the calendar ahead. Exclusions are applied here, before any text is kept or shown to a model.
+
+Each source is a generator, so what was read before a failure is kept. One conversation that cannot be read is noted
+(Reading) and the rest goes on.
+"""
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .. import export
+from ..exclusions import Exclusions
 from ..graph import mail, teams
 from ..graph.client import GraphError
 
 log = logging.getLogger("powertools.assistant")
-MAX_CHATS = 80
-MAX_ISSUES = 25
-CONTEXT = timedelta(days=4)   # chats: how far back before the range the model also sees
+MAX_THREADS = 600            # what does not fit into one update is said, never left out silently
+MAX_CHATS = 200
+MAX_ISSUES = 100
+GONE = (403, 404, 410)       # left, deleted, not allowed: the next update would not get it either
+CONTEXT = timedelta(days=4)  # chats: how far back before the range the model also sees
 AUTOMATED = re.compile(r"no-?reply|do-?not-?reply|notification|mailer-daemon|postmaster|newsletter", re.I)
 KEY = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b")
+KINDS = {"oneOnOne": "1:1 chat", "group": "group chat", "meeting": "meeting chat"}
 
 
-class Exclusions:
-    """Words from Settings ("folder: X" for a mail folder): a match in title, people or address keeps it out."""
+class Reading:
+    """One source being read: what it does now, and the conversations that could not be read."""
 
-    def __init__(self, entries: list[str]):
-        rules = [e.strip().lower() for e in entries if e.strip()]
-        self.folders = [e.split(":", 1)[1].strip() for e in rules if e.startswith("folder:")]
-        self.words = [e for e in rules if not e.startswith("folder:")]
+    def __init__(self, step: Callable[[str], None] = lambda text: None):
+        self.step = step
+        self.notes: list[str] = []      # said to the user; the rest of the source was read
+        self.again = False              # it may work next time: this range has to be read again
 
-    def hit(self, *texts: str) -> bool:
-        hay = " \n ".join(t for t in texts if t).lower()
-        return any(re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", hay) for w in self.words)
+    def failed(self, what: str, e: GraphError) -> None:
+        self.notes.append(f"{what}: {e}")
+        self.again = self.again or e.status not in GONE
 
-    def folder(self, name: str) -> bool:
-        return name.lower() in self.folders
+    def newest(self, rows: list, limit: int, what: str) -> list:
+        if len(rows) > limit:
+            self.notes.append(f"more than {limit} {what} in this range: only the newest {limit} were read (choose a shorter range)")
+        return rows[:limit]
 
 
 def short(text: str, n: int = 1500) -> str:
@@ -45,6 +56,17 @@ def issue_keys(*texts: str) -> list[str]:
     return list(dict.fromkeys(k for t in texts for k in KEY.findall(t or "")))[:10]
 
 
+def names(i: dict) -> list[str]:
+    """The other people of a conversation ("Last, First" is one person); items read before 0.16.1 have only the text."""
+    return i["who"] if "who" in i else [x.strip() for x in i["people"].split(",") if x.strip()]
+
+
+def _people(everyone: list[str], me: dict) -> dict:
+    who = list(dict.fromkeys(n for n in everyone if n and n != me.get("displayName")))
+    return {"who": who[:40], "people": ", ".join(who[:8])}
+
+
+# ---------------------------------------------------------------- mail
 def folder_ids(g, ex: Exclusions) -> list[str]:
     """Inbox with every subfolder, and Sent, without the excluded folders."""
     ids, todo = ["inbox"], ["inbox"]
@@ -59,82 +81,104 @@ def folder_ids(g, ex: Exclusions) -> list[str]:
     return ids + ["sentitems"]
 
 
-def mail_items(g, me: dict, since: datetime, ex: Exclusions, step=lambda text: None) -> list[dict]:
-    mine = {a.lower() for a in (me.get("mail"), me.get("userPrincipalName")) if a}
-    items = []
-    step("reading mail: finding threads")
-    for n, t in enumerate(threads := mail.search_threads(g, folder_ids=folder_ids(g, ex), since=since, limit=400), 1):
-        step(f"reading mail: thread {n}/{len(threads)}")
+def mail_items(g, me: dict, since: datetime, ex: Exclusions, r: Reading) -> Iterator[dict]:
+    r.step("reading mail: finding threads")
+    threads = mail.search_threads(g, folder_ids=folder_ids(g, ex), since=since, limit=MAX_THREADS + 1)
+    threads = r.newest(threads, MAX_THREADS, "mail threads")
+    for n, t in enumerate(threads, 1):
+        r.step(f"reading mail: thread {n}/{len(threads)}")
         if ex.hit(t["subject"], *t["people"]):
             continue
-        msgs = mail.fetch_thread(g, t["id"])   # received and sent: shows whether it was answered
-        if not msgs:
+        try:
+            item = mail_item(g, me, t["id"], t["subject"], ex)
+        except GraphError as e:
+            r.failed(t["subject"][:80], e)
             continue
-        lines, senders, names, addresses = [], set(), [], []
-        for m in msgs:
-            everyone = [m.get("from")] + (m.get("toRecipients") or []) + (m.get("ccRecipients") or [])
-            names += mail.person_names([r for r in everyone if r])
-            addresses += [((r or {}).get("emailAddress") or {}).get("address", "") for r in everyone]
-        if ex.hit(*names, *addresses):
-            continue
-        for m in msgs[-6:]:
-            addr = ((m.get("from") or {}).get("emailAddress") or {}).get("address", "")
-            senders.add(addr.lower())
-            when = export.local(export.parse_time(m.get("receivedDateTime") or m.get("sentDateTime"))).strftime("%Y-%m-%d %H:%M")
-            frm = ", ".join(mail.person_names([m.get("from")])) if m.get("from") else "?"
-            to, cc = ", ".join(mail.person_names(m.get("toRecipients"))), ", ".join(mail.person_names(m.get("ccRecipients")))
-            lines.append(f"--- {when} from {frm} <{addr}> to {to}" + (f" cc {cc}" if cc else "") +
-                         f"\n{short(mail.body_text(m))}")
-        last = msgs[-1]
-        last_addr = ((last.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
-        text = f"E-mail thread. Subject: {t['subject']}\n\n" + "\n\n".join(lines)
-        items.append({
-            "key": "mail:" + t["id"], "source": "mail", "title": t["subject"],
-            "people": ", ".join(list(dict.fromkeys(n for n in names if n and n != me.get("displayName")))[:8]),
-            "last": last.get("receivedDateTime") or last.get("sentDateTime") or "", "link": last.get("webLink", ""),
-            "msg_id": last.get("id", ""), "count": len(msgs), "last_from_me": last_addr in mine,
-            "automated": bool(senders - mine) and all(AUTOMATED.search(s) for s in senders - mine),
-            "keys": issue_keys(t["subject"], text), "text": text,
-        })
-    return items
+        if item:
+            yield item
 
 
-def chat_items(g, me: dict, since: datetime, until: datetime, ex: Exclusions, step=lambda text: None) -> list[dict]:
-    items = []
-    step("reading Teams: listing chats")
+def _address(m: dict) -> str:
+    return ((m.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
+
+
+def _sent(m: dict) -> str:
+    return m.get("receivedDateTime") or m.get("sentDateTime") or ""
+
+
+def mail_item(g, me: dict, cid: str, subject: str, ex: Exclusions) -> dict | None:
+    """One thread with its received and sent messages (that shows whether it was answered)."""
+    mine = {a.lower() for a in (me.get("mail"), me.get("userPrincipalName")) if a}
+    msgs = mail.fetch_thread(g, cid)
+    everybody, addresses = [], []
+    for m in msgs:
+        everyone = [p for p in [m.get("from"), *(m.get("toRecipients") or []), *(m.get("ccRecipients") or [])] if p]
+        everybody += mail.person_names(everyone)
+        addresses += [(p.get("emailAddress") or {}).get("address", "") for p in everyone]
+    if not msgs or ex.hit(*everybody, *addresses):
+        return None
+    last, lines = msgs[-1], [_mail_line(m) for m in msgs[-6:]]
+    others = {_address(m) for m in msgs[-6:]} - mine
+    text = f"E-mail thread. Subject: {subject}\n\n" + "\n\n".join(lines)
+    return {
+        "key": "mail:" + cid, "source": "mail", "title": subject, **_people(everybody, me), "last": _sent(last),
+        "link": last.get("webLink", ""), "msg_id": last.get("id", ""), "count": len(msgs), "last_from_me": _address(last) in mine,
+        "automated": bool(others) and all(AUTOMATED.search(s) for s in others), "keys": issue_keys(subject, text), "text": text,
+    }
+
+
+def _mail_line(m: dict) -> str:
+    when = export.local(export.parse_time(_sent(m))).strftime("%Y-%m-%d %H:%M")
+    frm = ", ".join(mail.person_names([m["from"]])) if m.get("from") else "?"
+    to, cc = ", ".join(mail.person_names(m.get("toRecipients"))), ", ".join(mail.person_names(m.get("ccRecipients")))
+    return f"--- {when} from {frm} <{_address(m)}> to {to}" + (f" cc {cc}" if cc else "") + f"\n{short(mail.body_text(m))}"
+
+
+# ---------------------------------------------------------------- Teams
+def chat_items(g, me: dict, since: datetime, until: datetime, ex: Exclusions, r: Reading) -> Iterator[dict]:
+    r.step("reading Teams: listing chats")
     chats = [c for c in teams.list_chats(g, me.get("id", "")) if c["last"] and export.parse_time(c["last"]) >= since]
-    for n, c in enumerate(chats[:MAX_CHATS], 1):
-        step(f"reading Teams: chat {n}/{min(len(chats), MAX_CHATS)}")
+    chats = r.newest(chats, MAX_CHATS, "chats")
+    for n, c in enumerate(chats, 1):
+        r.step(f"reading Teams: chat {n}/{len(chats)}")
         if ex.hit(c["title"], *c["members"]):
             continue
-        msgs = teams.fetch_messages(g, c["id"], since - CONTEXT, until)
-        if not msgs or export.parse_time(msgs[-1]["createdDateTime"]) < since:
+        try:
+            item = chat_item(g, me, c, since, until)
+        except GraphError as e:
+            r.failed(c["title"][:80], e)
             continue
-        lines = []
-        for m in msgs[-15:]:
-            t = export.local(export.parse_time(m["createdDateTime"])).strftime("%Y-%m-%d %H:%M")
-            lines.append(f"{teams.sender(m)} {t}: {short(teams.render_message(m, {}), 600)}")
-        last_user = ((msgs[-1].get("from") or {}).get("user") or {}).get("id", "")
-        kind = {"oneOnOne": "1:1 chat", "group": "group chat", "meeting": "meeting chat"}.get(c["type"], "chat")
-        text = f"Teams {kind}: {c['title']}\n\n" + "\n".join(lines)
-        items.append({
-            "key": "teams:" + c["id"], "source": "teams", "title": c["title"],
-            "people": ", ".join([m for m in c["members"] if m != me.get("displayName")][:8]),
-            "last": msgs[-1]["createdDateTime"], "link": c.get("web", ""), "msg_id": "", "count": len(msgs),
-            "last_from_me": bool(last_user) and last_user == me.get("id"), "automated": False,
-            "keys": issue_keys(c["title"], text), "text": text,
-        })
-    return items
+        if item:
+            yield item
 
 
-def jira_items(client, since: datetime, ex: Exclusions, step=lambda text: None) -> list[dict]:
+def chat_item(g, me: dict, c: dict, since: datetime, until: datetime) -> dict | None:
+    """One chat ({id, title, members, type, web}) with the messages since `since` and some days before; None: nothing new."""
+    msgs = teams.fetch_messages(g, c["id"], since - CONTEXT, until)
+    if not msgs or export.parse_time(msgs[-1]["createdDateTime"]) < since:
+        return None
+    lines = []
+    for m in msgs[-15:]:
+        t = export.local(export.parse_time(m["createdDateTime"])).strftime("%Y-%m-%d %H:%M")
+        lines.append(f"{teams.sender(m)} {t}: {short(teams.render_message(m, {}), 600)}")
+    text = f"Teams {KINDS.get(c['type'], 'chat')}: {c['title']}\n\n" + "\n".join(lines)
+    return {
+        "key": "teams:" + c["id"], "source": "teams", "title": c["title"], "kind": c["type"], **_people(c["members"], me),
+        "last": msgs[-1]["createdDateTime"], "link": c.get("web", ""), "msg_id": "", "count": len(msgs),
+        "last_from_me": bool(me.get("id")) and teams.sender_id(msgs[-1]) == me["id"], "automated": False,
+        "keys": issue_keys(c["title"], text), "text": text,
+    }
+
+
+# ---------------------------------------------------------------- Jira, recorded meetings
+def jira_items(client, since: datetime, ex: Exclusions, r: Reading) -> Iterator[dict]:
     """Issues the user is assigned to, watches or reported, changed in the range."""
-    step("reading Jira")
+    r.step("reading Jira")
     days = max(1, (datetime.now().astimezone() - since).days + 1)
     jql = (f"(assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser()) AND updated >= -{days}d "
            "ORDER BY updated DESC")
-    items = []
-    for i in client.search(jql, "summary,status,assignee,reporter,updated,comment,duedate,priority", MAX_ISSUES):
+    found = client.search(jql, "summary,status,assignee,reporter,updated,comment,duedate,priority", MAX_ISSUES + 1)
+    for i in r.newest(list(found), MAX_ISSUES, "Jira issues"):
         f = i.get("fields") or {}
         if not f.get("updated") or export.parse_time(_jira_time(f["updated"])) < since or ex.hit(f.get("summary", "")):
             continue
@@ -146,18 +190,15 @@ def jira_items(client, since: datetime, ex: Exclusions, step=lambda text: None) 
         people = [_name(f.get("assignee")), _name(f.get("reporter"))] + [_name(c.get("author")) for c in comments]
         if ex.hit(*people):
             continue
-        items.append({
-            "key": "jira:" + i["key"], "source": "jira", "title": f"{i['key']} {f.get('summary', '')}",
-            "people": ", ".join(dict.fromkeys(p for p in people if p)), "last": _utc(_jira_time(f["updated"])),
-            "link": f"{client.base}/browse/{i['key']}", "msg_id": "", "count": len(comments), "last_from_me": False,
-            "automated": False, "keys": [i["key"]], "text": "\n".join(lines),
-        })
-    return items
+        yield {
+            "key": "jira:" + i["key"], "source": "jira", "title": f"{i['key']} {f.get('summary', '')}", **_people(people, {}),
+            "last": _utc(_jira_time(f["updated"])), "link": f"{client.base}/browse/{i['key']}", "msg_id": "",
+            "count": len(comments), "last_from_me": False, "automated": False, "keys": [i["key"]], "text": "\n".join(lines),
+        }
 
 
-def meeting_items(sessions: list, since: datetime, ex: Exclusions) -> list[dict]:
+def meeting_items(sessions: list, since: datetime, ex: Exclusions) -> Iterator[dict]:
     """Recorded meetings whose summary is ready (the summary and key points, not the whole transcript)."""
-    items = []
     for s in sessions:
         m = s.meta
         done, summary = datetime.fromtimestamp(m.get("started", 0)).astimezone(), m.get("summary") or {}
@@ -165,15 +206,15 @@ def meeting_items(sessions: list, since: datetime, ex: Exclusions) -> list[dict]
             continue
         text = (f"Meeting {done:%Y-%m-%d %H:%M}: {m.get('title', '')}\nAttendees: {', '.join(m.get('attendees', [])[:20])}\n\n"
                 f"{summary.get('summary', '')}\n" + "\n".join(f"- {p}" for p in summary.get("key_points", [])))
-        items.append({
-            "key": "meeting:" + s.id, "source": "meeting", "title": m.get("title", "Meeting"),
-            "people": ", ".join(m.get("attendees", [])[:8]), "last": done.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "link": "", "msg_id": "", "count": 1, "last_from_me": False, "automated": False,
-            "keys": issue_keys(m.get("title", ""), text), "text": text, "file": str(Path(m["md"])) if m.get("md") else "",
-        })
-    return items
+        yield {
+            "key": "meeting:" + s.id, "source": "meeting", "title": m.get("title", "Meeting"), **_people(m.get("attendees", []), {}),
+            "last": done.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "link": "", "msg_id": "", "count": 1,
+            "last_from_me": False, "automated": False, "keys": issue_keys(m.get("title", ""), text), "text": text,
+            "file": str(Path(m["md"])) if m.get("md") else "",
+        }
 
 
+# ---------------------------------------------------------------- calendar, people
 def events(g, start: datetime, end: datetime, ex: Exclusions) -> list[dict]:
     """The calendar ahead (cancelled and excluded ones left out)."""
     out = []

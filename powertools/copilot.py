@@ -13,10 +13,12 @@ import copy
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
 import urllib.request
+from concurrent import futures
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +64,12 @@ def explain(e: Exception) -> str:
     if "not authenticated" in low or "no github oauth token" in low:
         return NOT_SIGNED_IN
     return f"{type(e).__name__}: {msg}"[:300]
+
+
+def runtime_gone(e: Exception) -> bool:
+    """The runtime process ended or its pipe broke (the laptop slept, it crashed): worth one new start."""
+    return isinstance(e, (ConnectionError, EOFError)) or type(e).__name__ == "ProcessExitedError" or bool(
+        re.search(r"process exited|not connected|connection (lost|closed|reset)|pipe|client (is )?(closed|stopped|not started)", str(e), re.I))
 
 
 def parse_expiry(header: str) -> datetime | None:
@@ -135,7 +143,7 @@ class Copilot:
         fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
             return fut.result(timeout)
-        except TimeoutError as e:
+        except (TimeoutError, futures.TimeoutError) as e:   # two classes before Python 3.11
             fut.cancel()
             raise LLMError(f"GitHub Copilot did not answer in {timeout:.0f} s") from e
 
@@ -157,8 +165,16 @@ class Copilot:
                 self._client, self._client_token = client, token
             return self._client
 
+    async def _drop(self, client) -> None:
+        """Forget a runtime that is gone, unless another call already started a new one."""
+        async with self._start_lock:
+            if self._client is client:
+                await self._stop_client()
+
     async def _stop_client(self) -> None:
         client, self._client = self._client, None
+        if client is None:
+            return
         try:
             await client.stop()
         except Exception as e:
@@ -267,14 +283,20 @@ class Copilot:
         """One answer (JSON text when `schema` is given) and stats with the AI credits used. Raises LLMError."""
         model = model or self.model
         t0 = time.time()
-        try:
-            text, tin, tout, credits = self._call(self._ask(system, user, schema, model, timeout), timeout + 120)
-        except LLMError:
-            raise
-        except ImportError as e:
-            raise LLMError("the Copilot SDK is not installed: run powertools.cmd --setup") from e
-        except Exception as e:
-            raise LLMError(explain(e)) from e
+        for attempt in (1, 2):
+            used = self._client
+            try:
+                text, tin, tout, credits = self._call(self._ask(system, user, schema, model, timeout), timeout + 120)
+                break
+            except LLMError:
+                raise
+            except ImportError as e:
+                raise LLMError("the Copilot SDK is not installed: run powertools.cmd --setup") from e
+            except Exception as e:
+                if attempt == 2 or not runtime_gone(e):
+                    raise LLMError(explain(e)) from e
+                log.warning("the Copilot runtime is gone (%s): starting it again", type(e).__name__)
+                self._call(self._drop(used), 30)
         if not text.strip():
             raise LLMError("GitHub Copilot returned an empty answer")
         took = round(time.time() - t0, 1)

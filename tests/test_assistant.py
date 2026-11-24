@@ -11,6 +11,7 @@ from powertools.assistant import collect, skills
 from powertools.assistant.memory import Memory, parse, rank, section
 from powertools.assistant.service import Assistant, said, shares_word
 from powertools.config import Settings
+from powertools.exclusions import Exclusions
 from powertools.graph.client import Graph, GraphError, TokenExpired
 from powertools.jobs import Job
 from powertools.llm import LLMError
@@ -215,7 +216,7 @@ def test_exclusions_never_reach_the_model_and_remove_what_was_read_before(tmp_pa
     assert "mail:cv4" not in a.data["items"] and "teams:c1" not in a.data["items"]
     assert not any("salary" in c["user"].lower() or "minute" in c["user"] for c in m.calls)
     assert not any("f-priv" in c for c in g.calls[-12:])
-    ex = collect.Exclusions(["Ola"])
+    ex = Exclusions(["Ola"])
     assert ex.hit("From Ola") and not ex.hit("Olaf is here")                                      # whole words only
 
 
@@ -476,16 +477,16 @@ def test_jira_comments_and_meetings_become_items(tmp_path):
             return [{"key": "ABC-1", "fields": {"summary": "Fix", "updated": NOW.strftime("%Y-%m-%dT%H:%M:%S.000+0000"), "status": {"name": "Open"},
                     "comment": {"comments": [{"created": iso(1), "author": {"displayName": "Ola"}, "body": {"type": "doc", "content": [
                         {"type": "paragraph", "content": [{"type": "text", "text": "please check"}]}]}}]}}}]
-    i = collect.jira_items(C(), NOW - timedelta(days=1), collect.Exclusions([]))[0]
+    i = next(collect.jira_items(C(), NOW - timedelta(days=1), Exclusions([]), collect.Reading()))
     assert i["key"] == "jira:ABC-1" and "please check" in i["text"] and i["link"] == "https://j/browse/ABC-1" and i["people"] == "Ola"
 
     class S:
         id = "20260101-1"
         meta = {"title": "Sync", "started": NOW.timestamp() - 600, "summary_status": "done", "attendees": ["Ola"], "md": "/x/y.md",
                 "summary": {"summary": "We talked.", "key_points": ["Ola sends the plan ABC-7"]}}
-    m = collect.meeting_items([S()], NOW - timedelta(days=1), collect.Exclusions([]))[0]
+    m = next(collect.meeting_items([S()], NOW - timedelta(days=1), Exclusions([])))
     assert m["key"] == "meeting:20260101-1" and m["keys"] == ["ABC-7"]
-    assert collect.meeting_items([S()], NOW - timedelta(days=1), collect.Exclusions(["ola"])) == []
+    assert list(collect.meeting_items([S()], NOW - timedelta(days=1), Exclusions(["ola"]))) == []
 
 
 def test_every_skill_schema_is_strict_enough():

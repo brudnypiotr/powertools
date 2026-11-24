@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import re
 import threading
 import time
 from datetime import date, datetime
 from pathlib import Path
 
-from .. import export
+from .. import export, files
 
+log = logging.getLogger("powertools.memory")
 STATUSES = ["active", "waiting", "parked", "closed"]
 YOU = "(you)"
 SECTIONS = ["State", "Open", "Decisions", "Timeline", "Notes"]
@@ -68,6 +70,7 @@ class Memory:
     def __init__(self, root):
         self._root = root                  # a function: the folder can change in Settings
         self.lock = threading.RLock()
+        self._known: dict[Path, str] = {}
 
     @property
     def root(self) -> Path:
@@ -84,10 +87,20 @@ class Memory:
         return p
 
     def read(self, name: str) -> str:
-        try:
-            return self.path(name).read_text(encoding="utf-8").replace("\r\n", "\n")
-        except OSError:
-            return ""
+        """Empty when there is no such file; files.Busy when it cannot be read now (never an empty text by mistake)."""
+        return files.read_text(self.path(name))
+
+    def listed(self, folder: str) -> list[tuple[Path, str]]:
+        """Every file of a folder with its text; one that is locked right now as it was read last."""
+        out = []
+        for p in sorted((self.root / folder).glob("*.md")):
+            try:
+                self._known[p] = files.read_text(p)
+            except files.Busy as e:
+                log.warning("%s", e)
+            if p in self._known:
+                out.append((p, self._known[p]))
+        return out
 
     def write(self, name: str, text: str, why: str = "") -> dict | None:
         """Atomic write with history; None when nothing changed."""
@@ -97,7 +110,7 @@ class Memory:
                 return None
             entry = {"id": f"{time.time_ns()}{next(_serial):06d}", "file": Path(name).as_posix(), "before": before, "after": text, "why": why,
                      "existed": self.path(name).exists()}
-            export.write(self.path(name), text)
+            files.write_text(self.path(name), text)
             hist = self.root / ".history"
             hist.mkdir(exist_ok=True)
             (hist / f"{entry['id']}.json").write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
@@ -165,8 +178,8 @@ class Memory:
     # ------------------------------------------------------------------ matters
     def matters(self, every: bool = False) -> list[dict]:
         out = []
-        for p in sorted((self.root / "matters").glob("*.md")):
-            meta, body = parse(p.read_text(encoding="utf-8"))
+        for p, text in self.listed("matters"):
+            meta, body = parse(text)
             st = meta.get("status") if meta.get("status") in STATUSES else "active"
             if st == "parked" and meta.get("return_on") and str(meta["return_on"]) <= date.today().isoformat():
                 st = "active"   # parked until a date that has come
@@ -179,7 +192,8 @@ class Memory:
         return out
 
     def matter(self, mid: str) -> tuple[dict, str]:
-        if not re.fullmatch(r"[a-z0-9-]+", mid) or not (self.root / "matters" / f"{mid}.md").exists():
+        """(frontmatter, body). Any file name in matters/ is an id: files are made by hand and by OneDrive too."""
+        if not mid or Path(mid).name != mid or "\\" in mid or not (self.root / "matters" / f"{mid}.md").is_file():
             raise KeyError(mid)
         return parse(self.read(f"matters/{mid}.md"))
 
@@ -242,7 +256,11 @@ class Memory:
         """Every file (whose name starts with one of `only`) in parts of about 1500 characters, cut at headings and lines."""
         out = []
         for name in (n for n in self.files() if n.startswith(only)):
-            meta, body = parse(self.read(name))
+            try:
+                meta, body = parse(self.read(name))
+            except files.Busy as e:
+                log.warning("%s", e)
+                continue
             title, cur = str(meta.get("title") or name), ""
             for line in body.splitlines():
                 if cur and (line.startswith("## ") or len(cur) + len(line) > 1500):

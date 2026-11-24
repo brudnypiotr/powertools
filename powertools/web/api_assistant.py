@@ -94,7 +94,7 @@ def matter_new(h):
     h.send(200, {"id": h.app.assistant.memory.create_matter(*text(h, "title"))})
 
 
-@route("POST", r"/api/matters/([a-z0-9-]+)/status")
+@route("POST", r"/api/matters/([^/]+)/status")
 def matter_status(h, mid):
     h.app.assistant.memory.set_status(mid, *text(h, "status", "reason", "return_on"))
     h.send(200, h.app.assistant.memory.matters(every=True))

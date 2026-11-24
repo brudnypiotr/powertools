@@ -14,7 +14,9 @@ import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
+
+from ..files import Busy
 
 log = logging.getLogger("powertools.web")
 STATIC = Path(__file__).parent / "static"
@@ -69,9 +71,11 @@ class Handler(BaseHTTPRequestHandler):
             match = rx.match(path)
             if m == method and match:
                 try:
-                    return fn(self, *match.groups())
+                    return fn(self, *map(unquote, match.groups()))
                 except ValueError as e:
                     return self.send(400, {"error": str(e)})
+                except Busy as e:
+                    return self.send(409, {"error": str(e)})
                 except KeyError as e:
                     return self.send(404, {"error": f"not found: {e}"})
                 except Exception as e:

@@ -29,10 +29,12 @@ import numpy as np
 from .. import export
 from ..config import data_dir, output_dir
 from ..engine import FINAL, LIVE, Result
+from ..exclusions import Exclusions
 from ..llm import LLMError
 from . import summary
 
 log = logging.getLogger("powertools.meetings")
+EXCLUDED = "this meeting is on the list of things that are never read (Settings > Recap)"
 SPEAKERS = {"me": "Me", "others": "Others"}
 # a turn made only of these is someone listening ("Uh huh. Mm-hmm."), not saying something: left out of the file
 BACKCHANNEL = {"uh", "huh", "uh-huh", "mm", "mhm", "mm-hmm", "hmm", "mmm"}
@@ -191,12 +193,12 @@ class Session:
 
 
 class MeetingManager:
-    def __init__(self, settings, engine, on_change=None, on_event=None, llm=None):
+    def __init__(self, settings, engine, on_change=None, on_event=None, llm=None, root: Path | None = None):
         self.settings, self.engine, self.llm = settings, engine, llm
         self.on_change = on_change or (lambda: None)
         self.on_event = on_event or (lambda kind, session: None)  # started | stopped | saved | summarized
         self.muted = False  # "Me" muted right now (hotkey, button or TeamsLink)
-        self.root = data_dir() / "meetings"
+        self.root = root or data_dir() / "meetings"
         self.root.mkdir(parents=True, exist_ok=True)
         self.current: Session | None = None
         self.proc: subprocess.Popen | None = None
@@ -438,14 +440,21 @@ class MeetingManager:
         log.info("meeting written: %s", path)
         self.on_change()
         self.on_event("saved", session)
-        if self.llm and self.settings["meeting_summary"] and segments:
+        if self.llm and self.settings["meeting_summary"] and segments and not self.excluded(session):
             threading.Thread(target=self.summarize, args=(session,), name="meeting-summary", daemon=True).start()
 
     # ------------------------------------------------------------------ summary
+    def excluded(self, session: Session) -> bool:
+        """On the "Never read" list: the transcript stays in its file, no model sees it."""
+        return Exclusions(self.settings["exclude"]).hit(session.meta.get("title", ""), session.meta.get("organizer", ""),
+                                                        *session.meta.get("attendees", []))
+
     def summarize(self, session: Session) -> None:
         """Summary and key points from the chosen model, written into the Markdown file above the transcript."""
         if not self.llm:
             raise ValueError("no language model")
+        if self.excluded(session):
+            raise ValueError(EXCLUDED)
         md = Path(session.meta.get("md") or "")
         try:
             segs = json.loads((session.folder / "transcript.json").read_text(encoding="utf-8"))

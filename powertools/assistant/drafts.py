@@ -3,18 +3,26 @@ Outlook Drafts folder when the user clicks it, and there is no code path that se
 
 from __future__ import annotations
 
+import hashlib
 import html
 import re
 import secrets
 import time
 
-
 from ..llm import INTERACTIVE, LLMError
 from . import skills
+from .collect import names
 from .memory import parse, render, section
 
 KINDS = {"reply": "a reply to the latest message", "reminder": "a short friendly reminder that the answer or result is still awaited",
          "brief": "a message"}
+
+
+FIELDS = ("title", "to", "key", "kind", "link", "created", "outlook", "outlook_text", "edited", "old")
+
+
+def fingerprint(text: str) -> str:
+    return hashlib.sha1(text.strip().encode()).hexdigest()[:12]
 
 
 def new_id() -> str:
@@ -36,10 +44,11 @@ class Drafts:
     # ------------------------------------------------------------------ list, read, edit
     def list(self) -> list[dict]:
         out = []
-        for p in sorted((self.memory.root / "drafts").glob("*.md"), reverse=True):
-            meta, body = parse(p.read_text(encoding="utf-8"))
+        for p, text in reversed(self.memory.listed("drafts")):
+            meta, body = parse(text)
             if meta.get("status", "draft") == "draft":
-                out.append({"id": p.stem, "body": body.strip(), **{k: str(meta.get(k) or "") for k in ("title", "to", "key", "kind", "link", "created", "outlook")}})
+                d = {"id": p.stem, "body": body.strip(), **{k: str(meta.get(k) or "") for k in FIELDS}}
+                out.append({**d, "same": d["outlook_text"] in ("", fingerprint(d["body"]))})   # Outlook has this very text
         return out
 
     def get(self, did: str) -> dict:
@@ -50,12 +59,27 @@ class Drafts:
         raise KeyError(did)
 
     def _write(self, d: dict, status: str = "draft") -> dict:
-        meta = {"status": status, **{k: d.get(k, "") for k in ("title", "to", "key", "kind", "link", "created", "outlook")}}
+        meta = {"status": status, **{k: d.get(k, "") for k in FIELDS}}
         self.memory.write(f"drafts/{d['id']}.md", render(meta, "\n" + d["body"].strip() + "\n"), "draft")
         return d
 
     def save(self, did: str, body: str) -> dict:
-        return self._write({**self.get(did), "body": body})
+        d = self.get(did)
+        self._write({**d, "body": body, "edited": "yes" if body.strip() != d["body"] else d["edited"]})
+        return self.get(did)
+
+    def overtaken(self, did: str, by_me: bool) -> bool:
+        """The conversation went on. The user's own answer ends the draft; a new message ends one the user did not touch
+        (the Update writes a new one); one with the user's words stays and is marked. True when it stays."""
+        try:
+            d = self.get(did)
+        except KeyError:
+            return False
+        if by_me or not d["edited"]:
+            self._write(d, "used" if by_me else "dropped")
+            return False
+        self._write({**d, "old": "yes"})
+        return True
 
     def close(self, did: str, status: str) -> None:
         if status not in ("used", "dropped"):
@@ -81,6 +105,8 @@ class Drafts:
         if not d["body"]:
             raise LLMError("the model wrote an empty draft")
         self._write(d)
+        if i.get("draft"):
+            self.overtaken(i["draft"], by_me=True)     # this one takes its place
         with self.a._lock:
             i["draft"] = d["id"]
         self.a._save()
@@ -101,7 +127,7 @@ class Drafts:
             (f"\n\nThe conversation:\n{i['text'][-3000:]}" if i else "")
         a = skills.REVISE.run(self.a.llm, user, me=self.a.me, style=self.style())
         if str(a["body"]).strip():
-            d["body"] = str(a["body"]).strip()
+            d.update(body=str(a["body"]).strip(), edited="yes", old="")
             self._write(d)
         return {"draft": d, "rule": " ".join(str(a["rule"]).split())[:200]}
 
@@ -119,9 +145,12 @@ class Drafts:
         i = self.a.data["items"].get(d["key"]) or {}
         if i.get("source") != "mail" or not i.get("msg_id"):
             raise ValueError("only an answer to a mail can go to the Outlook drafts")
+        text = fingerprint(d["body"])
+        if d["outlook"] and d["outlook_text"] == text:
+            return d                      # this very text is there already
         comment = html.escape(d["body"]).replace("\n", "<br>")
-        made = self.a.graph.g.reply_draft(i["msg_id"], comment, everyone=i["last_from_me"] or len(i["people"].split(",")) > 1)
-        d["outlook"] = made.get("webLink", "") or "yes"
+        made = self.a.graph.g.reply_draft(i["msg_id"], comment, everyone=i["last_from_me"] or len(names(i)) > 1)
+        d.update(outlook=made.get("webLink", "") or "yes", outlook_text=text)
         return self._write(d)
 
 

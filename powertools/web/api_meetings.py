@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+from ..meetings.manager import EXCLUDED
 from .server import route
 
 
@@ -66,6 +67,8 @@ def meeting_summarize(h, sid):
         raise ValueError("only meetings with a transcript can be summarized")
     if s.meta.get("summary_status") == "running":
         raise ValueError("the summary is already being written")
+    if h.app.meetings.excluded(s):
+        raise ValueError(EXCLUDED)
     threading.Thread(target=h.app.meetings.summarize, args=(s,), daemon=True).start()
     h.send(200, {"summarizing": sid})
 

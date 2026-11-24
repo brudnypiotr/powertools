@@ -167,7 +167,8 @@ def clean_triage(a: dict, text: str) -> dict:
            "decision": bool(a.get("decision")), "commitments": []}
     if not quoted(out["quote"], text):
         out["quote"] = ""
-    for c in (a.get("commitments") or [])[:3]:
+    given = a.get("commitments")
+    for c in given[:3] if isinstance(given, list) else []:
         if isinstance(c, dict) and str(c.get("what") or "").strip() and quoted(str(c.get("quote") or ""), text):
             out["commitments"].append({k: str(c.get(k) or "").strip()[:200] for k in ("who", "to", "what", "due", "quote")})
     if out["category"] not in ("todo", "reply"):

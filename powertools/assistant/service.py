@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -17,8 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from .. import export
+from .. import export, files
 from ..config import data_dir, memory_dir
+from ..exclusions import Exclusions
 from ..graph.client import GraphError, TokenExpired
 from ..graph.service import resolve_since
 from ..jira.client import JiraError
@@ -33,7 +33,9 @@ MAX_CHARS = 6000             # text per conversation sent to the model (the newe
 MAX_MATCH = 40               # conversations per "which matter" question
 SAID_IN = ("profile.md", "style.md", "matters/", "people/")   # memory worth quoting; briefs and cards only repeat it
 OVERLAP = timedelta(minutes=10)
-KEEP_DAYS = {"fyi": 30, "ignore": 14, "closed": 60}
+KEEP_DAYS = {"fyi": 30, "ignore": 14, "closed": 60, "promise": 180}
+KEPT = ("matter", "matter_by", "first_seen", "draft", "status", "done_at", "done_by", "category", "user_category", "summary", "action", "due",
+        "person", "quote", "decision", "commitments", "by")
 NOT_SORTED = {"category": "fyi", "summary": "", "action": "", "due": "", "person": "", "quote": "", "decision": False, "commitments": []}
 UNDOABLE = ("done", "not_mine", "mute", "snooze", "category")
 UNDO_FIELDS = ("status", "until", "done_at", "user_category", "reviewed")
@@ -69,6 +71,16 @@ def said(new: str, old: str, question: str) -> bool:
     return sum(w in mine for w in added) * 2 >= len(added) if added else bool(words(old) & mine)
 
 
+def promise_id(key: str, c: dict) -> str:
+    return hashlib.sha1(f"{key}|{c['what'].lower()}".encode()).hexdigest()[:12]
+
+
+def alike(a: str, b: str) -> bool:
+    """Do two short texts say the same (two thirds of the words of the shorter one)?"""
+    x, y = ({w.lower() for w in re.findall(r"\w{3,}", t)} for t in (a, b))
+    return bool(x and y) and len(x & y) * 3 >= min(len(x), len(y)) * 2
+
+
 class Assistant:
     def __init__(self, settings, graph, llm, jira=None, meetings=None, path: Path | None = None, memory: Memory | None = None):
         self.settings, self.graph, self.llm, self.jira, self.meetings = settings, graph, llm, jira, meetings
@@ -77,6 +89,7 @@ class Assistant:
         self._lock = threading.RLock()
         self.data = self._load()
         self.job = None
+        self._plan: dict = {}        # range and sources of the Update, and what it read before the token ended
         self.current = ""            # what the running update does now
         self.talk: list[dict] = []   # the Ask conversation of this session
         self._undo: dict = {}        # the last change of an item, for the Undo in the window
@@ -85,10 +98,7 @@ class Assistant:
 
     # ------------------------------------------------------------------ state
     def _load(self) -> dict:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+        data = files.load_json(self.path)
         for k, v in (("items", {}), ("promises", {}), ("events", []), ("preps", {}), ("people", []), ("cursor", ""),
                      ("updated", 0), ("last", {}), ("me", {}), ("corrections", []), ("muted", [])):
             data.setdefault(k, v)
@@ -96,9 +106,12 @@ class Assistant:
 
     def _save(self) -> None:
         with self._lock:
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.data, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, self.path)
+            files.save_json(self.path, self.data)
+
+    def _all(self) -> list[dict]:
+        """Every item, safe to go through while an Update adds some."""
+        with self._lock:
+            return list(self.data["items"].values())
 
     def item(self, key: str) -> dict:
         return self.data["items"][key]
@@ -122,8 +135,6 @@ class Assistant:
         with self._lock:
             if self.job and self.job.state in ("queued", "running"):
                 raise ValueError("an update is already running")
-            if self.job and self.job.state == "needs_token":
-                return self.job                      # it waits for a token and then goes on by itself
             if rng.get("kind") == "new":
                 since = export.parse_time(self.data["cursor"]) - OVERLAP if self.data["cursor"] else resolve_since({"kind": "days", "days": 3})
             else:
@@ -131,41 +142,50 @@ class Assistant:
             if since is None:
                 raise ValueError("pick a range of days or a date")
             sources = [s for s in (sources or SOURCES) if s in SOURCES] or SOURCES
+            waiting = self.job if self.job and self.job.state == "needs_token" else None
+            if not (waiting and rng.get("kind") == "new" and self._plan["kind"] == "new"):   # the same again keeps what it read
+                self._plan = {"kind": rng.get("kind"), "since": since, "sources": sources, "read": {}, "began": None}
+            if waiting:
+                return waiting                       # it waits for a token and then goes on by itself, as asked last
             self.current = "waiting for the job that is running now"
-        self.job = self.graph.jobs.submit("Update", lambda job: self._run(job, since, sources), "recap")
+        self.job = self.graph.jobs.submit("Update", self._run, "recap")
         return self.job
 
     def _step(self, text: str) -> None:
         self.current = text
 
-    def _run(self, job, since: datetime, sources: list[str]) -> None:
-        began = datetime.now(timezone.utc)
+    def _run(self, job) -> None:
+        plan = self._plan
+        since, sources = plan["since"], plan["sources"]
+        plan["began"] = began = plan["began"] or datetime.now(timezone.utc)
         t0, c0 = time.time(), self._credits()
-        g, ex = self.graph.g, collect.Exclusions(self.settings["exclude"])
+        g, ex = self.graph.g, Exclusions(self.settings["exclude"])
         self._step("reading your profile")
         self.data["me"] = {k: v for k, v in g.get("/me", {"$select": "id,displayName,mail,userPrincipalName"}).items()
                            if not k.startswith("@")}
         me, until = self.data["me"], datetime.now().astimezone()
-        found: list[dict] = []
         problems: list[str] = []
-        failed: list[str] = []       # sources that stopped: their part of the range is read again next time
-
-        def part(name: str, fn) -> None:
+        again = False                # something stopped: the range is read again next time
+        readers = {"mail": lambda r: collect.mail_items(g, me, since, ex, r),
+                   "teams": lambda r: collect.chat_items(g, me, since, until, ex, r)}
+        if self.jira is not None and self._jira_ready():
+            readers["jira"] = lambda r: collect.jira_items(self.jira.client(), since, ex, r)
+        if self.meetings is not None:
+            readers["meetings"] = lambda r: collect.meeting_items(self.meetings.sessions(60), since, ex)
+        for name in (s for s in SOURCES if s in sources and s in readers):
+            if name in plan["read"]:
+                continue             # read before the token ended
+            r, rows = collect.Reading(self._step), []
             try:
-                found.extend(fn())
-            except TokenExpired:
-                raise
+                for row in readers[name](r):
+                    rows.append(row)
             except (GraphError, JiraError) as e:
-                problems.append(f"{name}: {e}")
-                failed.append(name)
-        if "mail" in sources:
-            part("Mail", lambda: collect.mail_items(g, me, since, ex, self._step))
-        if "teams" in sources:
-            part("Teams", lambda: collect.chat_items(g, me, since, until, ex, self._step))
-        if "jira" in sources and self.jira is not None and self._jira_ready():
-            part("Jira", lambda: collect.jira_items(self.jira.client(), since, ex, self._step))
-        if "meetings" in sources and self.meetings is not None:
-            found += collect.meeting_items(self.meetings.sessions(60), since, ex)
+                r.notes.append(str(e))
+                r.again = True
+            plan["read"][name] = rows
+            problems += [f"{name.capitalize()}: {note}" for note in r.notes]
+            again = again or r.again
+        found = [row for rows in plan["read"].values() for row in rows]
         self._step("reading the calendar")
         try:
             day = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -182,17 +202,22 @@ class Assistant:
         job.total, job.done = len(todo), 0
         job.note(f"{len(found)} conversation(s), {len(todo)} new or changed")
         self._triage(todo, job)
-        fresh = [i for i in todo if not i.get("error")]
+        fresh = [i for i in self._all() if i.get("fresh") and not i.get("pending") and not i.get("error")]
         self._step("matching to matters")
-        self._match(fresh)
+        unmatched = self._match(fresh)
+        if unmatched:
+            problems.append(f"{len(unmatched)} conversation(s) could not be matched to matters; the next Update tries again")
         touched = self._to_matters(fresh)
+        for i in fresh:              # an Update that ends before this line matches them next time
+            if i["key"] not in unmatched:
+                i.pop("fresh")
         self._states(touched)
         if self.settings["auto_drafts"]:
             self._auto_drafts(fresh)
         self._prune()
         self._close_drafts()
         # the cursor moves only when every chosen source was read (Update now and then with fewer sources is a look, not a sync)
-        if not failed and set(SOURCES) <= set(sources):
+        if not again and set(SOURCES) <= set(sources):
             self.data["cursor"] = began.strftime("%Y-%m-%dT%H:%M:%SZ")
         self.data["updated"] = time.time()
         errors = sum(bool(i.get("error")) for i in todo)
@@ -223,15 +248,23 @@ class Assistant:
         with self._lock:
             for new in found:
                 old = self.data["items"].get(new["key"])
-                if old and old.get("last") == new["last"] and old.get("category") and not old.get("error"):
+                if old and old.get("last") == new["last"] and old.get("category") and not old.get("error") and not old.get("pending"):
                     continue
-                keep = {k: old[k] for k in ("matter", "matter_by", "first_seen", "draft") if old and old.get(k)}
-                item = {**new, "first_seen": now_iso(), **keep, "seen": now_iso(), "status": "open"}
+                # until it is sorted again it stays where it was
+                keep = {k: old[k] for k in KEPT if old and k in old}
+                item = {**new, "first_seen": now_iso(), "status": "open", **keep, "seen": now_iso(), "pending": True, "fresh": True}
+                if not (new["last_from_me"] and item["status"] in ("done", "dropped")):
+                    item["status"] = "open"           # a new message of someone else opens it again, my own does not
+                if old and old.get("user_category"):
+                    item["filed"] = old["user_category"]
                 self.data["items"][new["key"]] = item
                 todo.append(item)
-            for old in self.data["items"].values():   # sorted badly last time (no model, limit): try again
-                if old.get("error") and all(old is not t for t in todo):
-                    todo.append(old)
+            chosen = {t["key"] for t in todo}
+            # sorted badly last time (no model, limit) or not at all (the app was closed): try again
+            todo += [i for k, i in self.data["items"].items() if (i.get("error") or i.get("pending")) and k not in chosen]
+        for i in todo:
+            if i.get("draft") and not i.get("error") and not self.drafts.overtaken(i["draft"], i["last_from_me"]):
+                i.pop("draft")
         return todo
 
     def _triage(self, todo: list[dict], job) -> None:
@@ -255,11 +288,11 @@ class Assistant:
                     log.warning("triage %s: %s", item["key"], e)
                     got, error = dict(NOT_SORTED), str(e)[:200]
                     broken.append(error)
+                except Exception as e:   # one odd conversation must not stop every Update from now on
+                    log.exception("triage %s", item["key"])
+                    got, error = dict(NOT_SORTED), f"{type(e).__name__}: {e}"[:200]
             with self._lock:
-                item.update(got)
-                item.pop("error", None)
-                if error:
-                    item["error"] = error
+                self._settle(item, got, error)
             job.done += 1
             self._step(f"sorting {job.done}/{job.total}: {item['title'][:70]}")
 
@@ -269,15 +302,30 @@ class Assistant:
                     self._save()
         self._save()
 
+    def _settle(self, item: dict, got: dict, error: str) -> None:
+        """The answer of the model, with what the code knows better: after the user's own answer nobody waits for it."""
+        was = item.get("category")
+        item.update(got)
+        for k in ("error", "pending", "user_category", "reviewed"):
+            item.pop(k, None)
+        if error:
+            item["error"] = error
+        elif item["last_from_me"] and item["category"] == "reply":
+            item.update(category="fyi", decision=False)
+        if not error and item["last_from_me"] and was in ("todo", "reply") and item["category"] in ("fyi", "ignore") and item["status"] == "open":
+            item.update(status="done", done_at=now_iso(), done_by="answer")
+
     def classify(self, item: dict, prompt: dict, provider: str = "") -> dict:
         hint = "\n\n(The latest message is from me.)" if item["last_from_me"] else ""
+        hint += f"\n\n(Before the newest message I filed this conversation as {item['filed']}.)" if item.get("filed") else ""
         a = skills.TRIAGE.run(self.llm, cut(item["text"]) + hint, priority=skills.BACKGROUND, provider=provider, **prompt)
         stats = a.pop("_stats", {})
         return {**skills.clean_triage(a, item["text"]), "by": "model", "orders": skills.gives_orders(item["text"]), "took_s": stats.get("total_s", 0),
                 "credits": stats.get("credits")}
 
     # ------------------------------------------------------------------ matters
-    def _match(self, fresh: list[dict]) -> None:
+    def _match(self, fresh: list[dict]) -> set[str]:
+        """Sets the matter; returns the conversations the model could not be asked about."""
         matters = self.memory.matters(every=True)
         by_key: dict[str, set] = {}
         for m in matters:
@@ -307,7 +355,7 @@ class Assistant:
                 res = skills.MATCH.run(self.llm, user, priority=skills.BACKGROUND, me=self.me)["results"]
             except LLMError as e:
                 log.warning("matching: %s", e)
-                return
+                return {i["key"] for i in rest[n:]}
             answers = {str(r.get("key", "")): r for r in res if isinstance(r, dict)}
             with self._lock:
                 for i in part:
@@ -318,6 +366,7 @@ class Assistant:
                         i.update({"matter": r["matter"], "matter_by": "model"} if sure else {"maybe": r["matter"]})
                     elif str(r.get("new") or "").strip() and i["category"] in OPEN:
                         i["suggest"] = " ".join(str(r["new"]).split())[:60]
+        return set()
 
     def _to_matters(self, fresh: list[dict]) -> list[str]:
         touched = []
@@ -369,10 +418,10 @@ class Assistant:
                 log.warning("draft for %s: %s", i["key"], e)
                 return
 
-    def _forget_excluded(self, ex: collect.Exclusions) -> None:
+    def _forget_excluded(self, ex: Exclusions) -> None:
         """A new exclusion also removes what was read before it."""
         with self._lock:
-            for k in [k for k, i in self.data["items"].items() if ex.hit(i["title"], i["people"])]:
+            for k in [k for k, i in self.data["items"].items() if ex.hit(i["title"], i["people"], *collect.names(i))]:
                 del self.data["items"][k]
 
     def _prune(self) -> None:
@@ -381,8 +430,8 @@ class Assistant:
             for k, i in list(self.data["items"].items()):
                 age = (now - export.parse_time(i["last"])).days if i.get("last") else 0
                 closed = i["status"] in ("done", "dropped")
-                limit = KEEP_DAYS["closed"] if closed else KEEP_DAYS.get(i["category"])
-                if limit and age > limit:
+                limit = KEEP_DAYS["closed"] if closed else KEEP_DAYS.get(i.get("category", ""))
+                if limit and age > limit and not (age <= KEEP_DAYS["promise"] and self._open_promises(i)):
                     del self.data["items"][k]
 
     def _close_drafts(self) -> None:
@@ -415,15 +464,29 @@ class Assistant:
         who, me = who.strip().lower(), self.me.lower()
         return bool(who) and (who in ("me", "i") or who == me or who == me.split()[0])
 
+    def _promise_state(self, key: str, c: dict) -> str:
+        """Closed stays closed when the model words the same promise differently after the next message."""
+        kept = self.data["promises"]
+        direct = kept.get(promise_id(key, c))
+        if direct:
+            return direct if isinstance(direct, str) else direct["state"]
+        for p in kept.values():
+            if isinstance(p, dict) and p["key"] == key and p["who"].lower() == c["who"].lower() and (
+                    alike(p["what"], c["what"]) or alike(p["quote"], c["quote"])):
+                return p["state"]
+        return "open"
+
+    def _open_promises(self, i: dict) -> bool:
+        return i["status"] != "dropped" and any(self._promise_state(i["key"], c) == "open" for c in i.get("commitments") or [])
+
     def promises(self, every: bool = False) -> list[dict]:
         """Commitments with a proving quote: mine and other people's."""
         out = []
-        for i in self.data["items"].values():
+        for i in self._all():
             if i["status"] == "dropped":
                 continue
             for c in i.get("commitments") or []:
-                pid = hashlib.sha1(f"{i['key']}|{c['what'].lower()}".encode()).hexdigest()[:12]
-                state = self.data["promises"].get(pid, "open")
+                pid, state = promise_id(i["key"], c), self._promise_state(i["key"], c)
                 if every or state == "open":
                     out.append({**c, "id": pid, "state": state, "mine": self._mine(c["who"]), "key": i["key"], "title": i["title"],
                                 "source": i["source"], "link": i["link"], "last": i["last"], "days": self.age_days(i),
@@ -443,7 +506,8 @@ class Assistant:
         quiet = self.settings["silence_days"]
         day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         since = min(day_ago, self.data["last"].get("began", day_ago))   # new in the last update, at least the last day
-        recent = [i for i in items if i["status"] == "open" and i["category"] == "fyi" and i["seen"] >= since and not i.get("error")]
+        recent = [i for i in items if i["status"] == "open" and i["category"] == "fyi" and i["seen"] >= since
+                  and not i.get("error") and i.get("category")]
         ignored = [i for i in items if i["category"] == "ignore" and i["status"] == "open"]
         week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
         closed = [i for i in items if (i["status"] == "snoozed" and i["key"] not in shown) or
@@ -477,6 +541,7 @@ class Assistant:
                 "events": events, "matters": matters, "suggested": self._suggested(items),
                 "updated": self.data["updated"], "last": self.data["last"], "job": job, "cursor": self.data["cursor"],
                 "current": self.current if job and job["state"] in ("queued", "running") else "",
+                "paused_at": self.current if job and job["state"] == "needs_token" else "",
                 "ahead": [j.title for j in self.graph.jobs.all if j.state == "running" and j is not self.job],
                 "reviewed": len(reviewed), "agreed": sum(i["category"] == i["model_category"] for i in reviewed),
                 "silence_days": quiet, "setup_done": self.settings["setup_done"], "drafts": len(self.drafts.list()),
@@ -572,10 +637,15 @@ class Assistant:
     def promise(self, pid: str, state: str) -> None:
         if state not in ("open", "done", "dropped"):
             raise ValueError("state must be open, done or dropped")
-        if pid not in {p["id"] for p in self.promises(every=True)}:
+        p = next((p for p in self.promises(every=True) if p["id"] == pid), None)
+        if p is None:
             raise KeyError(pid)
         with self._lock:
-            self.data["promises"][pid] = state
+            # every earlier wording of it too, else an old "done" would close it again
+            for old in self.data["promises"].values():
+                if isinstance(old, dict) and old["key"] == p["key"] and (alike(old["what"], p["what"]) or alike(old["quote"], p["quote"])):
+                    old["state"] = state
+            self.data["promises"][pid] = {"state": state, **{k: p[k] for k in ("key", "who", "what", "quote")}}
             self._save()
 
     # ------------------------------------------------------------------ setup (five questions)
@@ -603,7 +673,7 @@ class Assistant:
     # ------------------------------------------------------------------ ask
     def _sources(self, question: str) -> list[dict]:
         chunks = self.memory.chunks(SAID_IN)
-        for i in self.data["items"].values():
+        for i in self._all():
             chunks.append({"file": "", "title": f"{LABELS.get(i['source'], i['source'])}: {i['title']}", "link": i["link"],
                            "text": f"{i['last'][:10]} {i['people']}\n{i.get('summary', '')}\n{cut(i['text'], 1800)}"})
         for e in self.data["events"]:
@@ -688,7 +758,7 @@ class Assistant:
             if tl or m["status"] in ("active", "waiting"):
                 facts.append(f"Matter {m['title']} ({m['status']}): {m['state']}\nDecisions: " +
                              " ".join(section(body, "Decisions")[-5:]) + "\nNew:\n" + ("\n".join(tl[-10:]) or "- nothing"))
-        rest = [i for i in self.data["items"].values() if i["last"] >= since and not i.get("matter") and self._cat(i) != "ignore"]
+        rest = [i for i in self._all() if i["last"] >= since and not i.get("matter") and self._cat(i) != "ignore"]
         facts.append("Outside the matters:\n" + "\n".join(f"- {i['last'][:10]} {i['title'][:80]}: {i.get('summary', '')} [{i['status']}]" for i in rest[:40]))
         try:
             a = skills.BRIEF.run(self.llm, "\n\n".join(facts)[:24000], me=self.me, profile=self.profile(),
@@ -719,7 +789,7 @@ class Assistant:
         if have and not again:
             return have
         names = {p.lower() for p in e["people"] if p.lower() != self.me.lower()}
-        related = [i for i in self._open() if names & {x.strip().lower() for x in i["people"].split(",")}][:12] if len(names) <= 12 else []
+        related = [i for i in self._open() if names & {x.lower() for x in collect.names(i)}][:12] if len(names) <= 12 else []
         promises = [p for p in self.promises() if names & {p["who"].lower(), p["to"].lower()}][:10]
         query = f"{e['title']} {e['title']} {' '.join(list(names)[:6])} {e['invite'][:400]}"
         known = rank(query, self.memory.chunks(SAID_IN), 6)
@@ -776,10 +846,10 @@ class Assistant:
         low = name.strip().lower()
 
         def about(i: dict) -> bool:
-            return low in {x.strip().lower() for x in i["people"].split(",")} or low == i.get("person", "").lower()
+            return low in {x.lower() for x in collect.names(i)} or low == i.get("person", "").lower()
         items = [i for i in self._open() if about(i)]
         promises = [p for p in self.promises() if low in (p["who"].lower(), p["to"].lower())]
-        last = max((i["last"] for i in self.data["items"].values() if about(i)), default="")
+        last = max((i["last"] for i in self._all() if about(i)), default="")
         keep = ("key", "title", "action", "summary", "due", "link", "last", "source")
         return {"name": name, "last": last, "file": f"people/{export.slug(name)}.md",
                 "notes": [ln for ln in section(parse(self.memory.read(f"people/{export.slug(name)}.md"))[1], "Notes")],
@@ -823,7 +893,7 @@ class Assistant:
     # ------------------------------------------------------------------ measuring the models (the AI tab)
     def compare(self, provider: str, limit: int = 30) -> dict:
         """The same conversations on another model: agreement with what the user confirmed, time and AI credits."""
-        rows = [i for i in self.data["items"].values() if i.get("by") == "model" and i.get("text")]
+        rows = [i for i in self._all() if i.get("by") == "model" and i.get("text")]
         rows.sort(key=lambda i: (not i.get("reviewed"), i["last"]), reverse=False)
         rows = rows[:max(1, min(limit, 100))]
         if not rows:

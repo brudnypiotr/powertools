@@ -22,7 +22,7 @@ class TokenExpired(Exception):
 
 class GraphError(Exception):
     def __init__(self, status: int, code: str, message: str):
-        super().__init__(f"HTTP {status} {code}: {message}")
+        super().__init__(f"HTTP {status} {code}: {message}" if status else message)
         self.status, self.code = status, code
 
 
@@ -31,6 +31,7 @@ class Graph:
         import requests
 
         self._token = token
+        self._network_errors = (requests.ConnectionError, requests.Timeout)
         self.s = requests.Session()
 
     def _request(self, url: str, params: dict | None, headers: dict | None, stream: bool = False, body: dict | None = None):
@@ -41,10 +42,16 @@ class Graph:
             raise TokenExpired("no valid token")
         h = {"Authorization": f"Bearer {token}", "Accept": "application/json", **(headers or {})}
         for attempt in range(5):
-            if body is None:
-                r = self.s.get(url, params=params, headers=h, timeout=120, stream=stream)
-            else:
-                r = self.s.post(url, json=body, headers=h, timeout=120)
+            try:
+                if body is None:
+                    r = self.s.get(url, params=params, headers=h, timeout=120, stream=stream)
+                else:
+                    r = self.s.post(url, json=body, headers=h, timeout=120)
+            except self._network_errors as e:
+                if attempt < 2 and body is None:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise GraphError(0, "network", f"no connection to Microsoft ({type(e).__name__})") from e
             if (r.status_code == 429 or r.status_code >= 500) and attempt < 4:
                 wait = int(r.headers.get("Retry-After", 2 ** attempt))
                 log.warning("Graph %s, waiting %s s", r.status_code, wait)
