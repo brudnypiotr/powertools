@@ -10,3 +10,6 @@ local/
 setup.log
 .venv.new/
 .venv.old/
+# the look of an organisation's copy: never in the public repository (its own repository adds it with git add -f)
+branding/
+branding.zip

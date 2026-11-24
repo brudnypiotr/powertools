@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>powertools</title>
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/branding.css" id="branding-css">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#141417">
 <link rel="icon" href="/dot-32.png" sizes="32x32">
@@ -12,7 +13,7 @@
 </head>
 <body>
 <aside class="side">
-  <div class="brand"><img src="/dot-192.png" alt="" class="logo">powertools</div>
+  <div class="brand"><img id="brand-logo" alt="" class="hidden"><div class="brand-name"><img src="/dot-192.png" alt="" class="logo"><span id="brand-name">powertools</span></div></div>
   <nav>
     <button data-tab="recap" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11"/><circle cx="5" cy="18" r="1.2"/></svg><span>Recap</span></button>
     <button data-tab="dictation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Dictation</span></button>
@@ -255,6 +256,14 @@
       <label>Export folder <input name="output_dir" placeholder="Documents\powertools">
         <small>Where Teams and mail exports go. Point it at the wiki inbox.</small></label>
       <label class="check"><input type="checkbox" name="mail_attachments"> Save mail attachments next to the thread</label>
+      <h3>Look</h3>
+      <div id="look" class="look"><label>Name <input id="look-name" maxlength="40" placeholder="powertools"></label>
+        <label>Accent <input id="look-accent" type="color"></label><label>Sidebar <input id="look-sidebar" type="color"></label>
+        <label>Sidebar, current tab <input id="look-sidebar_active" type="color"></label></div>
+      <div class="row look-row"><button type="button" id="look-save">Apply</button><label class="filebtn">Import branding.zip<input id="look-zip" type="file" accept=".zip" hidden></label>
+        <button type="button" id="look-pack">Make branding.zip</button><button type="button" id="look-reset">Reset</button></div>
+      <small>Logo and background come from the zip (logo.png or .svg, background.png or .jpg). Only on this laptop; the organisation's
+        repository can carry it for everyone (docs/DISTRIBUTION.md).</small>
       <h3>Recap</h3>
       <label>Never read <textarea name="exclude" rows="4" placeholder="one per line: a person, a word in a title, or folder: Name"></textarea>
         <small>Checked before anything is kept or shown to a model; also removes what was read before.</small></label>

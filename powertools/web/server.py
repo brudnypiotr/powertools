@@ -38,12 +38,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def send(self, code: int, body, ctype: str = "application/json; charset=utf-8") -> None:
+    def send(self, code: int, body, ctype: str = "application/json; charset=utf-8", headers: dict | None = None) -> None:
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
@@ -77,7 +79,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(500, {"error": f"{type(e).__name__}: {e}"})
         self.send(404, {"error": "no such route"})
 
+    def _branding(self, path: str) -> None:
+        """The organisation's colours and pictures (see branding.py); an SVG may not run anything."""
+        from .. import branding
+
+        if path == "/branding.css":
+            return self.send(200, branding.css().encode("utf-8"), TYPES[".css"])
+        p = branding.find(path.removeprefix("/branding/"))
+        if not p:
+            return self.send(404, {"error": "not found"})
+        self.send(200, p.read_bytes(), branding.TYPES[p.suffix], {
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox", "X-Content-Type-Options": "nosniff"})
+
     def _static(self, path: str) -> None:
+        if path.startswith("/branding"):
+            return self._branding(path)
         name = "index.html" if path in ("", "/") else path.lstrip("/")
         f = (STATIC / name).resolve()
         if STATIC.resolve() not in f.parents or not f.is_file():
@@ -95,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(app, port: int = 0) -> ThreadingHTTPServer:
-    from . import api, api_assistant, api_graph, api_jira, api_llm, api_meetings, api_org  # noqa: F401  (register the routes)
+    from . import api, api_assistant, api_branding, api_graph, api_jira, api_llm, api_meetings, api_org  # noqa: F401  (register the routes)
 
     Handler.app = app
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
