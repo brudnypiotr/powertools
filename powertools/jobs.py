@@ -16,7 +16,7 @@ log = logging.getLogger("powertools.jobs")
 _ids = itertools.count(1)
 
 
-@dataclass
+@dataclass(eq=False)      # two jobs are never the same one
 class Job:
     title: str
     run: Callable[["Job"], None]
@@ -57,8 +57,10 @@ class Jobs:
 
     def submit(self, title: str, run: Callable[[Job], None], kind: str = "") -> Job:
         job = Job(title, run, kind)
-        self.all.append(job)
-        self.all = self.all[-30:]
+        # the list is for the window: what still goes on, the newest finished ones, and of the Recap's own jobs only the last
+        alive = [j for j in self.all if j.state in (*ACTIVE, "needs_token")]
+        over = [j for j in self.all if j not in alive and not (j.kind == "recap" and j.title == title)]
+        self.all = [j for j in self.all if j in alive or j in over[-29:]] + [job]
         self._q.put(job)
         return job
 

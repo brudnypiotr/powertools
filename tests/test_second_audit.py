@@ -127,3 +127,40 @@ def test_a_chat_with_one_person_closes_by_rule_even_when_the_model_is_wrong(tmp_
     g.chat_msgs = [*g.chat_msgs, {**said_in_chat("t2", 0.2, "Yes.", me=True), "createdDateTime": iso(0.2)}]
     a.answers.check()
     assert a.state.data["items"]["teams:c1"]["status"] == "done"
+
+
+def test_a_file_only_in_the_cloud_does_not_break_the_window(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    monkeypatch.setattr(files.time, "sleep", lambda s: None)
+    a, g = make(tmp_path)
+    mid = a.memory.create_matter("Alpha")
+    a.view()
+    real = Path.read_bytes
+
+    def cloud(self):
+        if self.name == f"{mid}.md":
+            raise OSError(22, "The cloud file provider is not running")
+        return real(self)
+    monkeypatch.setattr(Path, "read_bytes", cloud)
+    assert [m["title"] for m in a.view()["matters"]] == ["Alpha"]              # as it was read last
+    with pytest.raises(files.Busy):
+        a.memory.matter(mid)
+
+
+def test_checks_do_not_push_the_exports_out_of_the_list():
+    import time
+
+    from powertools.jobs import Jobs
+
+    jobs = Jobs()
+    paused = jobs.submit("Teams: 2 chat(s)", lambda j: None, "teams")
+    for n in range(40):
+        j = jobs.submit("Check answers" if n else "Mail: 1 thread(s)", lambda j: None, "recap" if n else "mail")
+        while j.state != "done":
+            time.sleep(0.005)
+        paused.state = "needs_token"
+    assert {j.kind for j in jobs.all} == {"teams", "mail", "recap"} and len(jobs.all) < 6
+    for _ in range(40):
+        jobs.submit("Jira", lambda j: None, "jira")
+    assert paused in jobs.all                                                  # it still waits for its token

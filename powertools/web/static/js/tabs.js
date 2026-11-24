@@ -3,7 +3,7 @@ import { $ } from "./core.js";
 
 const openers = {};
 const onTab = (names, fn) => { for (const n of [names].flat()) (openers[n] ||= []).push(fn); };
-const on = (name) => $("#" + name).classList.contains("active");
+const on = (name) => { const tab = $("#" + name); return !!tab && tab.classList.contains("active"); };   // false when the page is closed or locked
 function openTab(b) {
   if (b.disabled) return;
   if (b.closest("#more-nav")) openMore(true);

@@ -22,9 +22,11 @@ def _patiently(path: Path, what):
     for n in range(TRIES):
         try:
             return what()
-        except PermissionError as e:
+        except FileNotFoundError:
+            raise
+        except OSError as e:            # locked, or only in the cloud and OneDrive does not answer
             if n == TRIES - 1:
-                raise Busy(f"{path.name} is used by another program (an editor or OneDrive): try again in a moment") from e
+                raise Busy(f"{path.name} cannot be read or written now (an editor or OneDrive holds it): try again in a moment") from e
             time.sleep(WAIT)
 
 
