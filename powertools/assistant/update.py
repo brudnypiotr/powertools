@@ -15,6 +15,7 @@ from ..graph.service import resolve_since
 from ..jira.client import JiraError
 from ..jobs import ACTIVE, Job, Stopped
 from . import collect
+from .briefs import Briefs
 from .digest import Digest
 from .drafts import Drafts
 from .kit import Kit, Part
@@ -34,6 +35,7 @@ class Plan:
     kind: str
     since: datetime
     sources: list[str]
+    brief: bool = False              # write the brief of the day at the end
     began: datetime | None = None
     read: dict[str, list[dict]] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
@@ -46,20 +48,21 @@ class Plan:
 
 
 class Updates(Part):
-    def __init__(self, kit: Kit, digest: Digest, drafts: Drafts):
+    def __init__(self, kit: Kit, digest: Digest, drafts: Drafts, briefs: Briefs):
         super().__init__(kit)
-        self.digest, self.drafts, self.progress = digest, drafts, digest.progress
+        self.digest, self.drafts, self.briefs, self.progress = digest, drafts, briefs, digest.progress
         self.job: Job | None = None
         self._plan: Plan | None = None
 
-    def start(self, rng: dict | None = None, sources: list[str] | None = None) -> Job:
+    def start(self, rng: dict | None = None, sources: list[str] | None = None, brief: bool = False) -> Job:
         rng = rng or {"kind": "new"}
         with self.state.lock:
             if self.running:
                 raise ValueError("an update is already running")
             waiting = self.job if self.job and self.job.state == "needs_token" else None
             if not (waiting and rng["kind"] == "new" and self._plan.kind == "new"):     # the same again keeps what it read
-                self._plan = Plan(rng["kind"], self._since(rng), [s for s in (sources or SOURCES) if s in SOURCES] or SOURCES)
+                self._plan = Plan(rng["kind"], self._since(rng), [s for s in (sources or SOURCES) if s in SOURCES] or SOURCES, brief)
+            self._plan.brief = self._plan.brief or brief
             if waiting:
                 return waiting           # goes on by itself when the token is there, as asked last
             self.progress.say("waiting for the job that is running now")
@@ -105,14 +108,25 @@ class Updates(Part):
                      "credits": round(self._credits() - credits, 2), "model": self.kit.llm.model, "since": plan.since.isoformat(),
                      "began": clock.iso(plan.began)}
         self.state.save()
+        if plan.brief:
+            self._write_brief(plan)
         self.progress.say("")
         job.note(f"done in {d['last']['seconds']} s")
+
+    def _write_brief(self, plan: Plan) -> None:
+        """The day in five lines, so the morning is one click. The Update is done and saved by now."""
+        self.progress.step("writing the brief of the day")
+        try:
+            self.state.data["brief"] = {**self.briefs.brief("day"), "at": time.time()}
+        except (ValueError, OSError) as e:
+            plan.problems.append(f"The brief could not be written: {e}")
+        self.state.save()
 
     def _readers(self, plan: Plan) -> dict[str, Reader]:
         k, ex, me, until = self.kit, self.kit.exclusions(), self.state.data["me"], datetime.now().astimezone()
         readers: dict[str, Reader] = {"mail": lambda r: collect.mail_items(k.graph.g, me, plan.since, ex, r),
                                       "teams": lambda r: collect.chat_items(k.graph.g, me, plan.since, until, ex, r)}
-        if k.jira is not None and self._jira_ready():
+        if k.jira_ready():
             readers["jira"] = lambda r: collect.jira_items(k.jira.client(), plan.since, ex, r)
         if k.meetings is not None:
             readers["meetings"] = lambda r: collect.meeting_items(k.meetings.sessions(60), plan.since, ex)
@@ -164,14 +178,6 @@ class Updates(Part):
     def _credits(self) -> float:
         usage = getattr(self.kit.llm, "usage", None)
         return usage.today()["credits"] if usage else 0.0
-
-    def _jira_ready(self) -> bool:
-        try:
-            c = self.kit.jira.creds()
-            return bool(c.base_url and c.token)
-        except Exception as e:
-            log.info("jira skipped: %s", e)
-            return False
 
     # ------------------------------------------------------------------ tidying up
     def _forget_excluded(self) -> None:

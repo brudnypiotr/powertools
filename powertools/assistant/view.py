@@ -46,10 +46,10 @@ class View(Part):
             i["quiet"] = i["days"] >= quiet
         mine = newest(i for i in open_now if i["category"] in ("todo", "reply"))
         closed = self._closed(items, shown)
-        return {"decisions": [i for i in mine if i.get("decision")], "mine": [i for i in mine if not i.get("decision")], "waiting": waiting,
+        return {"unread": sum(bool(i.get("unread")) for i in open_now), "decisions": [i for i in mine if i.get("decision")], "mine": [i for i in mine if not i.get("decision")], "waiting": waiting,
                 "changed": newest(i for i in items if self._is_news(i)),
                 "ignored": newest(i for i in items if i["category"] == "ignore" and i["status"] == "open")[:MAX_IGNORED],
-                "answered": [i for i in closed if i.get("done_by") == "answer" and i.get("done_at", "") >= clock.days_ago(1)],
+                "answered": [i for i in closed if i.get("done_by") and i.get("done_at", "") >= clock.days_ago(1)],
                 "closed": closed, "unsorted": [i for i in items if i.get("error")]}
 
     def _is_news(self, i: dict) -> bool:
@@ -87,13 +87,18 @@ class View(Part):
         d, u, look = self.state.data, self.updates, self.answers.job
         job, reviewed = u.job.view() if u.job else None, [i for i in items if i.get("reviewed")]
         state, doing = job["state"] if job else "", u.progress.text
-        return {"updated": d["updated"], "last": d["last"], "cursor": d["cursor"], "job": job,
+        return {"brief": self._brief(), "updated": d["updated"], "last": d["last"], "cursor": d["cursor"], "job": job,
                 "current": doing if state in ACTIVE else "", "paused_at": doing if state == "needs_token" else "",
                 "ahead": [j.title for j in self.kit.graph.jobs.all if j.state == "running" and j is not u.job],
                 "checked": d["checked"], "checking": self.answers.running,
                 "check_error": look.error if look and look.state == "error" else "",
                 "reviewed": len(reviewed), "agreed": sum(i["category"] == i["model_category"] for i in reviewed),
                 "ask_feedback": bool(d["updated"]) and d.get("asked", "") != date.today().isoformat()}
+
+    def _brief(self) -> dict | None:
+        """The brief that came with today's Update."""
+        b = self.state.data.get("brief")
+        return b if b and date.fromtimestamp(b["at"]) == date.today() else None
 
     @staticmethod
     def _suggested(items: list[dict]) -> list[dict]:

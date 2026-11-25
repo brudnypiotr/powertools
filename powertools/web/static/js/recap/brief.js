@@ -5,14 +5,16 @@ import { R, V, meetingsToday } from "./store.js";
 
 const KINDS = { day: ["Today", "Today in 5 lines"], week: ["The week", "The week in 10 lines"], upward: ["For my manager", "For my manager"], leave: ["While you were away", "I was away"] };
 const briefTitle = (kind) => KINDS[kind][0];
+const shownBrief = () => V.brief || (V.noBrief ? null : R.brief);      // asked for now, or the one that came with today's Update
 function headline(top) {
-  if (V.brief) return V.brief.working ? "Writing..." : briefTitle(V.brief.kind);
-  if (!R.updated) return "Press Update to see your day";
+  const b = shownBrief();
+  if (b) return b.working ? "Writing..." : briefTitle(b.kind);
+  if (!R.updated) return "Press Start my day";
   return ["Nothing waits for you", "One thing for you", "First these two", "First these three"][top.length];
 }
 function intro(top) {
   if (!R.updated) return "It reads mail, Teams, Jira, the calendar and recorded meetings, and sorts them into what is yours, what you wait for and what changed.";
-  if (top.length || V.brief) return "";
+  if (top.length || shownBrief()) return "";
   const n = R.waiting.length;
   return n ? `You wait for ${n} answer${n === 1 ? "" : "s"}.` : "You wait for nobody.";
 }
@@ -20,7 +22,7 @@ const topLine = (i) => `${esc(i.action || i.summary)} ${tag(i.due, "hot")} <span
 const meetingLine = (e) => `<div><time>${clockOf(e.start)}</time><span class="grow"><b>${esc(e.title)}</b> <span class="muted">${esc(e.people.slice(0, 3).join(", "))}</span></span>
   ${button(e.prepared ? "Open card" : "Prepare me", "inbtn", { do: "meet", id: e.id, k: "m-" + e.id })}</div>`;
 function bodyBrief(force) {
-  const top = mineFirst(), today = meetingsToday(), b = V.brief, said = intro(top);
+  const top = mineFirst(), today = meetingsToday(), b = shownBrief(), said = intro(top);
   const lines = b ? (b.lines || []).map(esc) : top.map(topLine);
   const saved = b && b.lines ? `<p class="muted small">Saved in ${esc(b.file)}. ${button("Make a draft", "inbtn", { do: "brief-draft", k: "bd" })} ${button("Back to the day", "inbtn", { do: "brief-close", k: "bc" })}</p>` : "";
   const write = Object.entries(KINDS).map(([k, [, label]]) => button(label, "inbtn", { do: "brief", kind: k, k: "b-" + k })).join("");
@@ -39,4 +41,4 @@ async function makeBrief(kind) {
   if (V.mode === "brief") bodyBrief(true);
 }
 
-export { bodyBrief, briefTitle, makeBrief };
+export { bodyBrief, briefTitle, makeBrief, shownBrief };

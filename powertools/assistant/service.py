@@ -39,10 +39,10 @@ class Assistant:
         self.sorting, self.filing = Sorting(kit, self.drafts), Filing(kit)
         self.progress = Progress()
         digest = Digest(kit, self.sorting, self.filing, self.drafts, self.progress)
-        self.updates = Updates(kit, digest, self.drafts)
+        self.asking, self.briefs, self.people = Ask(kit), Briefs(kit), People(kit)
+        self.updates = Updates(kit, digest, self.drafts, self.briefs)
         self.answers = Answers(kit, digest, lambda: self.updates.running)
         self.actions = Actions(kit, self.filing)
-        self.asking, self.briefs, self.people = Ask(kit), Briefs(kit), People(kit)
         self.compare = Compare(kit, self.sorting).run
         self.view = View(kit, self.updates, self.answers, self.drafts).build
 

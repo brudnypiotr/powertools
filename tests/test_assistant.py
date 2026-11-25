@@ -66,7 +66,8 @@ class FakeGraph:
         if path.startswith("/me/mailFolders/"):
             return {"value": []}
         if path == "/me/messages":
-            return {"value": next(m for cv, m in self.threads.items() if f"'{cv}'" in params["$filter"])}
+            whole = [m for msgs in self.threads.values() for m in msgs]
+            return {"value": next((m for cv, m in self.threads.items() if f"'{cv}'" in params["$filter"]), whole)}
         if path == "/me/chats":
             return {"value": [{"id": "c1", "chatType": "oneOnOne", "members": [{"displayName": "Jan", "userId": "u-jan"}],
                                "lastMessagePreview": {"createdDateTime": iso(2)}, "webUrl": "https://t/c1"}]}
@@ -109,9 +110,26 @@ class Jobs:
         return job
 
 
+class Tokens:
+    token = "t"
+
+    def get(self):
+        return self.token
+
+
 class Service:
     def __init__(self, g):
-        self.g, self.jobs = g, Jobs()
+        self.g, self.jobs, self.tokens = g, Jobs(), Tokens()
+
+
+def as_asks(a):
+    """Most tests describe a conversation with at most one thing in it: {category, action, ...}."""
+    if not isinstance(a, dict) or "asks" in a:
+        return a
+    one = {"same": "", "kind": a.get("category"), **{k: a.get(k, "") for k in ("action", "due", "person", "quote")}, "decision": a.get("decision", False)}
+    open_ = a.get("category") in ("todo", "reply", "waiting")
+    return {"summary": a.get("summary", ""), "category": "fyi" if open_ else a.get("category", "fyi"), "asks": [one] if open_ else [],
+            "commitments": a.get("commitments", [])}
 
 
 class Model:
@@ -126,7 +144,8 @@ class Model:
         if self.error:
             raise LLMError(self.error)
         a = self.over.get(kw["task"].replace(" ", "_")) or getattr(self, kw["task"].replace(" ", "_"))
-        return json.dumps(a(user) if callable(a) else a), {"total_s": 0.1, "credits": 0.5}
+        a = a(user) if callable(a) else a
+        return json.dumps(as_asks(a) if kw["task"] == "triage" else a), {"total_s": 0.1, "credits": 0.5}
 
     def asked(self, task):
         return [c for c in self.calls if c["task"] == task]

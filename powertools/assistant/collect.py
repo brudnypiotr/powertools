@@ -105,7 +105,7 @@ def mail_items(g, me: dict, since: datetime, ex: Exclusions, r: Reading) -> Iter
             yield item
 
 
-def _address(m: dict) -> str:
+def address(m: dict) -> str:
     return ((m.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
 
 
@@ -125,12 +125,12 @@ def mail_item(g, me: dict, cid: str, subject: str, ex: Exclusions) -> dict | Non
     if not msgs or ex.hit(*everybody, *addresses):
         return None
     last, lines = msgs[-1], [_mail_line(m) for m in msgs[-6:]]
-    others = {_address(m) for m in msgs[-6:]} - mine
+    others = {address(m) for m in msgs[-6:]} - mine
     text = f"E-mail thread. Subject: {subject}\n\n" + "\n\n".join(lines)
     return {
         "key": "mail:" + cid, "source": "mail", "title": subject, **_people(everybody, me), "last": _sent(last),
-        "link": last.get("webLink", ""), "msg_id": last.get("id", ""), "count": len(msgs), "last_from_me": _address(last) in mine,
-        "mine_at": max((_sent(m) for m in msgs if _address(m) in mine), default=""),
+        "link": last.get("webLink", ""), "msg_id": last.get("id", ""), "count": len(msgs), "last_from_me": address(last) in mine,
+        "mine_at": max((_sent(m) for m in msgs if address(m) in mine), default=""),
         "automated": bool(others) and all(AUTOMATED.search(s) for s in others), "keys": issue_keys(subject, text), "text": text,
     }
 
@@ -139,7 +139,7 @@ def _mail_line(m: dict) -> str:
     when = export.local(export.parse_time(_sent(m))).strftime("%Y-%m-%d %H:%M")
     frm = ", ".join(mail.person_names([m["from"]])) if m.get("from") else "?"
     to, cc = ", ".join(mail.person_names(m.get("toRecipients"))), ", ".join(mail.person_names(m.get("ccRecipients")))
-    return f"--- {when} from {frm} <{_address(m)}> to {to}" + (f" cc {cc}" if cc else "") + f"\n{short(mail.body_text(m))}"
+    return f"--- {when} from {frm} <{address(m)}> to {to}" + (f" cc {cc}" if cc else "") + f"\n{short(mail.body_text(m))}"
 
 
 # ---------------------------------------------------------------- Teams
@@ -177,30 +177,55 @@ def chat_item(g, me: dict, c: dict, since: datetime, until: datetime) -> dict | 
 
 
 # ---------------------------------------------------------------- Jira, recorded meetings
+JIRA_NAMES = ("accountId", "name", "key", "displayName")
+JIRA_FIELDS = "summary,status,assignee,reporter,updated,comment,duedate,priority"
+
+
 def jira_items(client, since: datetime, ex: Exclusions, r: Reading) -> Iterator[dict]:
     """Issues the user is assigned to, watches or reported, changed in the range."""
     r.step("reading Jira")
     days = max(1, (datetime.now().astimezone() - since).days + 1)
     jql = (f"(assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser()) AND updated >= -{days}d "
            "ORDER BY updated DESC")
-    found = client.search(jql, "summary,status,assignee,reporter,updated,comment,duedate,priority", MAX_ISSUES + 1)
-    for i in r.newest(list(found), MAX_ISSUES, "Jira issues"):
-        f = i.get("fields") or {}
-        if not f.get("updated") or export.parse_time(_jira_time(f["updated"])) < since or ex.hit(f.get("summary", "")):
-            continue
-        comments = ((f.get("comment") or {}).get("comments") or [])[-4:]
-        lines = [f"Jira issue {i['key']}: {f.get('summary', '')}", f"Status: {(f.get('status') or {}).get('name', '')}",
-                 f"Assignee: {_name(f.get('assignee'))}", f"Reporter: {_name(f.get('reporter'))}", f"Due: {f.get('duedate') or ''}"]
-        lines += [f"Comment {str(c.get('created', ''))[:16].replace('T', ' ')} {_name(c.get('author'))}: {short(_adf(c.get('body')), 700)}"
-                  for c in comments]
-        people = [_name(f.get("assignee")), _name(f.get("reporter"))] + [_name(c.get("author")) for c in comments]
-        if ex.hit(*people):
-            continue
-        yield {
-            "key": "jira:" + i["key"], "source": "jira", "title": f"{i['key']} {f.get('summary', '')}", **_people(people, {}),
-            "last": _utc(_jira_time(f["updated"])), "link": f"{client.base}/browse/{i['key']}", "msg_id": "",
-            "count": len(comments), "last_from_me": False, "automated": False, "keys": [i["key"]], "text": "\n".join(lines),
-        }
+    found = r.newest(list(client.search(jql, JIRA_FIELDS, MAX_ISSUES + 1)), MAX_ISSUES, "Jira issues")
+    me = jira_me(client) if found else set()
+    for i in found:
+        item = r.one(i["key"], lambda i=i: jira_item(i, client.base, me, ex))
+        if item and export.parse_time(item["last"]) >= since:
+            yield item
+
+
+def jira_me(client) -> set[str]:
+    """How Jira names the user (Cloud: accountId, Data Center: name and key; everywhere the display name)."""
+    try:
+        me = client.myself()
+        return {str(me[k]) for k in JIRA_NAMES if me.get(k)}
+    except Exception as e:
+        log.info("who am I in Jira: %s", e)
+        return set()
+
+
+def jira_item(i: dict, base: str, me: set[str], ex: Exclusions) -> dict | None:
+    f = i.get("fields") or {}
+    comments = ((f.get("comment") or {}).get("comments") or [])[-4:]
+
+    def is_me(p) -> bool:
+        return isinstance(p, dict) and bool(me & {str(p.get(k)) for k in JIRA_NAMES})
+    everyone = [f.get("assignee"), f.get("reporter"), *(c.get("author") for c in comments)]
+    people = [_name(p) for p in everyone if not is_me(p)]
+    if not f.get("updated") or ex.hit(f.get("summary", ""), *people):
+        return None
+    status = f.get("status") or {}
+    lines = [f"Jira issue {i['key']}: {f.get('summary', '')}", f"Status: {status.get('name', '')}",
+             f"Assignee: {_name(f.get('assignee'))}", f"Reporter: {_name(f.get('reporter'))}", f"Due: {f.get('duedate') or ''}"]
+    lines += [f"Comment {str(c.get('created', ''))[:16].replace('T', ' ')} {_name(c.get('author'))}: {short(_adf(c.get('body')), 700)}" for c in comments]
+    mine = [c for c in comments if is_me(c.get("author"))]
+    return {
+        "key": "jira:" + i["key"], "source": "jira", "title": f"{i['key']} {f.get('summary', '')}", **_people(people, {}),
+        "last": _utc(_jira_time(f["updated"])), "link": f"{base}/browse/{i['key']}", "msg_id": "", "count": len(comments),
+        "last_from_me": bool(mine) and mine[-1] is comments[-1], "mine_at": _utc(_jira_time(mine[-1]["created"])) if mine and mine[-1].get("created") else "",
+        "resolved": (status.get("statusCategory") or {}).get("key") == "done", "automated": False, "keys": [i["key"]], "text": "\n".join(lines),
+    }
 
 
 def meeting_items(sessions: list, since: datetime, ex: Exclusions) -> Iterator[dict]:

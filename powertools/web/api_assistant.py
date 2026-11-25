@@ -40,7 +40,7 @@ def view(h):
 def update(h):
     b = h.json_body()
     # without a token the job is made all the same: it pauses at once and goes on when the token is there
-    h.app.assistant.updates.start(b.get("range"), b.get("sources"))
+    h.app.assistant.updates.start(b.get("range"), b.get("sources"), bool(b.get("brief")))
     h.send(200, h.app.assistant.view())
 
 
@@ -64,6 +64,12 @@ def stop(h):
 def act(h):
     h.app.assistant.actions.act(*text(h, "key", "action", "value"))
     h.send(200, h.app.assistant.view())
+
+
+@route("POST", "/api/assistant/seen")
+def seen(h):
+    h.app.assistant.actions.seen([str(k) for k in h.json_body().get("keys") or []])
+    h.send(200, {"seen": True})
 
 
 @route("POST", "/api/assistant/promise")

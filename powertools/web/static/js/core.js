@@ -90,7 +90,7 @@ const tag = (text, kind = "") => (text ? `<span class="ptag ${kind}">${esc(text)
 const GAP = `<span class="grow"></span>`;
 // one row of a list: { id, title, sub, tag, kind, time, current }
 const rowHtml = (r) => `<button type="button" class="prow"${attrs({ row: r.id, k: r.id || "brief" })} aria-current="${!!r.current}">
-  ${r.time ? `<time>${esc(r.time)}</time>` : ""}<span class="ptext"><b>${esc(r.title)}</b><span>${esc(r.sub)}</span></span>${tag(r.tag, r.kind)}</button>`;
+  ${r.time ? `<time>${esc(r.time)}</time>` : ""}<span class="ptext"><b>${r.unread ? `<i class="dot" title="New"></i>` : ""}${esc(r.title)}</b><span>${esc(r.sub)}</span></span>${tag(r.tag, r.kind)}</button>`;
 const outLink = (href, text, kind = "") => `<a class="btnlink ${kind}" href="${url(href)}" target="_blank" rel="noopener" data-k="${esc(text)}">${esc(text)}</a>`;
 
 export { GAP, attrs, button, outLink, rowHtml, tag };

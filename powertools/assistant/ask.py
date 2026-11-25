@@ -17,7 +17,7 @@ SAID_IN = ("profile.md", "style.md", "matters/", "people/")   # memory worth quo
 class Ask(Part):
     def _sources(self, question: str) -> list[dict]:
         chunks = self.kit.memory.chunks(SAID_IN)
-        for i in self.state.all():
+        for i in (i for i in self.state.all() if not i.get("parent")):
             chunks.append({"file": "", "title": f"{LABELS.get(i['source'], i['source'])}: {i['title']}", "link": i["link"],
                            "text": f"{i['last'][:10]} {i['people']}\n{i.get('summary', '')}\n{cut(i['text'], 1800)}"})
         for e in self.state.data["events"]:

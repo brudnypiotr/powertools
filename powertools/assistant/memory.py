@@ -247,7 +247,7 @@ class Memory:
             meta, body = self.matter(mid)
             day = export.local(export.parse_time(item["last"])).strftime("%Y-%m-%d") if item.get("last") else date.today().isoformat()
             src = {"mail": "Mail", "teams": "Teams", "jira": "Jira", "meeting": "Meeting"}.get(item["source"], item["source"])
-            what = item.get("summary") or item["title"]
+            what = item.get("parent") and item.get("action") or item.get("summary") or item["title"]
             link = f" ([source]({item['link']}))" if item.get("link") else f" (source: {item['title']})"
             line = f"- {day} · {src} · {what}{link}"
             tl = section(body, "Timeline")

@@ -220,9 +220,13 @@ word. **I have an idea** makes a zip on
 the Desktop (your words, pasted screenshots and, if you want, a report without names or text); you send it. A copy that
 follows an organisation's own repository can also open a filled-in GitHub issue there; the public one never gets an idea.
 
-- **Answered in Teams or by mail**: while the Graph token is valid the app looks every 5 minutes (or press *Check now*)
-  whether you wrote in a conversation with an open question. Only those are read and sorted again; a question you
-  answered moves to *You answered*, with *Bring it back*.
+- **Several things in one conversation** are items of their own (at most four); each can be done, postponed, drafted or
+  put under another matter, and keeps its place when the conversation goes on.
+- **Answered**: every 5 minutes (or *Check now*) the app looks at conversations with something open: did you write in Teams
+  or by mail, did somebody you wait for, did the Jira issue change? Only those are read and sorted again; what is settled
+  moves to *Answered*, with *Bring it back*. Teams and mail need a valid Graph token, Jira does not.
+- **Start my day**: the first Update of a day asks for the token at once and writes the day in five lines at the end.
+- **A dot** marks what came since you looked; *All seen* clears them.
 - **Stop** ends an Update (what is sorted stays, the range is read again next time) or an answer you wait for.
 - **The window has a key**: without it 127.0.0.1 gives no data to another user or program of the computer. A window that
   lost it (cleared cookies) asks the app to open a new one.

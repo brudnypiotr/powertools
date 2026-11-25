@@ -4,11 +4,11 @@ import { tokenSaved, watchGraphToken } from "../graph.js";
 import { showTab } from "../tabs.js";
 import { ask } from "./ask.js";
 import { renderBody, showItem } from "./body.js";
-import { briefTitle, makeBrief } from "./brief.js";
+import { briefTitle, makeBrief, shownBrief } from "./brief.js";
 import { openConnect, withToken } from "./connect.js";
 import { rewrite, saveDraft } from "./draft.js";
-import { find, next, renderToday } from "./list.js";
-import { V, backToItem, loadRecap, opened, running, select } from "./store.js";
+import { find, next, renderToday, startOfDay } from "./list.js";
+import { R, V, backToItem, loadRecap, opened, running, select } from "./store.js";
 
 // ---------------------------------------------------------------- what leaves the list can be taken back
 const UNDO = { done: "Done", not_mine: "Not yours", mute: "Ignored from now on", snooze: "Later", category: "Moved" };
@@ -50,8 +50,8 @@ async function newText(title, body) {   // a draft of the user's own, opened
 }
 const ON = {
   brief: (b) => makeBrief(b.dataset.kind),
-  "brief-close": () => { V.brief = null; renderBody(true); },
-  "brief-draft": async () => showItem(await newText(briefTitle(V.brief.kind), V.brief.lines.map((x) => "- " + x).join("\n"))),
+  "brief-close": () => { V.brief = null; V.noBrief = true; renderBody(true); },
+  "brief-draft": async () => showItem(await newText(briefTitle(shownBrief().kind), shownBrief().lines.map((x) => "- " + x).join("\n"))),
   meet: (b) => { V.meet = b.dataset.id; V.card = null; showTab("meetings"); },
   ask: (b) => ask(b.dataset.q),
   "ask-close": () => { backToItem(); renderToday(); },
@@ -61,6 +61,8 @@ const ON = {
   "mem-accept": memoryEdit,
   "token-get": async () => { await api("POST", "/api/graph/token/fetch"); watchGraphToken(0); await loadRecap(); },
   "token-no": () => { V.pending = null; backToItem(); renderToday(); },
+  row: (b) => showItem(b.dataset.id),
+  seen: async () => { await api("POST", "/api/assistant/seen", { keys: [] }); await loadRecap(); },
   check: () => withToken(async () => { await api("POST", "/api/assistant/check"); setTimeout(loadRecap, 600); }),
 };
 const ITEM = {
@@ -133,7 +135,13 @@ function range() {
 $("#recap-update").addEventListener("click", async () => {
   try {
     if (running()) { await api("POST", "/api/assistant/stop"); toast("Stopping; what is sorted stays", 3000); }
-    else { await api("POST", "/api/assistant/update", { range: range() }); V.asked = null; }
+    else {
+      const day = startOfDay(), token = R.graph.has_token;
+      await api("POST", "/api/assistant/update", { range: range(), brief: day });
+      V.asked = null; V.noBrief = false;
+      if (day) { V.tab = "me"; select(""); }
+      if (day && !token) await ON["token-get"]();          // one click less: Graph Explorer opens right away
+    }
     setTimeout(loadRecap, 300);
   } catch (e) { say(e.message); }
 });

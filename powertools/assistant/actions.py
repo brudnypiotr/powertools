@@ -9,7 +9,7 @@ from .. import clock
 from . import skills
 from .filing import Filing
 from .kit import Kit, Part
-from .state import cat
+from .state import cat, conversation
 
 UNDO_FIELDS = ("status", "until", "done_at", "done_by", "user_category", "reviewed")
 
@@ -48,8 +48,10 @@ class Actions(Part):
 
     def _mute(self, i: dict, _value: str) -> None:
         self._learn(i, "ignore")
-        i["user_category"] = "ignore"
-        self.state.data["muted"] = list(dict.fromkeys([*self.state.data["muted"], i["key"]]))[-500:]
+        conv = conversation(i)
+        for x in [i, *self.state.children(conv), *([self.state.item(conv)] if conv in self.state.data["items"] else [])]:
+            x["user_category"] = "ignore"
+        self.state.data["muted"] = list(dict.fromkeys([*self.state.data["muted"], conv]))[-500:]
 
     def _snooze(self, i: dict, value: str) -> None:
         datetime.strptime(value, "%Y-%m-%d")
@@ -61,8 +63,8 @@ class Actions(Part):
         if value != i.get("category"):
             self._learn(i, value)
         i.update(user_category=value, reviewed=True, status="open")
-        if value != "ignore" and i["key"] in self.state.data["muted"]:
-            self.state.data["muted"].remove(i["key"])
+        if value != "ignore" and conversation(i) in self.state.data["muted"]:
+            self.state.data["muted"].remove(conversation(i))
 
     # ------------------------------------------------------------------ the others
     def _undo(self, i: dict, _value: str) -> None:
@@ -117,6 +119,13 @@ class Actions(Part):
         if was != now:
             row = {"at": clock.now(), "title": i["title"], "people": i["people"], "was": was, "now": now}
             self.state.data["corrections"] = [*self.state.data["corrections"], row][-200:]
+
+    def seen(self, keys: list[str]) -> None:
+        """The user looked at these (none named: at everything)."""
+        with self.state.lock:
+            for i in [self.state.item(k) for k in keys if k in self.state.data["items"]] if keys else self.state.all():
+                i.pop("unread", None)
+            self.state.save()
 
     # ------------------------------------------------------------------ the daily question, the first start
     def feedback(self, text: str) -> None:

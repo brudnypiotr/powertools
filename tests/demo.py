@@ -28,7 +28,14 @@ MAILS = [  # category, title, summary, action, due
     ("ignore", "Weekly digest", "Automatic message.", "", "")]
 
 
+def three(kinds=("todo", "todo", "reply")) -> list[dict]:
+    texts = ("Book the room", "Send the agenda", "Confirm the window with Jan")
+    return [{"same": "", "kind": k, "action": a, "due": "", "person": "Jan", "quote": "", "decision": False} for k, a in zip(kinds, texts, strict=True)]
+
+
 def triage(user: str) -> dict:
+    if "THREE THINGS" in user:
+        return {"summary": "Jan plans the day.", "category": "fyi", "commitments": [], "asks": three()}
     for c, title, summary, action, due in MAILS:
         if title in user:
             who = next((x for x, _ in PEOPLE if x in user), "")

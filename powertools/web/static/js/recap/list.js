@@ -9,10 +9,11 @@ const TABS = [["me", "For me"], ["wait", "Waiting"], ["chg", "Changed"]];
 const item = (kind) => (i) => {
   const who = i.person || i.people || SRC[i.source] || "";
   return { id: i.key, i, kind, title: i.error ? "Not sorted: " + plain(i.title) : cap(i.action || i.summary || plain(i.title)),
-    sub: [who, plain(i.title)].filter(Boolean).join(", "), tag: itemTag(kind, i), hot: kind !== "closed" && (!!i.due || i.quiet) };
+    sub: [who, plain(i.title)].filter(Boolean).join(", "), tag: itemTag(kind, i), hot: kind !== "closed" && (!!i.due || i.quiet), unread: !!i.unread };
 };
+const CLOSED = { answer: "you answered", them: "they answered", resolved: "done in Jira", update: "settled" };
 function itemTag(kind, i) {
-  if (kind === "closed" && i.done_by === "answer") return "you answered";
+  if (kind === "closed" && CLOSED[i.done_by]) return CLOSED[i.done_by];
   return kind === "me" && i.wrote ? "you wrote" : i.due || ago(i.last);
 }
 const promise = (p) => ({ id: "p:" + p.id, p, kind: "promise", title: cap(p.what), tag: p.due || ago(p.last), hot: !!p.due,
@@ -25,7 +26,7 @@ const GROUPS = {
     group("Do", [...R.mine.filter((i) => i.category === "todo").map(item("me")), ...R.promised.map(promise)]),
     group("Answer", R.mine.filter((i) => i.category === "reply").map(item("me"))),
     group("Not sorted yet", R.unsorted.map(item("chg"))),
-    group("You answered", R.answered.map(item("closed")), true),
+    group("Answered", R.answered.map(item("closed")), true),
     group("My texts", R.draft_list.filter((d) => !d.key).map(text))],
   wait: () => [
     group("Quiet for long", R.waiting.filter((i) => i.quiet).map(item("wait"))),
@@ -42,6 +43,7 @@ function next(id) {   // the row after this one, so the work goes on
   const rows = shownRows(V.tab), at = rows.findIndex((r) => r.id === id);
   return at < 0 ? "" : (rows[at + 1] || rows[at - 1] || { id: "" }).id;
 }
+const openRows = () => [...shownRows("me"), ...shownRows("wait")];
 const mineFirst = () => openOfMine().sort((a, b) => !!b.due - !!a.due).slice(0, 3);
 
 // ---------------------------------------------------------------- the head: when, how far, Update or Stop
@@ -52,10 +54,11 @@ function renderHead() {
     R.reviewed && `you checked ${R.reviewed}, right ${R.agreed}`].filter(Boolean).join(", ");
   $("#recap-progress").classList.toggle("hidden", !w && job.state !== "needs_token");
   $("#recap-progress span").style.width = (job.total ? Math.round(100 * job.done / job.total) : 3) + "%";
-  setText("#recap-update", w ? "Stop" : "Update");
-  $("#recap-update").classList.toggle("primary", !R.updated && R.setup_done);
+  setText("#recap-update", w ? "Stop" : startOfDay() ? "Start my day" : "Update");
+  $("#recap-update").classList.toggle("primary", !w && startOfDay());
   $("#recap").classList.toggle("solo", !R.setup_done);
 }
+const startOfDay = () => R.setup_done && (!R.updated || !isToday(R.updated * 1000));   // token, Update and the brief in one click
 const doing = (job) => (R.ahead.length && job.state === "queued" ? "After: " + R.ahead.join(", ") : R.current || "Starting");
 function asOf(last) {
   if (!R.updated) return "Nothing read yet";
@@ -93,8 +96,9 @@ function checkLine() {   // did I answer in the meantime?
   if (!R.updated || running() || !openOfMine().some((i) => ["mail", "teams"].includes(i.source))) return "";
   const again = (label) => button(label, "inbtn", { do: "check", k: "check" });
   const said = R.checking ? "Looking for your answers..." : R.check_error ? `Looking for your answers did not work: ${esc(R.check_error)} ${again("Try again")}`
-    : `Your answers seen until ${clockOf((R.checked || R.updated) * 1000)}. ${again("Check now")}`;
-  return `<p class="checkline muted small">${said}</p>`;
+    : `Answers seen until ${clockOf((R.checked || R.updated) * 1000)}. ${again("Check now")}`;
+  const news = R.unread ? ` ${R.unread} new. ${button("All seen", "inbtn", { do: "seen", k: "seen" })}` : "";
+  return `<p class="checkline muted small">${said}${news}</p>`;
 }
 function suggestions() {
   const one = (s) => `<div class="suggest" data-key="${esc(s.items[0].key)}"><input aria-label="Name of the matter" value="${esc(s.name)}">
@@ -106,4 +110,4 @@ const MISSED = `<form class="feedback"><label>What did the Recap miss today?<inp
 
 onRecap("recap", renderToday);
 
-export { find, mineFirst, next, renderToday };
+export { find, mineFirst, next, openRows, renderToday, startOfDay };

@@ -75,7 +75,7 @@ def test_setup_then_update_then_brief(win):
     page.fill("[name=running]", "Alpha launch")
     page.click("#setup-next")
     page.click("#setup-next")
-    see(page, "#today-body", "Press Update")
+    see(page, "#today-body", "Press Start my day")
     win.update()
     see(page, "#today-rows", "Choose option A or B")
     page.click("[data-kind=day]")
@@ -184,12 +184,12 @@ def test_a_question_answered_in_teams_closes_by_itself(win):
     see(page, "#today-rows", "Answer Jan")
     win.g.chat_msgs.append(demo.my_answer())
     page.click("[data-do=check]")
-    sync.expect(page.locator("#today-rows .foldbtn", has_text="You answered")).to_be_visible(timeout=15000)
+    sync.expect(page.locator("#today-rows .foldbtn", has_text="Answered")).to_be_visible(timeout=15000)
     sync.expect(page.locator("#today-rows")).not_to_contain_text("Answer Jan")
-    page.locator("#today-rows .foldbtn", has_text="You answered").click()
+    page.locator("#today-rows .foldbtn", has_text="Answered").click()
     win.row("Answer Jan")
     page.click("[data-do=reopen]")
-    sync.expect(page.locator("#today-rows .foldbtn", has_text="You answered")).to_have_count(0)
+    sync.expect(page.locator("#today-rows .foldbtn", has_text="Answered")).to_have_count(0)
 
 
 def test_an_update_can_be_stopped(win):
@@ -200,7 +200,7 @@ def test_an_update_can_be_stopped(win):
     page.click("#recap-update")
     sync.expect(page.locator("#recap-update")).to_have_text("Stop")
     page.click("#recap-update")
-    sync.expect(page.locator("#recap-update")).to_have_text("Update", timeout=15000)
+    sync.expect(page.locator("#recap-update")).to_have_text("Start my day", timeout=15000)
     assert win.app.assistant.updates.job.state == "stopped"
 
 
@@ -340,3 +340,41 @@ def test_a_one_to_one_with_a_person(win):
     see(page, "#meet-rows", "1:1 with Jan")
     page.click("[data-m=file]")
     sync.expect(page.locator("#mem-text")).to_have_value(re.compile("1:1 with Jan"))
+
+
+def test_start_my_day_is_one_click_to_the_brief(win):
+    page = win.open()
+    win.app.graph.tokens.clear()
+    page.reload()
+    fetched = []
+    page.route("**/api/graph/token/fetch", lambda route: (fetched.append(1), route.fulfill(json={"active": True})))
+    sync.expect(page.locator("#recap-update")).to_have_text("Start my day")
+    page.click("#recap-update")
+    see(page, "#today-body", "One step")
+    assert fetched                                                           # Graph Explorer opened without another click
+    page.click("#token-paste summary")
+    page.fill("#token-form [name=token]", demo.token(win.app))
+    win.app.graph.tokens.clear()
+    page.click("#token-form button")
+    see(page, "#today-body", "Finance needs your choice")
+    sync.expect(page.locator("#recap-update")).to_have_text("Update")
+    page.click("[data-do=brief-close]")
+    see(page, "#today-body", "First these three")
+
+
+def test_three_questions_of_one_chat_are_three_rows_that_know_each_other(win):
+    page = win.open()
+    win.update()
+    win.g.chat_msgs.append({**demo.my_answer(), "id": "t3", "from": {"user": {"id": "u-jan", "displayName": "Jan"}},
+                            "body": {"contentType": "text", "content": "THREE THINGS: the room, the agenda and the window?"}})
+    page.click("#recap-update")
+    for text in ("Book the room", "Send the agenda", "Confirm the window with Jan"):
+        see(page, "#today-rows", text)
+    row = page.locator("#today-rows .prow", has_text="Send the agenda")
+    sync.expect(row.locator(".dot")).to_have_count(1)
+    row.click()
+    sync.expect(row.locator(".dot")).to_have_count(0)
+    page.locator("#today-body [data-do=row]", has_text="Book the room").click()
+    see(page, "#today-body h2", "Book the room")
+    page.click("[data-do=seen]")
+    sync.expect(page.locator("#today-rows .dot")).to_have_count(0)

@@ -1,7 +1,7 @@
 // Today, the right side: one item, a promise, or a text of the user's own. First the next step, last "this is wrong".
 import { GAP, SRC, bar, button, cap, draw, esc, link, outLink, plain, tag, url } from "../core.js";
 import { draftCard, draftOf } from "./draft.js";
-import { find } from "./list.js";
+import { find, openRows } from "./list.js";
 import { R, V } from "./store.js";
 
 const BODY = "#today-body", BAR = "#today-bar";
@@ -27,8 +27,12 @@ function conversationBody(r, force) {
     ${i.orders ? `<div class="note">This text gives orders to an AI. Check it yourself.</div>` : ""}
     <dl><dt>From</dt><dd>${who ? `<b>${esc(who)}</b>, ` : ""}${SRC[i.source] || ""}, ${link(i.link, plain(i.title))}</dd>
     <dt>When</dt><dd>${whenOf(i.last)} ${tag(i.due, "hot")} ${i.quiet ? tag(`quiet for ${i.days} days`, "hot") : ""}</dd>
-    <dt>Matter</dt><dd>${matterPicker(i)}</dd><dt>Why here</dt><dd>${why(i)}</dd></dl>${d ? draftCard(d) : ""}`, force);
+    <dt>Matter</dt><dd>${matterPicker(i)}</dd><dt>Why here</dt><dd>${why(i)}</dd>${others(r)}</dl>${d ? draftCard(d) : ""}`, force);
   bar(BAR, r.kind === "closed" ? button("Bring it back", "primary", { do: "reopen", k: "a1" }) : actions(r, d));
+}
+function others(r) {   // the other things in the same conversation
+  const conv = r.i.parent || r.i.key, rows = openRows().filter((x) => x.i && x.id !== r.id && (x.i.parent || x.i.key) === conv);
+  return rows.length ? `<dt>Also in it</dt><dd>${rows.map((x) => button(x.title, "inbtn", { do: "row", id: x.id })).join("<br>")}</dd>` : "";
 }
 const whenOf = (iso) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 function matterPicker(i) {

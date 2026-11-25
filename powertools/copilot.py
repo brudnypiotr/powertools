@@ -40,6 +40,7 @@ def strict(schema: dict) -> dict:
             if node.get("type") == "object" and "properties" in node:
                 node["additionalProperties"] = False
                 node["required"] = list(node["properties"])
+            node.pop("maxItems", None)
             for v in node.values():
                 walk(v)
         elif isinstance(node, list):

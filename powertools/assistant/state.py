@@ -19,6 +19,15 @@ def cat(i: dict) -> str:
     return i.get("user_category") or i.get("category") or "fyi"
 
 
+def conversation(i: dict) -> str:
+    """The key of the conversation an item belongs to."""
+    return i.get("parent") or i["key"]
+
+
+def newer(when: str, than: str) -> bool:
+    return bool(when) and export.parse_time(when) > export.parse_time(than)
+
+
 def age_days(i: dict) -> int:
     return max(0, (datetime.now(timezone.utc) - export.parse_time(i["last"])).days) if i.get("last") else 0
 
@@ -49,6 +58,11 @@ class State:
         """Every item, safe to go through while an Update adds some."""
         with self.lock:
             return list(self.data["items"].values())
+
+    def children(self, key: str) -> list[dict]:
+        """The further asks of a conversation (items of their own)."""
+        with self.lock:
+            return [i for i in self.data["items"].values() if i.get("parent") == key]
 
     def open(self) -> list[dict]:
         """Copies of what is open now, the newest first, with the category that counts."""

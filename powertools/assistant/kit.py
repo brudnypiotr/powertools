@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -10,6 +11,8 @@ from ..exclusions import Exclusions
 from .collect import names
 from .memory import Memory, parse
 from .state import State, age_days
+
+log = logging.getLogger("powertools.assistant")
 
 
 @dataclass
@@ -28,6 +31,16 @@ class Kit:
 
     def excluded(self, i: dict) -> bool:
         return self.exclusions().hit(i["title"], i["people"], *names(i))
+
+    def jira_ready(self) -> bool:
+        if self.jira is None:
+            return False
+        try:
+            c = self.jira.creds()
+            return bool(c.base_url and c.token)
+        except Exception as e:
+            log.info("jira skipped: %s", e)
+            return False
 
     def profile(self) -> str:
         text = parse(self.memory.read("profile.md"))[1].strip()
