@@ -17,7 +17,7 @@ from .. import export, files
 from ..config import data_dir, output_dir
 from ..jobs import Job, Jobs
 from . import auth, render
-from .client import Jira, JiraError, issue_keys
+from .client import KEY, Jira, JiraError, issue_keys
 
 FOLLOW = ("links", "subtasks", "parent", "children")
 OPS = {"=", "!=", "~", "!~", ">", ">=", "<", "<=", "in", "not in", "is", "is not"}
@@ -200,6 +200,14 @@ class JiraService:
                          "type": s.get("type", ""), "updated": s.get("updated", ""), "downloaded": st.get("downloaded_at", ""),
                          "last_result": st.get("last_result", ""), "found_via": st.get("found_via", "")})
         return sorted(rows, key=lambda r: r["downloaded"], reverse=True)
+
+    def forget(self, keys: list[str]) -> list[dict]:
+        """Out of the list of downloaded issues (Update does not look at them any more); the files stay."""
+        base = self.creds().base_url
+        for key in keys:
+            if KEY.fullmatch(key):
+                (self.state_dir(base) / f"{key}.json").unlink(missing_ok=True)
+        return self.downloaded(base)
 
     # ------------------------------------------------------------------ download
     def download(self, seed: dict, opts: dict) -> Job:

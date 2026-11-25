@@ -32,8 +32,9 @@ from .view import View
 
 class Assistant:
     def __init__(self, settings, graph, llm, jira=None, meetings=None, path: Path | None = None, memory: Memory | None = None):
-        self.memory = memory or Memory(lambda: memory_dir(settings))
-        self.state = State(path or data_dir() / "assistant.json")
+        path = path or data_dir() / "assistant.json"
+        self.memory = memory or Memory(lambda: memory_dir(settings), path.parent / "memory-history")
+        self.state = State(path)
         self.kit = kit = Kit(settings, graph, llm, self.memory, self.state, jira, meetings)
         self.drafts = Drafts(kit)
         self.sorting, self.filing = Sorting(kit, self.drafts), Filing(kit)

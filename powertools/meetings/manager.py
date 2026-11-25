@@ -158,10 +158,12 @@ def with_calendar(md: str, title: str, attendees: list[str], organizer: str) -> 
     """The file's front matter (and heading) with the calendar's title, attendees and organizer."""
     md = re.sub(r"(?m)^participants: .*$", lambda _: "participants: " + json.dumps(attendees, ensure_ascii=False), md, count=1)
     md = re.sub(r"(?m)^organizer: .*$", lambda _: "organizer: " + json.dumps(organizer, ensure_ascii=False), md, count=1)
-    if title:
-        md = re.sub(r'(?m)^title: .*$', lambda _: "title: " + json.dumps(title, ensure_ascii=False), md, count=1)
-        md = re.sub(r"(?m)^# .*$", lambda _: "# " + title, md, count=1)
-    return md
+    return with_title(md, title) if title else md
+
+
+def with_title(md: str, title: str) -> str:
+    md = re.sub(r'(?m)^title: .*$', lambda _: "title: " + json.dumps(title, ensure_ascii=False), md, count=1)
+    return re.sub(r"(?m)^# .*$", lambda _: "# " + title, md, count=1)
 
 
 class Session:
@@ -512,8 +514,22 @@ class MeetingManager:
         self.on_change()
         return {"id": session.id, "calendar": found, "attendees": len(session.meta.get("attendees") or [])}
 
-    def delete(self, sid: str) -> None:
+    def rename(self, sid: str, title: str) -> None:
+        s, title = self.get(sid), " ".join(title.split())[:120]
+        if not title:
+            raise ValueError("a recording needs a title")
+        s.meta["title"] = title
+        s.save()
+        md = Path(s.meta.get("md") or "")
+        if md.is_file():
+            files.write_text(md, with_title(files.read_text(md), title))
+        self.on_change()
+
+    def delete(self, sid: str, with_file: bool = False) -> None:
         s = self.get(sid)
         if s is self.current:
             raise ValueError("stop the recording first")
+        md = Path(s.meta.get("md") or "")
+        if with_file and md.is_file() and md.suffix == ".md":
+            md.unlink()
         shutil.rmtree(s.folder)

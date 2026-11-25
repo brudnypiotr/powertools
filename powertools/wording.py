@@ -13,6 +13,7 @@ import threading
 import time
 from typing import Callable
 
+from . import clipboard
 from .llm import LLMError, parse_json
 
 log = logging.getLogger("powertools.wording")
@@ -74,10 +75,7 @@ def copy_selection(timeout: float = 0.8) -> str:
     t0 = time.time()  # with Alt still held, Ctrl+C would arrive as Ctrl+Alt+C
     while any(keyboard.is_pressed(k) for k in ("alt", "ctrl", "shift", "windows")) and time.time() - t0 < 1.5:
         time.sleep(0.02)
-    try:
-        previous = pyperclip.paste()
-    except Exception:
-        previous = None
+    previous = clipboard.save()
     pyperclip.copy("")
     keyboard.send("ctrl+c")
     text, t0 = "", time.time()
@@ -86,8 +84,7 @@ def copy_selection(timeout: float = 0.8) -> str:
         text = pyperclip.paste()
         if text:
             break
-    if previous is not None:
-        pyperclip.copy(previous)
+    clipboard.restore(previous)
     return text
 
 

@@ -30,7 +30,7 @@ def test_win_overlay_shows_animates_asks_and_quits():
     from powertools.winoverlay import WinOverlay
 
     ov = WinOverlay(level=lambda: 0.05)
-    answers = []
+    answers, idle = [], []
 
     def drive():
         ov._ready.wait(5)
@@ -41,6 +41,13 @@ def test_win_overlay_shows_animates_asks_and_quits():
         ov.ask("Teams call", "Record 'Test'?", lambda: answers.append("yes"), lambda: answers.append("no"), timeout=1)
         time.sleep(1.5)
         ov.show("idle")
+        time.sleep(0.2)
+        before = ov.frames
+        time.sleep(0.5)
+        idle.append((ov.frames - before, ov._timer))
+        ov.show("recording")      # wakes up again without the timer
+        time.sleep(0.3)
+        idle.append(ov.frames - before)
         ov.quit()
 
     t = threading.Thread(target=drive)
@@ -51,3 +58,4 @@ def test_win_overlay_shows_animates_asks_and_quits():
     assert ov.failed_blits == 0
     time.sleep(0.2)
     assert answers == ["no"]  # the card timed out
+    assert idle[0] == (0, False) and idle[1] > 2, idle

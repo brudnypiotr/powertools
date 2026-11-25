@@ -43,10 +43,13 @@ class Drafts(Part):
 
     # ------------------------------------------------------------------ list, read, edit
     def list(self) -> list[dict]:
+        return self._all("draft")
+
+    def _all(self, *status: str) -> list[dict]:
         out = []
         for p, text in reversed(self.memory.listed("drafts")):
             meta, body = parse(text)
-            if meta.get("status", "draft") == "draft":
+            if meta.get("status", "draft") in status:
                 d = {"id": p.stem, "body": body.strip(), **{k: str(meta.get(k) or "") for k in FIELDS}}
                 out.append({**d, "same": d["outlook_text"] in ("", fingerprint(d["body"]))})   # Outlook has this very text
         return out
@@ -63,9 +66,21 @@ class Drafts(Part):
         self.memory.write(f"drafts/{d['id']}.md", render(meta, "\n" + d["body"].strip() + "\n"), "draft")
         return d
 
-    def save(self, did: str, body: str) -> dict:
+    def restore(self, did: str) -> dict:
+        """Back from "thrown away"."""
+        for d in self._all("dropped"):
+            if d["id"] == did:
+                self._write(d)
+                i = self.state.data["items"].get(d["key"])
+                if i and not i.get("draft"):
+                    i["draft"] = did
+                    self.state.save()
+                return self.get(did)
+        raise KeyError(did)
+
+    def save(self, did: str, body: str, title: str = "") -> dict:
         d = self.get(did)
-        self._write({**d, "body": body, "edited": "yes" if body.strip() != d["body"] else d["edited"]})
+        self._write({**d, "title": title.strip()[:120] or d["title"], "body": body, "edited": "yes" if body.strip() != d["body"] else d["edited"]})
         return self.get(did)
 
     def overtaken(self, did: str, by_me: bool) -> bool:

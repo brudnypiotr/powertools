@@ -30,6 +30,11 @@ def org_saved(h):
     h.send(200, h.app.graph.org_saved())
 
 
+@route("DELETE", r"/api/org/saved/([0-9a-z-_]+)")
+def org_remove(h, name):
+    h.send(200, h.app.graph.org_remove(name))
+
+
 @route("GET", r"/api/org/saved/([0-9a-z-_]+)")
 def org_load(h, name):
     h.send(200, h.app.graph.org_load(name))

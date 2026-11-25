@@ -202,6 +202,13 @@ def saved(out_dir: Path) -> list[dict]:
     return out
 
 
+def remove(out_dir: Path, name: str) -> None:
+    if not SAVED.match(name):
+        raise ValueError("unknown chart")
+    for ext in ("json", "md", "html", "csv"):
+        (out_dir / "org" / f"{name}.{ext}").unlink(missing_ok=True)
+
+
 def load(out_dir: Path, name: str) -> dict:
     if not SAVED.match(name):
         raise ValueError("unknown chart")

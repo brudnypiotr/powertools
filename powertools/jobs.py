@@ -76,6 +76,10 @@ class Jobs:
         if job.state in ("queued", "needs_token"):
             job.state = "stopped"
 
+    def clear(self) -> None:
+        """The finished ones go out of the list (the exported files stay)."""
+        self.all = [j for j in self.all if j.state in (*ACTIVE, "needs_token")]
+
     def busy(self) -> bool:
         return any(j.state in ACTIVE for j in self.all)
 

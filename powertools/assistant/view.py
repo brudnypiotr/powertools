@@ -26,7 +26,7 @@ class View(Part):
 
     def build(self) -> dict:
         with self.state.lock:
-            items = [self._shown(i) for i in self.state.all()]
+            items = [self._shown(i) for i in self.state.all() if not i.get("deleted")]
             matters, promises, lists = self._matters(), self.state.promises(), self._lists(items)
             self._name_matters(matters, [*lists["decisions"], *lists["mine"], *lists["waiting"], *lists["changed"], *promises])
             return {**lists, **self._progress(items), "matters": matters, "events": self._events(), "suggested": self._suggested(items),

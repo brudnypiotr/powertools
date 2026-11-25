@@ -84,6 +84,12 @@ def mail_export(h):
     h.send(200, h.app.graph.export_threads(list(b.get("items", [])), dict(b.get("range", {}))).view())
 
 
+@route("DELETE", "/api/jobs")
+def jobs_clear(h):
+    h.app.graph.jobs.clear()
+    h.send(200, [j.view() for j in reversed(h.app.graph.jobs.all)])
+
+
 @route("GET", "/api/jobs")
 def jobs(h):
     h.send(200, [j.view() for j in reversed(h.app.graph.jobs.all)])

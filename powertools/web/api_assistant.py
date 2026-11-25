@@ -74,7 +74,8 @@ def seen(h):
 
 @route("POST", "/api/assistant/promise")
 def promise(h):
-    h.app.assistant.state.close_promise(*text(h, "id", "state"))
+    pid, state, what, due = text(h, "id", "state", "what", "due")
+    h.app.assistant.state.close_promise(pid, state, what, due)
     h.send(200, h.app.assistant.view())
 
 
@@ -94,18 +95,35 @@ def brief(h):
 @route("POST", "/api/assistant/ask")
 @answer
 def ask(h):
-    h.send(200, h.app.assistant.asking.ask(*text(h, "question")))
+    h.send(200, h.app.assistant.asking.ask(*text(h, "question", "about")))
 
 
 @route("GET", "/api/assistant/talk")
 def talk(h):
-    h.send(200, h.app.assistant.kit.talk)
+    h.send(200, h.app.assistant.asking.talk())
+
+
+@route("DELETE", r"/api/assistant/talk/([0-9a-f]+)")
+def talk_delete(h, turn_id):
+    h.app.assistant.asking.forget(turn_id)
+    h.send(200, h.app.assistant.asking.talk())
 
 
 @route("DELETE", "/api/assistant/talk")
 def talk_clear(h):
-    h.app.assistant.kit.talk = []
+    h.app.assistant.asking.forget()
     h.send(200, [])
+
+
+@route("GET", "/api/assistant/corrections")
+def corrections(h):
+    h.send(200, h.app.assistant.actions.corrections())
+
+
+@route("DELETE", "/api/assistant/corrections")
+def correction_forget(h):
+    h.app.assistant.actions.forget_correction(h.query("at"))
+    h.send(200, h.app.assistant.actions.corrections())
 
 
 @route("POST", "/api/assistant/feedback")
@@ -124,6 +142,24 @@ def matter_new(h):
 def matter_status(h, mid):
     h.app.assistant.memory.set_status(mid, *text(h, "status", "reason", "return_on"))
     h.send(200, h.app.assistant.memory.matters(every=True))
+
+
+@route("POST", r"/api/matters/([^/]+)/rename")
+def matter_rename(h, mid):
+    h.app.assistant.memory.rename_matter(mid, *text(h, "title"))
+    h.send(200, {"id": mid})
+
+
+@route("DELETE", "/api/memory/file")
+def memory_delete(h):
+    e = h.app.assistant.memory.remove(h.query("name"))
+    h.send(200, {"id": e["id"], "file": e["file"]})
+
+
+@route("POST", "/api/memory/line")
+def memory_line(h):
+    e = h.app.assistant.memory.line(*text(h, "file", "line", "new"))
+    h.send(200, {"id": e["id"], "file": e["file"]})
 
 
 @route("GET", "/api/memory")
@@ -189,7 +225,12 @@ def draft_new(h):
 
 @route("POST", r"/api/drafts/([0-9a-z-]+)")
 def draft_save(h, did):
-    h.send(200, h.app.assistant.drafts.save(did, *text(h, "body")))
+    h.send(200, h.app.assistant.drafts.save(did, *text(h, "body", "title")))
+
+
+@route("POST", r"/api/drafts/([0-9a-z-]+)/restore")
+def draft_restore(h, did):
+    h.send(200, h.app.assistant.drafts.restore(did))
 
 
 @route("POST", r"/api/drafts/([0-9a-z-]+)/revise")
@@ -228,6 +269,12 @@ def style_rule(h):
 def prep(h):
     b = h.json_body()
     h.send(200, h.app.assistant.briefs.prep(str(b.get("id", "")), bool(b.get("again")), str(b.get("person", ""))))
+
+
+@route("DELETE", "/api/assistant/prep")
+def prep_drop(h):
+    e = h.app.assistant.briefs.drop(h.query("id"))
+    h.send(200, {"id": e["id"] if e else ""})
 
 
 @route("GET", "/api/people")

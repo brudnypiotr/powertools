@@ -12,6 +12,7 @@ import itertools
 import json
 import logging
 import re
+import shutil
 import threading
 import time
 from datetime import date, datetime
@@ -62,6 +63,10 @@ def with_section(body: str, name: str, lines: list[str]) -> str:
     return rx.sub(lambda _: block, body, count=1) if rx.search(body) else body.rstrip() + "\n\n" + block
 
 
+def one(text: str) -> str:
+    return " ".join(text.split())
+
+
 def bare(line: str) -> str:
     return line.strip().removeprefix("- ").strip()
 
@@ -87,8 +92,9 @@ def edited(text: str, old: str, new: str) -> str | None:
 
 
 class Memory:
-    def __init__(self, root):
+    def __init__(self, root, history: Path | None = None):
         self._root = root                  # a function: the folder can change in Settings
+        self._history = history            # outside the memory folder, so OneDrive does not sync hundreds of small files
         self.lock = threading.RLock()
         self._known: dict[Path, str] = {}
 
@@ -97,6 +103,16 @@ class Memory:
         d = Path(self._root() if callable(self._root) else self._root)
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    @property
+    def history(self) -> Path:
+        old, new = self.root / ".history", self._history or self.root / ".history"
+        new.mkdir(parents=True, exist_ok=True)
+        if old != new and old.is_dir():    # of a version before 0.20
+            for f in old.glob("*.json"):
+                shutil.move(str(f), new / f.name)
+            shutil.rmtree(old, ignore_errors=True)
+        return new
 
     # ------------------------------------------------------------------ files
     def path(self, name: str) -> Path:
@@ -128,24 +144,37 @@ class Memory:
             before = self.read(name)
             if before == text:
                 return None
-            entry = {"id": f"{time.time_ns()}{next(_serial):06d}", "file": Path(name).as_posix(), "before": before, "after": text, "why": why,
-                     "existed": self.path(name).exists()}
+            entry = {"file": Path(name).as_posix(), "before": before, "after": text, "why": why, "existed": self.path(name).exists()}
             files.write_text(self.path(name), text)
-            hist = self.root / ".history"
-            hist.mkdir(exist_ok=True)
-            (hist / f"{entry['id']}.json").write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
-            for old in sorted(hist.glob("*.json"))[:-KEEP_HISTORY]:
-                old.unlink(missing_ok=True)
-            return entry
+            return self._remember(entry)
+
+    def remove(self, name: str) -> dict:
+        """Deletes a file; undo() brings it back."""
+        with self.lock:
+            p = self.path(name)
+            if not p.is_file():
+                raise KeyError(name)
+            entry = {"file": Path(name).as_posix(), "before": self.read(name), "after": "", "why": "deleted", "existed": True, "removed": True}
+            p.unlink()
+            return self._remember(entry)
+
+    def _remember(self, entry: dict) -> dict:
+        entry = {"id": f"{time.time_ns()}{next(_serial):06d}", **entry}
+        (self.history / f"{entry['id']}.json").write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
+        for old in sorted(self.history.glob("*.json"))[:-KEEP_HISTORY]:
+            old.unlink(missing_ok=True)
+        return entry
 
     def undo(self, entry_id: str) -> str:
         if not re.fullmatch(r"\d+", entry_id):
             raise KeyError(entry_id)
         with self.lock:
-            f = self.root / ".history" / f"{entry_id}.json"
+            f = self.history / f"{entry_id}.json"
             if not f.exists():
                 raise KeyError(entry_id)
             e = json.loads(f.read_text(encoding="utf-8"))
+            if e.get("removed") and self.path(e["file"]).exists():
+                raise ValueError(f"{e['file']} is there again")
             if self.read(e["file"]) != e["after"]:
                 raise ValueError(f"{e['file']} changed since then: undo would lose that change")
             if e["existed"]:
@@ -176,6 +205,27 @@ class Memory:
                 done.append({**result, "id": entry["id"]})
         return done
 
+    def line(self, name: str, old: str, new: str) -> dict:
+        """One line changed ("" deletes it) by the user: any line, also of the timeline; what is changed is marked (you)."""
+        with self.lock:
+            rows, new = self.read(name).splitlines(), one(new)
+            at = [n for n, ln in enumerate(rows) if bare(ln) == bare(old)]
+            if not bare(old) or not at:
+                raise ValueError("that line is not in the file any more: open it again")
+            bullet = "- " if rows[at[0]].lstrip().startswith("- ") and new and not new.startswith("- ") else ""
+            rows[at[0]:at[0] + 1] = [f"{bullet}{new}" + ("" if YOU in new or new.startswith("#") else f" {YOU}")] if new else []
+            entry = self.write(name, "\n".join(rows) + "\n", "edited in the window")
+            return entry or {"id": "", "file": name}
+
+    def rename_matter(self, mid: str, title: str) -> None:
+        title = one(title)[:80]
+        if not title:
+            raise ValueError("a matter needs a name")
+        with self.lock:
+            meta, body = self.matter(mid)
+            body = re.sub(r"^# .*$", lambda _: "# " + title, body, count=1, flags=re.M)
+            self.write(f"matters/{mid}.md", render({**meta, "title": title}, body), "renamed")
+
     def forget(self, item: dict) -> None:
         """Takes a conversation out of its matter (a new exclusion): its line in the timeline and its key."""
         with self.lock:
@@ -187,7 +237,7 @@ class Memory:
             self.purge_history(lambda e: mark in e["before"] or mark in e["after"])
 
     def purge_history(self, hit) -> None:
-        for p in (self.root / ".history").glob("*.json"):
+        for p in self.history.glob("*.json"):
             try:
                 if hit(json.loads(files.read_text(p))):
                     p.unlink(missing_ok=True)

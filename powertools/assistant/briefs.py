@@ -95,6 +95,13 @@ class Briefs(Part):
         self._keep_card(card)
         return card
 
+    def drop(self, eid: str) -> dict | None:
+        """Throws the card of a meeting away; the undo brings its file back."""
+        with self.state.lock:
+            card = self.state.data["preps"].pop(eid)
+            self.state.save()
+        return self.kit.memory.remove(card["file"]) if self.kit.memory.read(card["file"]) else None
+
     def _event(self, eid: str) -> dict:
         for e in self.state.data["events"]:
             if e["id"] == eid:

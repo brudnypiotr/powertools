@@ -256,6 +256,10 @@ class GraphService:
     def org_saved(self) -> list[dict]:
         return org.saved(output_dir(self.settings))
 
+    def org_remove(self, name: str) -> list[dict]:
+        org.remove(output_dir(self.settings), name)
+        return self.org_saved()
+
     def org_load(self, name: str) -> dict:
         return org.load(output_dir(self.settings), name)
 

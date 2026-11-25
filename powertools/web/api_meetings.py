@@ -125,9 +125,15 @@ def meetings_update_all(h):
     h.send(200, {"updated": len(done), "with_attendees": sum(1 for d in done if d["calendar"]), "token": token})
 
 
+@route("POST", r"/api/meetings/([\w-]+)/title")
+def meeting_title(h, sid):
+    h.app.meetings.rename(sid, str(h.json_body().get("title", "")))
+    h.send(200, h.app.meetings.get(sid).view())
+
+
 @route("DELETE", r"/api/meetings/([\w-]+)")
 def meeting_delete(h, sid):
-    h.app.meetings.delete(sid)
+    h.app.meetings.delete(sid, with_file=h.query("file") == "1")
     h.send(200, {"deleted": sid})
 
 

@@ -11,7 +11,7 @@ from .text import alike, promise_id
 
 OPEN = ("todo", "reply", "waiting")
 EMPTY = {"items": {}, "promises": {}, "events": [], "preps": {}, "people": [], "cursor": "", "updated": 0, "checked": 0, "last": {}, "me": {},
-         "corrections": [], "muted": [], "missed": []}
+         "corrections": [], "muted": [], "missed": [], "talk": [], "hidden": []}
 
 
 def cat(i: dict) -> str:
@@ -96,15 +96,20 @@ class State:
             for c in i.get("commitments") or []:
                 pid, state = promise_id(i["key"], c), self.promise_state(i["key"], c)
                 if every or state == "open":
-                    out.append({**c, "id": pid, "state": state, "mine": self.is_me(c["who"]), "key": i["key"], "title": i["title"],
+                    out.append({**c, **self._edited(pid), "id": pid, "state": state, "mine": self.is_me(c["who"]), "key": i["key"], "title": i["title"],
                                 "source": i["source"], "link": i["link"], "last": i["last"], "days": age_days(i),
                                 "matter": i.get("matter", "")})
         return sorted(out, key=lambda p: p["last"], reverse=True)
 
+    def _edited(self, pid: str) -> dict:
+        kept = self.data["promises"].get(pid)
+        return kept.get("edit", {}) if isinstance(kept, dict) else {}
+
     def open_promises(self, i: dict) -> bool:
         return i["status"] != "dropped" and any(self.promise_state(i["key"], c) == "open" for c in i.get("commitments") or [])
 
-    def close_promise(self, pid: str, state: str) -> None:
+    def close_promise(self, pid: str, state: str, what: str = "", due: str | None = None) -> None:
+        """open, done or dropped; `what` corrects the wording."""
         if state not in ("open", "done", "dropped"):
             raise ValueError("state must be open, done or dropped")
         p = next((p for p in self.promises(every=True) if p["id"] == pid), None)
@@ -115,5 +120,6 @@ class State:
             for old in self.data["promises"].values():
                 if isinstance(old, dict) and old["key"] == p["key"] and (alike(old["what"], p["what"]) or alike(old["quote"], p["quote"])):
                     old["state"] = state
-            self.data["promises"][pid] = {"state": state, **{k: p[k] for k in ("key", "who", "what", "quote")}}
+            edit = {"what": what.strip()[:200], "due": (due or "").strip()[:60]} if what.strip() else self._edited(pid)
+            self.data["promises"][pid] = {"state": state, **{k: p[k] for k in ("key", "who", "what", "quote")}, **({"edit": edit} if edit else {})}
             self.save()

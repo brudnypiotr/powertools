@@ -182,6 +182,7 @@ class App:
         return {
             "version": __version__,
             "dictation": self.dictation.state,
+            "dictation_to": self.dictation.target,
             "last": self.dictation.last,
             "level": round(self.recorder.level, 4),
             "engine": self.engine.status(),
@@ -411,7 +412,7 @@ class App:
         log.info("overlay: %s", type(self.overlay).__name__)
         self._console_ctrl_c()
         self.engine.start()
-        self.hotkey = Hotkey(self.dictation.toggle)
+        self.hotkey = Hotkey(lambda: self.dictation.toggle())
         try:
             self.hotkey.bind(self.settings["hotkey"])
         except Exception as e:

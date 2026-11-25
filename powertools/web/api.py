@@ -27,12 +27,28 @@ def state(h):
 
 @route("POST", "/api/toggle")
 def toggle(h):
-    h.send(200, {"dictation": h.app.dictation.toggle()})
+    h.send(200, {"dictation": h.app.dictation.toggle(str(h.json_body().get("target", "")))})
 
 
 @route("GET", "/api/history")
 def history(h):
     h.send(200, h.app.store.recent(int(h.query("limit", "50")), h.query("q")))
+
+
+@route("DELETE", "/api/history")
+def history_clear(h):
+    h.app.store.clear()
+    h.send(200, [])
+
+
+@route("POST", r"/api/history/(\d+)")
+def history_edit(h, item_id):
+    text = str(h.json_body().get("text", "")).strip()
+    if not text:
+        raise ValueError("the text is empty: delete it instead")
+    if not h.app.store.edit(int(item_id), text):
+        raise KeyError(item_id)
+    h.send(200, {"id": int(item_id), "text": text})
 
 
 @route("DELETE", r"/api/history/(\d+)")

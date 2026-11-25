@@ -99,7 +99,7 @@ def test_a_new_exclusion_also_removes_drafts_and_lines_about_it(tmp_path):
     a.updates.start()
     assert not (a.memory.root / "drafts" / f"{d['id']}.md").exists()
     assert "rule 12 reviewed" not in a.memory.read(f"matters/{mid}.md")
-    assert not [p for p in (a.memory.root / ".history").glob("*.json") if "rule 12 reviewed" in p.read_text(encoding="utf-8")]
+    assert not [p for p in a.memory.history.glob("*.json") if "rule 12 reviewed" in p.read_text(encoding="utf-8")]
 
 
 def test_a_new_exclusion_counts_for_the_check_of_answers_at_once(tmp_path):

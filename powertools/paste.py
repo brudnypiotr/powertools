@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 import time
 
-log = logging.getLogger("powertools.paste")
+from . import clipboard
 
 
 def deliver(text: str, paste: bool = True, restore: bool = True) -> None:
     import pyperclip
 
-    previous = None
-    if paste and restore:
-        try:
-            previous = pyperclip.paste()
-        except Exception:
-            log.warning("could not read the clipboard; it will not be restored")
+    previous = clipboard.save() if paste and restore else None
     pyperclip.copy(text)
     if not paste:
         return
@@ -26,4 +20,4 @@ def deliver(text: str, paste: bool = True, restore: bool = True) -> None:
     keyboard.send("ctrl+v")
     if previous is not None:
         time.sleep(0.3)  # the target app reads the clipboard asynchronously
-        pyperclip.copy(previous)
+        clipboard.restore(previous)

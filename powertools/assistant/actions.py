@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime
 
 from .. import clock
 from . import skills
 from .filing import Filing
-from .kit import Kit, Part
+from .kit import MISSED, Kit, Part
 from .state import cat, conversation
+from .text import one_line
 
-UNDO_FIELDS = ("status", "until", "done_at", "done_by", "user_category", "reviewed")
+EDITABLE = {"action": 200, "due": 60, "person": 80}
+UNDO_FIELDS = ("status", "until", "done_at", "done_by", "user_category", "reviewed", "deleted", "edited", *EDITABLE)
 
 
 class Actions(Part):
     """act() runs the method _<action>; the ones in UNDOABLE can be taken back once."""
 
-    UNDOABLE = ("done", "not_mine", "mute", "snooze", "category")
+    UNDOABLE = ("done", "not_mine", "mute", "snooze", "category", "edit", "delete")
     OTHERS = ("undo", "reopen", "right", "matter", "new_matter", "no_matter")
 
     def __init__(self, kit: Kit, filing: Filing):
@@ -65,6 +68,18 @@ class Actions(Part):
         i.update(user_category=value, reviewed=True, status="open")
         if value != "ignore" and conversation(i) in self.state.data["muted"]:
             self.state.data["muted"].remove(conversation(i))
+
+    def _edit(self, i: dict, value: str) -> None:
+        """The user's own words for what to do, until when and for whom; kept until the conversation goes on."""
+        new = json.loads(value)
+        new = {k: str(new.get(k, i.get(k, ""))).strip()[:limit] for k, limit in EDITABLE.items()}
+        if not new["action"]:
+            raise ValueError("say what there is to do")
+        i.update(new, edited=True)
+
+    def _delete(self, i: dict, _value: str) -> None:
+        """Out of every list; a new message brings the conversation back."""
+        i.update(status="dropped", deleted=True, done_at=clock.now())
 
     # ------------------------------------------------------------------ the others
     def _undo(self, i: dict, _value: str) -> None:
@@ -127,13 +142,23 @@ class Actions(Part):
                 i.pop("unread", None)
             self.state.save()
 
+    def corrections(self) -> list[dict]:
+        return list(reversed(self.state.data["corrections"]))
+
+    def forget_correction(self, at: str) -> None:
+        with self.state.lock:
+            self.state.data["corrections"] = [c for c in self.state.data["corrections"] if c["at"] != at]
+            self.state.save()
+
     # ------------------------------------------------------------------ the daily question, the first start
     def feedback(self, text: str) -> None:
-        """"What did the Recap miss today?": stays on this laptop and goes into the next sorting."""
+        """"What did the Recap miss today?": a line in missed.md, which goes into the next sorting."""
         with self.state.lock:
-            if text.strip():
-                self.state.data["missed"] = [*self.state.data["missed"], " ".join(text.split())[:500]][-20:]
-            self.state.data["asked"] = date.today().isoformat()
+            new = [*self.state.data["missed"], *([one_line(text, 500)] if text.strip() else [])]
+            if new:
+                have = self.kit.memory.read(MISSED) or "# What the Recap missed\n"
+                self.kit.memory.write(MISSED, have.rstrip("\n") + "\n" + "".join(f"- {x} (you)\n" for x in new), "missed")
+            self.state.data.update(missed=[], asked=date.today().isoformat())
             self.state.save()
 
     def setup(self, answers: dict) -> None:

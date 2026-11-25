@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from ..exclusions import Exclusions
 from .collect import names
-from .memory import Memory, parse
+from .memory import Memory, bare, parse
 from .state import State, age_days
 
+MISSED = "missed.md"
 log = logging.getLogger("powertools.assistant")
 
 
@@ -24,7 +25,6 @@ class Kit:
     state: State
     jira: Any = None
     meetings: Any = None
-    talk: list[dict] = field(default_factory=list)     # the Ask conversation of this session
 
     def exclusions(self) -> Exclusions:
         return Exclusions(self.settings["exclude"])
@@ -49,7 +49,7 @@ class Kit:
     def corrections(self) -> str:
         d = self.state.data
         rows = [f'- "{c["title"][:80]}" ({c["people"][:60]}): not "{c["was"]}" but "{c["now"]}"' for c in d["corrections"][-8:]]
-        rows += [f"- missed earlier, in the user's words: {t[:200]}" for t in d["missed"][-5:]]
+        rows += [f"- missed earlier, in the user's words: {bare(ln)[:200]}" for ln in self.memory.read(MISSED).splitlines() if ln.startswith("- ")][-5:]
         return "The user corrected earlier answers; learn from it:\n" + "\n".join(rows) if rows else ""
 
     def overview(self) -> str:

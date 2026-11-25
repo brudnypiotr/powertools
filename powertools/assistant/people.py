@@ -13,7 +13,7 @@ from .memory import parse, section, with_section
 class People(Part):
     def all(self) -> list[dict]:
         out = []
-        for p in self.state.data["people"]:
+        for p in (p for p in self.state.data["people"] if p["name"] not in self.state.data["hidden"]):
             card = self.person(p["name"])
             out.append({**p, "mine": len(card["mine"]), "theirs": len(card["theirs"]), "last": card["last"]})
         return out
@@ -40,13 +40,20 @@ class People(Part):
         if not name:
             raise ValueError("a person needs a name")
         with self.state.lock:
+            self.state.data["hidden"] = [n for n in self.state.data["hidden"] if n.lower() != name.lower()]
             if name.lower() not in {p["name"].lower() for p in self.state.data["people"]}:
                 self.state.data["people"].append({"name": name, "title": title, "mail": mail, "added": True})
-                self.state.save()
+            self.state.save()
 
     def remove(self, name: str) -> None:
+        """Someone the user added goes; a direct report is hidden (the next Update would bring them back)."""
         with self.state.lock:
-            self.state.data["people"] = [p for p in self.state.data["people"] if p["name"] != name]
+            d = self.state.data
+            added = any(p["name"] == name and p.get("added") for p in d["people"])
+            if added:
+                d["people"] = [p for p in d["people"] if p["name"] != name]
+            else:
+                d["hidden"] = list(dict.fromkeys([*d["hidden"], name]))
             self.state.save()
 
     def note(self, name: str, text: str) -> None:

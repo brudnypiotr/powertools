@@ -81,6 +81,7 @@ _sig(user32.CreateWindowExW, [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ctypes
 _sig(user32.ShowWindow, [wt.HWND, ctypes.c_int], wt.BOOL)
 _sig(user32.DestroyWindow, [wt.HWND], wt.BOOL)
 _sig(user32.SetTimer, [wt.HWND, ctypes.c_size_t, wt.UINT, ctypes.c_void_p], ctypes.c_size_t)
+_sig(user32.KillTimer, [wt.HWND, ctypes.c_size_t], wt.BOOL)
 _sig(user32.GetMessageW, [ctypes.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT], wt.BOOL)
 _sig(user32.TranslateMessage, [ctypes.POINTER(wt.MSG)], wt.BOOL)
 _sig(user32.DispatchMessageW, [ctypes.POINTER(wt.MSG)], LRESULT)
@@ -167,6 +168,7 @@ class WinOverlay:
         self.card: dict = {}
         self.frames = 0
         self.failed_blits = 0
+        self._timer = False
         self._ready = threading.Event()
         self._proc = WNDPROC(self._wndproc)  # keep a reference: Windows calls it
         self.scale = dpi_scale()
@@ -205,7 +207,6 @@ class WinOverlay:
                                                 0, 0, 1, 1, None, None, hinst, None)
         if not self.pill_hwnd or not self.card_hwnd:
             raise OSError(f"CreateWindowExW failed ({ctypes.get_last_error()})")
-        user32.SetTimer(self.pill_hwnd, 1, FRAME_MS, None)
 
     def _wndproc(self, hwnd, msg, wparam, lparam):
         try:
@@ -273,6 +274,16 @@ class WinOverlay:
             self._draw_pill()
         if self.card and time.time() > self.card["deadline"]:
             self._answer("on_no")
+        self._animate(bool(self.card) or self.state in ("recording", "transcribing", "thinking", "error"))
+
+    def _animate(self, on: bool) -> None:
+        """The timer runs only while something is on the screen; _post() wakes the window for the next command."""
+        if on != self._timer:
+            self._timer = on
+            if on:
+                user32.SetTimer(self.pill_hwnd, 1, FRAME_MS, None)
+            else:
+                user32.KillTimer(self.pill_hwnd, 1)
 
     def _draw_pill(self) -> None:
         img = art.pill(self.state, time.time() - self.since, list(self.levels), self.scale)

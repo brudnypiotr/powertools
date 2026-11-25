@@ -23,6 +23,8 @@ class Dictation:
         self.state = "idle"
         self.last: dict = {}
         self.pending = 0
+        self.target = ""              # where the text of this recording goes: "" = the active window, "window" = our own
+        self._seq = 0
         self._lock = threading.RLock()  # the result callback may run inside toggle() (fast engine, tests)
 
     def _set(self, state: str) -> None:
@@ -32,10 +34,12 @@ class Dictation:
         except Exception:
             log.exception("state listener failed")
 
-    def toggle(self) -> str:
+    def toggle(self, target: str = "") -> str:
+        """Start or stop. `target` counts at the start: "window" hands the text to our window instead of pasting it."""
         with self._lock:
             if self.state == "recording":
                 return self._stop()
+            self.target = target
             return self._start()
 
     def _start(self) -> str:
@@ -51,9 +55,13 @@ class Dictation:
         return self.state
 
     def _fail(self, error: str) -> str:
-        self.last = {"error": error}
+        self._show({"error": error}, self.target)
         self._set("error")
         return self.state
+
+    def _show(self, last: dict, to: str) -> None:
+        self._seq += 1
+        self.last = {**last, "to": to, "seq": self._seq}
 
     def _stop(self) -> str:
         try:
@@ -67,30 +75,31 @@ class Dictation:
         self.pending += 1
         self._set("transcribing")
         s = self.settings
-        self.engine.submit(audio, self._done, language=s["language"], beam_size=s["beam_size"],
+        to = self.target
+        self.engine.submit(audio, lambda r: self._done(r, to), language=s["language"], beam_size=s["beam_size"],
                            initial_prompt=textproc.vocabulary_prompt(s["vocabulary"]))
         return self.state
 
-    def _done(self, r: Result) -> None:
+    def _done(self, r: Result, to: str) -> None:
         if not r.error and r.text and self.cleaner and self.settings["dictation_cleanup"]:
             # the model may take seconds: not on the Whisper thread (meeting chunks wait behind it)
-            threading.Thread(target=self._finish, args=(r,), name="cleanup", daemon=True).start()
+            threading.Thread(target=self._finish, args=(r, to), name="cleanup", daemon=True).start()
         else:
-            self._finish(r)
+            self._finish(r, to)
 
-    def _finish(self, r: Result) -> None:
+    def _finish(self, r: Result, to: str) -> None:
         try:
-            self.last = {"error": r.error} if r.error else self._hand_over(r)
+            self._show({"error": r.error} if r.error else self._hand_over(r, to), to)
         except Exception as e:
             log.exception("dictation failed")
-            self.last = {"error": f"{type(e).__name__}: {e}"}
+            self._show({"error": f"{type(e).__name__}: {e}"}, to)
         with self._lock:
             self.pending -= 1
             still_busy = self.state == "recording" or self.pending > 0
         if not still_busy:
             self._set("error" if "error" in self.last and "text" not in self.last else "idle")
 
-    def _hand_over(self, r: Result) -> dict:
+    def _hand_over(self, r: Result, to: str) -> dict:
         """Clean, paste and keep the text; what the window shows. A paste that fails is said; the text is in the history."""
         raw = textproc.tidy(r.text)
         text, note, error = raw, "", ""
@@ -100,7 +109,8 @@ class Dictation:
         if not text:
             return {"text": "", "note": "no speech detected"}
         try:
-            self.deliver(text, paste=self.settings["paste"], restore=self.settings["restore_clipboard"])
+            if to != "window":
+                self.deliver(text, paste=self.settings["paste"], restore=self.settings["restore_clipboard"])
         except Exception as e:
             log.exception("paste failed")
             error = f"paste: {e} (the text is in the history)"

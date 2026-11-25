@@ -52,6 +52,17 @@ class Store:
         with self._lock:
             return [dict(r) for r in self._db.execute(sql, args)]
 
+    def edit(self, item_id: int, text: str) -> bool:
+        with self._lock:
+            cur = self._db.execute("UPDATE dictations SET text = ? WHERE id = ?", (text, int(item_id)))
+            self._db.commit()
+            return cur.rowcount > 0
+
+    def clear(self) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM dictations")
+            self._db.commit()
+
     def delete(self, item_id: int) -> bool:
         with self._lock:
             cur = self._db.execute("DELETE FROM dictations WHERE id = ?", (int(item_id),))

@@ -57,6 +57,11 @@ def jira_downloaded(h):
     h.send(200, h.app.jira.downloaded())
 
 
+@route("POST", "/api/jira/forget")
+def jira_forget(h):
+    h.send(200, h.app.jira.forget([str(k) for k in h.json_body().get("keys") or []]))
+
+
 @route("POST", "/api/jira/refresh")
 @guarded
 def jira_refresh(h):
