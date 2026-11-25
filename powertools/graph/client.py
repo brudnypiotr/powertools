@@ -11,6 +11,8 @@ import re
 import time
 from typing import Callable, Iterator
 
+from .. import clock
+
 log = logging.getLogger("powertools.graph")
 BASE = "https://graph.microsoft.com/v1.0"
 WRITES = re.compile(re.escape(BASE) + r"/(\$batch|me/messages/[^/?#]+/createReply(All)?)")
@@ -31,7 +33,7 @@ class Graph:
         import requests
 
         self._token = token
-        self._network_errors = (requests.ConnectionError, requests.Timeout)
+        self._network_errors = requests.RequestException
         self.s = requests.Session()
 
     def _request(self, url: str, params: dict | None, headers: dict | None, stream: bool = False, body: dict | None = None):
@@ -53,9 +55,9 @@ class Graph:
                     continue
                 raise GraphError(0, "network", f"no connection to Microsoft ({type(e).__name__})") from e
             if (r.status_code == 429 or r.status_code >= 500) and attempt < 4:
-                wait = int(r.headers.get("Retry-After", 2 ** attempt))
+                wait = clock.retry_after(r.headers.get("Retry-After"), 2 ** attempt)
                 log.warning("Graph %s, waiting %s s", r.status_code, wait)
-                time.sleep(min(wait, 60))
+                time.sleep(wait)
                 continue
             break
         if r.status_code == 401:
@@ -70,7 +72,14 @@ class Graph:
 
     def get(self, path: str, params: dict | None = None, headers: dict | None = None) -> dict:
         url = path if path.startswith("http") else BASE + path
-        return self._request(url, params, headers).json()
+        return self._json(self._request(url, params, headers))
+
+    @staticmethod
+    def _json(r) -> dict:
+        try:
+            return r.json()
+        except ValueError as e:
+            raise GraphError(0, "answer", "the answer of Microsoft is not JSON (a proxy page?)") from e
 
     def batch(self, requests: list[str]) -> list[dict]:
         """Up to 20 GET paths in one $batch request; their bodies in the same order ({} for a failed one).
@@ -81,13 +90,13 @@ class Graph:
         todo = list(range(len(requests)))
         for attempt in range(3):
             body = {"requests": [{"id": str(i), "method": "GET", "url": requests[i]} for i in todo]}
-            data = self._request(BASE + "/$batch", None, None, body=body).json()
+            data = self._json(self._request(BASE + "/$batch", None, None, body=body))
             again, wait = [], 0
             for r in data.get("responses", []):
                 i = int(r["id"])
                 if r.get("status") == 429:
                     again.append(i)
-                    wait = max(wait, int((r.get("headers") or {}).get("Retry-After", 2)))
+                    wait = max(wait, clock.retry_after(str((r.get("headers") or {}).get("Retry-After", "")), 2))
                 elif r.get("status") == 401:
                     raise TokenExpired("token expired or rejected")
                 elif 200 <= r.get("status", 0) < 300:
@@ -103,7 +112,7 @@ class Graph:
         from urllib.parse import quote
 
         action = "createReplyAll" if everyone else "createReply"
-        return self._request(f"{BASE}/me/messages/{quote(message_id, safe='')}/{action}", None, None, body={"comment": comment}).json()
+        return self._json(self._request(f"{BASE}/me/messages/{quote(message_id, safe='')}/{action}", None, None, body={"comment": comment}))
 
     def pages(self, path: str, params: dict | None = None, headers: dict | None = None,
               max_items: int = 100_000) -> Iterator[dict]:

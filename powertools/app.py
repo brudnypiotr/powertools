@@ -452,31 +452,23 @@ class App:
         except KeyboardInterrupt:
             log.info("Ctrl+C: quitting")
         finally:
-            self._quit.set()
-            if self.watcher:
-                self.watcher.stop()
-            if self.teams:
-                self.teams.stop()
-            if self.meetings.current:
-                self.meetings.stop()
-            if self.hotkey:
-                self.hotkey.unbind()
-            if self.wording_hotkey:
-                self.wording_hotkey.unbind()
-            if self.mute_hotkey:
-                self.mute_hotkey.unbind()
-            if self.recorder.active:
-                self.recorder.stop()
-            self.tray.stop()
-            self.engine.stop()
-            self.llm.stop()
-            self.httpd.shutdown()
-            try:
-                (data_dir() / "port.txt").unlink()
-            except OSError:
-                pass
-            self.store.close()
+            self._shutdown()
         return 0
+
+    def _shutdown(self) -> None:
+        """Everything that runs, one by one: a part that fails to stop does not keep the others running."""
+        self._quit.set()
+        steps = [x.stop for x in (self.watcher, self.teams) if x]
+        steps += [self.meetings.stop] if self.meetings.current else []
+        steps += [x.unbind for x in (self.hotkey, self.wording_hotkey, self.mute_hotkey) if x]
+        steps += [self.recorder.stop] if self.recorder.active else []
+        steps += [x.stop for x in (self.tray, self.engine, self.llm) if x]
+        steps += [self.httpd.shutdown] if self.httpd else []
+        for step in (*steps, lambda: (data_dir() / "port.txt").unlink(missing_ok=True), self.store.close):
+            try:
+                step()
+            except Exception:
+                log.exception("stopping")
 
     def _console_ctrl_c(self) -> None:
         """Ctrl+C / closing the console window quits cleanly (the main thread sits in a native message loop)."""

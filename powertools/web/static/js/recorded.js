@@ -1,8 +1,9 @@
 // Recorded meetings, and the question whether to record the call.
-import { $, api, esc, say } from "./core.js";
+import { $, api, draw, esc, say } from "./core.js";
 import { onState } from "./state.js";
 import { onTab } from "./tabs.js";
 
+const post = async (path, body) => { try { await api("POST", "/api/meetings/" + path, body); } catch (e) { say(e.message); } };
 function renderPrompt(p) {
   const el = $("#prompt");
   if (!p || !p.title) { el.classList.add("hidden"); return; }
@@ -10,8 +11,8 @@ function renderPrompt(p) {
   el.innerHTML = `<b>Teams call</b><span class="grow">Record '${esc(p.title)}'? (${esc(p.detail)})</span>
     <button class="rec">Record</button><button class="no">Not now</button>`;
   el.classList.remove("hidden");
-  el.querySelector(".rec").onclick = async () => { el.classList.add("hidden"); await api("POST", "/api/meetings/start", { from_prompt: true }); loadMeetings(); };
-  el.querySelector(".no").onclick = () => { el.classList.add("hidden"); api("POST", "/api/meetings/dismiss"); };
+  el.querySelector(".rec").onclick = async () => { el.classList.add("hidden"); await post("start", { from_prompt: true }); loadMeetings(); };
+  el.querySelector(".no").onclick = () => { el.classList.add("hidden"); post("dismiss"); };
 }
 function teamsLink(t) {
   if (!t) return "";
@@ -34,9 +35,9 @@ async function loadMeetings() {
         <span class="lv">Others <span class="meter"><span class="lot"></span></span></span></div>
         <div class="meetbar" style="margin-top:10px"><input class="note" placeholder="Note for this moment (optional)">
         <button class="mark">Mark moment</button><button class="mute"></button><button class="stop rec">Stop</button></div>`;
-      now.querySelector(".mute").onclick = async () => { await api("POST", "/api/meetings/mute", {}); loadMeetings(); };
-      now.querySelector(".mark").onclick = async () => { await api("POST", "/api/meetings/mark", { note: now.querySelector(".note").value }); now.querySelector(".note").value = ""; };
-      now.querySelector(".stop").onclick = async () => { await api("POST", "/api/meetings/stop"); setTimeout(loadMeetings, 500); };
+      now.querySelector(".mute").onclick = async () => { await post("mute", {}); loadMeetings(); };
+      now.querySelector(".mark").onclick = async () => { await post("mark", { note: now.querySelector(".note").value }); now.querySelector(".note").value = ""; };
+      now.querySelector(".stop").onclick = async () => { await post("stop"); setTimeout(loadMeetings, 500); };
     }
     now.querySelector(".mtitle").textContent = cur.title;
     now.querySelector(".timer").textContent = clock(Date.now() / 1000 - cur.started);
@@ -71,7 +72,7 @@ async function loadMeetings() {
   const status = { done: "done", finalizing: "transcribing...", interrupted: "interrupted", recording: "recording" };
   const hm = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const mins = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.round(sec % 3600 / 60)} min` : `${Math.max(1, Math.round(sec / 60))} min`;
-  $("#meeting-list").innerHTML = m.sessions.map((s) => {
+  draw("#meeting-list", m.sessions.map((s) => {
     const people = s.attendees || [], st = s.stats || {}, me = st.me || {}, ot = st.others || {};
     const talk = (me.seconds || 0) + (ot.seconds || 0);
     const share = talk ? ` · you spoke ${Math.round(100 * (me.seconds || 0) / talk)}%` : "";
@@ -102,7 +103,7 @@ async function loadMeetings() {
         ${(s.status === "interrupted" || s.status === "done") && s.audio ? `<button data-act="final">Transcribe again</button>` : ""}
         ${s.status === "done" && s.md && s.summary_status !== "running" ? `<button data-act="sum">${s.summary ? "Summarize again" : "Summarize"}</button>` : ""}
         <button data-act="del">Delete</button></div></li>`;
-  }).join("") || "<li>No recordings yet.</li>";
+  }).join("") || "<li>No recordings yet.</li>");
   document.querySelectorAll(".open-out:not([data-kind])").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
   if ($("#meetings").classList.contains("active")) meetTimer = setTimeout(loadMeetings, cur ? 1000 : 4000);
 }

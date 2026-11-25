@@ -39,8 +39,15 @@ def git(*args: str, timeout: int = 60) -> str:
     exe = git_exe()
     if not exe:
         raise GitError("git not found")
-    r = subprocess.run([exe, *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       timeout=timeout, creationflags=FLAGS)
+    return _run(exe, args, ROOT, timeout)
+
+
+def _run(exe: str, args: tuple[str, ...], cwd: Path, timeout: int) -> str:
+    try:
+        r = subprocess.run([exe, *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                           creationflags=FLAGS)
+    except subprocess.TimeoutExpired as e:
+        raise GitError(f"git {args[0]} did not finish in {timeout} s (internet, proxy, or it waits for a sign-in?)") from e
     if r.returncode != 0:
         raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
     return r.stdout.strip()
@@ -72,7 +79,7 @@ def about(fetch: bool = False) -> dict:
         info["upstream"] = upstream
         info["pending"] = _log(f"HEAD..{upstream}", 50)
         info["fetched"] = fetch
-    except (GitError, subprocess.TimeoutExpired) as e:
+    except GitError as e:
         info["error"] = str(e)
         if git_exe() and not has_commit():
             info["error"] = f"this copy is not connected to the repository yet (internet or proxy?): {e}"
@@ -84,9 +91,11 @@ def has_commit(root: Path = ROOT) -> bool:
     exe = git_exe()
     if not exe:
         return False
-    r = subprocess.run([exe, "rev-parse", "--verify", "-q", "HEAD"], cwd=root, capture_output=True, text=True,
-                       creationflags=FLAGS)
-    return r.returncode == 0
+    try:
+        _run(exe, ("rev-parse", "--verify", "-q", "HEAD"), root, 60)
+        return True
+    except GitError:
+        return False
 
 
 def update_source(root: Path = ROOT) -> dict:
@@ -108,11 +117,7 @@ def attach(root: Path = ROOT) -> dict:
         raise GitError("git not found")
 
     def g(*args: str, timeout: int = 60) -> str:
-        r = subprocess.run([exe, *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=timeout, creationflags=FLAGS)
-        if r.returncode != 0:
-            raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
-        return r.stdout.strip()
+        return _run(exe, args, root, timeout)
 
     src = update_source(root)
     if not (root / ".git").exists():
@@ -150,11 +155,7 @@ def switch(remote: str, root: Path = ROOT) -> dict:
         raise GitError("git not found")
 
     def g(*args: str, timeout: int = 120) -> str:
-        r = subprocess.run([exe, *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=timeout, creationflags=FLAGS)
-        if r.returncode != 0:
-            raise GitError((r.stderr or r.stdout).strip()[-400:] or f"git {args[0]} failed")
-        return r.stdout.strip()
+        return _run(exe, args, root, timeout)
 
     branch = update_source(root)["branch"]
     g("fetch", "-q", remote, branch, timeout=600)     # asks for the sign-in when the repository is private

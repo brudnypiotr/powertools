@@ -24,7 +24,10 @@ function showDictation(s) {
   $("#level").style.width = Math.min(100, s.level * 600) + "%";
   const last = s.last || {};
   const box = $("#last");
-  if (last.error) { box.innerHTML = `<span class="err">${esc(last.error)}</span>`; }
+  if (last.error) {
+    box.innerHTML = `<span class="err">${esc(last.error)}</span>`;
+    if (last.id && last.id !== lastId) { lastId = last.id; loadHistory(); }
+  }
   else if (last.id && last.id !== lastId) {
     lastId = last.id;
     box.innerHTML = `${esc(last.text)}<span class="meta">${last.audio_s}s → ${last.took_s}s · ${esc(last.language)}</span>`;

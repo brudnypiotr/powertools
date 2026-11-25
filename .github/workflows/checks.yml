@@ -76,7 +76,9 @@ jobs:
       - run: pip install requests numpy pillow pytest
       - run: python -m compileall -q checks tests
       - if: matrix.python == '3.12'
-        run: pip install playwright==1.64.0 && python -m playwright install --with-deps chromium
+        run: |
+          pip install ruff==0.17.6 playwright==1.64.0 && python -m playwright install --with-deps chromium
+          ruff check --select F,E9 powertools tests checks
       - run: python -m pytest -q tests
         env:
           NEED_BROWSER: ${{ matrix.python == '3.12' && '1' || '' }}

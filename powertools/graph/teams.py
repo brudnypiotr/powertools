@@ -124,7 +124,7 @@ def render_message(m: dict, files: dict[str, str]) -> str:
         a = atts.get(aid)
         if not a or a.get("contentType") != "reference":
             return ""
-        target = files.get(aid) or a.get("contentUrl", "")
+        target = files.get(aid) or a.get("contentUrl") or ""
         return f"[{a.get('name') or 'file'}]({target.replace(' ', '%20')})"
 
     body = m.get("body") or {}

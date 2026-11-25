@@ -9,6 +9,11 @@ def iso(when: datetime) -> str:
     return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def retry_after(value: str | None, otherwise: int) -> int:
+    """Seconds a Retry-After header asks for; it may also be a date (then, or when there is none: `otherwise`)."""
+    return min(60, int(value)) if value and value.isdigit() else min(60, otherwise)
+
+
 def now() -> str:
     return iso(datetime.now(timezone.utc))
 

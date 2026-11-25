@@ -16,7 +16,8 @@ from pathlib import Path
 from .. import clock, export
 from ..exclusions import Exclusions
 from ..graph import mail, teams
-from ..graph.client import GraphError
+from ..graph.client import GraphError, TokenExpired
+from ..jobs import Stopped
 
 log = logging.getLogger("powertools.assistant")
 MAX_THREADS = 600            # what does not fit into one update is said, never left out silently
@@ -37,9 +38,19 @@ class Reading:
         self.notes: list[str] = []      # said to the user; the rest of the source was read
         self.again = False              # it may work next time: this range has to be read again
 
-    def failed(self, what: str, e: GraphError) -> None:
-        self.notes.append(f"{what}: {e}")
-        self.again = self.again or e.status not in GONE
+    def one(self, what: str, read: Callable[[], dict | None]) -> dict | None:
+        """One conversation; None when there is nothing or it cannot be read (that is noted, the rest goes on)."""
+        try:
+            return read()
+        except (TokenExpired, Stopped):
+            raise
+        except GraphError as e:
+            self.notes.append(f"{what}: {e}")
+            self.again = self.again or e.status not in GONE
+        except Exception as e:           # an odd message would stop every Update from now on
+            log.exception("reading a conversation")
+            self.notes.append(f"{what}: could not be read ({type(e).__name__})")
+        return None
 
     def newest(self, rows: list, limit: int, what: str) -> list:
         if len(rows) > limit:
@@ -89,11 +100,7 @@ def mail_items(g, me: dict, since: datetime, ex: Exclusions, r: Reading) -> Iter
         r.step(f"reading mail: thread {n}/{len(threads)}")
         if ex.hit(t["subject"], *t["people"]):
             continue
-        try:
-            item = mail_item(g, me, t["id"], t["subject"], ex)
-        except GraphError as e:
-            r.failed(t["subject"][:80], e)
-            continue
+        item = r.one(t["subject"][:80], lambda t=t: mail_item(g, me, t["id"], t["subject"], ex))
         if item:
             yield item
 
@@ -144,11 +151,7 @@ def chat_items(g, me: dict, since: datetime, until: datetime, ex: Exclusions, r:
         r.step(f"reading Teams: chat {n}/{len(chats)}")
         if ex.hit(c["title"], *c["members"]):
             continue
-        try:
-            item = chat_item(g, me, c, since, until)
-        except GraphError as e:
-            r.failed(c["title"][:80], e)
-            continue
+        item = r.one(c["title"][:80], lambda c=c: chat_item(g, me, c, since, until))
         if item:
             yield item
 

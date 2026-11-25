@@ -261,9 +261,15 @@ class MeetingManager:
                     "runpy.run_module('powertools.meetings.worker', run_name='__main__', alter_sys=True)")
             exe = sys.executable.replace("pythonw.exe", "python.exe")
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            self.proc = subprocess.Popen(
-                [exe, "-c", boot, str(folder), self.settings["meeting_mic"], self.settings["meeting_output"]],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=flags)
+            try:
+                self.proc = subprocess.Popen(
+                    [exe, "-c", boot, str(folder), self.settings["meeting_mic"], self.settings["meeting_output"]],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=flags)
+            except OSError as e:
+                meta.update(status="done", error=f"the recorder did not start: {e}")
+                self.current.save()
+                self.current = None
+                raise
             threading.Thread(target=self._read_events, args=(self.current, self.proc), daemon=True).start()
             log.info("meeting started: %s", meta["title"])
         self.on_change()
@@ -396,17 +402,19 @@ class MeetingManager:
         session.save()
         self.on_change()
         results: dict[str, list] = {}
+        used: dict[str, str] = {}        # the model that really did it
 
         def done_for(track: str):
             def done(r: Result) -> None:
                 results[track] = [{"speaker": track, "start": a, "end": b, "text": t} for a, b, t in r.segments]
+                used[track] = r.model or model
                 if r.error:
                     session.meta["error"] = f"final pass ({track}): {r.error}"
                 if len(results) == len(jobs):
                     segs = [s for v in results.values() for s in v]
                     if session.meta.get("error") and not segs:
                         segs = session.live  # fall back to the live transcript
-                    self._write(session, segs, model)
+                    self._write(session, segs, ", ".join(dict.fromkeys(used.values())))
             return done
 
         jobs = {}
@@ -435,6 +443,7 @@ class MeetingManager:
         for f in session.folder.glob("*_*.wav"):  # chunks are no longer needed; me.wav/others.wav stay for N days
             f.unlink(missing_ok=True)
         log.info("meeting written: %s", path)
+        self.cleanup_audio()             # also in an app that runs for weeks
         self.on_change()
         self.on_event("saved", session)
         if self.llm and self.settings["meeting_summary"] and segments and not self.excluded(session):

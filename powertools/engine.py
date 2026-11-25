@@ -45,6 +45,7 @@ class Result:
     took_s: float = 0.0
     error: str = ""
     segments: list = field(default_factory=list)   # [(start_s, end_s, text)]
+    model: str = ""                                # the model that did it (another one when the asked one does not load)
 
 
 @dataclass
@@ -113,6 +114,10 @@ class Engine:
 
     def reload(self, model_name: str) -> None:
         self._jobs.put((-1, next(self._seq), ("reload", model_name)))
+
+    def retry(self) -> None:
+        """Load the usual model once more (an earlier load failed)."""
+        self.reload(self.default_model)
 
     def stop(self) -> None:
         self._jobs.put((-2, next(self._seq), None))
@@ -225,29 +230,37 @@ class Engine:
                 return
             if isinstance(job, tuple):
                 self.default_model = job[1]
-                self._model = None  # free the GPU before loading the next model
                 self._load(job[1])
                 continue
-            want = job.options.get("model")
-            if want and want != self.model_name and self.state != "loading":
-                self._model = None
-                self._load(want)
-            if self.state != "ready":
-                job.done(Result("", error=f"model not ready ({self.state}): {self.info.get('error', '')}"))
-                continue
-            while True:
-                try:
-                    result = self._transcribe(job)
-                except Exception as e:
-                    if self._step_down(e):
-                        continue  # same job again, on the lower level
-                    log.exception("transcription failed")
-                    result = Result("", error=f"{type(e).__name__}: {e}")
-                break
+            self._want(job.options.get("model"))
+            if self.state == "ready":
+                result = self._try(job)
+            else:
+                result = Result("", error=f"model not ready ({self.state}): {self.info.get('error', '')}")
             try:
                 job.done(result)
             except Exception:
                 log.exception("result callback failed")
             if self._jobs.empty() and self.model_name != self.default_model:
-                self._model = None
                 self._load(self.default_model)
+
+    def _want(self, name: str | None) -> None:
+        """Loads the model a job asks for. One that does not load (no internet for a download) is not worth losing the
+        job and the dictation over: the usual model does it."""
+        if not name or name == self.model_name:
+            return
+        self._load(name)
+        if self.state != "ready" and name != self.default_model:
+            log.warning("%s does not load (%s): %s instead", name, self.info.get("error", ""), self.default_model)
+            self._load(self.default_model)
+
+    def _try(self, job: Job) -> Result:
+        while True:
+            try:
+                result = self._transcribe(job)
+                result.model = self.loaded_name
+                return result
+            except Exception as e:
+                if not self._step_down(e):          # else the same job again, on the lower level
+                    log.exception("transcription failed")
+                    return Result("", error=f"{type(e).__name__}: {e}")

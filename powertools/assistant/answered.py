@@ -12,7 +12,6 @@ from urllib.parse import quote
 
 from .. import clock, export
 from ..graph import teams
-from ..graph.client import GraphError
 from ..jobs import ACTIVE, Job
 from . import collect
 from .digest import Digest
@@ -64,7 +63,8 @@ class Answers(Part):
         self.progress.job = job
         rows = {i["key"]: i for i in self._open()}
         keys = find(self.kit.graph.g, self.state.data["me"].get("id", ""), list(rows.values()))
-        found = [new for k in keys if (new := self._read(rows[k]))]
+        reading = collect.Reading()
+        found = [new for k in keys if (new := reading.one(k, lambda k=k: self._read(rows[k])))]
         if found:
             self.digest.run(found, job, [])
         self.state.data["checked"] = time.time()
@@ -74,14 +74,10 @@ class Answers(Part):
 
     def _read(self, i: dict) -> dict | None:
         g, me, cid = self.kit.graph.g, self.state.data["me"], i["key"].split(":", 1)[1]
-        try:
-            if i["source"] == "mail":
-                return collect.mail_item(g, me, cid, i["title"], self.kit.exclusions())
-            chat = {"id": cid, "title": i["title"], "members": collect.names(i), "type": i.get("kind", ""), "web": i["link"]}
-            return collect.chat_item(g, me, chat, export.parse_time(i["last"]), datetime.now().astimezone())
-        except GraphError as e:
-            log.warning("answer in %s: %s", i["key"], e)
-            return None
+        if i["source"] == "mail":
+            return collect.mail_item(g, me, cid, i["title"], self.kit.exclusions())
+        chat = {"id": cid, "title": i["title"], "members": collect.names(i), "type": i.get("kind", ""), "web": i["link"]}
+        return collect.chat_item(g, me, chat, export.parse_time(i["last"]), datetime.now().astimezone())
 
 
 def find(g, me_id: str, items: list[dict]) -> set[str]:

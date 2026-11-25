@@ -74,10 +74,17 @@ class Watcher:
             self._last_seen = now
             if not self.in_call:
                 self.in_call = True
-                self.on_start()
+                self._tell(self.on_start)
         elif self.in_call and now - self._last_seen >= self.grace:
             self.in_call = False
-            self.on_end()
+            self._tell(self.on_end)
+
+    @staticmethod
+    def _tell(listener: Callable[[], None]) -> None:
+        try:
+            listener()
+        except Exception:        # else no call would be noticed until the next start of the app
+            log.exception("call listener failed")
 
     def start(self) -> None:
         def loop():

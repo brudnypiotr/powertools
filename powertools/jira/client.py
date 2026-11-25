@@ -6,6 +6,7 @@ Cloud (`*.atlassian.net`): e-mail + API token, basic auth. Data Center: personal
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import re
@@ -13,6 +14,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from .. import clock
 
 log = logging.getLogger("powertools.jira")
 KEY = re.compile(r"\b([A-Z][A-Z0-9_]+-\d+)\b")
@@ -66,9 +69,9 @@ class Jira:
                 break
             except urllib.error.HTTPError as e:
                 if (e.code == 429 or e.code >= 500) and attempt < 4:
-                    wait = int(e.headers.get("Retry-After") or 2 ** attempt)
+                    wait = clock.retry_after(e.headers.get("Retry-After"), 2 ** attempt)
                     log.warning("Jira %s, waiting %s s", e.code, wait)
-                    time.sleep(min(wait, 60))
+                    time.sleep(wait)
                     continue
                 detail = _error_text(e)
                 if e.code in (401, 403):
@@ -76,14 +79,18 @@ class Jira:
                 if e.code == 404:
                     raise JiraError(404, "not found (or no permission to see it)") from e
                 raise JiraError(e.code, detail or e.reason) from e
-            except urllib.error.URLError as e:
-                raise JiraError(0, f"cannot reach {self.base}: {e.reason} (network, VPN or proxy?)") from e
+            except (OSError, http.client.HTTPException) as e:      # no connection, or it broke off while reading
+                raise JiraError(0, f"cannot reach {self.base}: {getattr(e, 'reason', '') or type(e).__name__} (network, VPN or proxy?)") from e
         if accept == "application/json" and ("html" in ctype or b"log in with atlassian account" in body[:4000].lower()):
             raise JiraError(401, "Jira returned a login page instead of data; the token is missing, wrong or expired")
         return body
 
-    def get(self, path: str, params: dict | None = None) -> dict:
-        return json.loads(self._request(f"{self.base}/rest/api/{self.api}/{path.lstrip('/')}", params).decode("utf-8"))
+    def get(self, path: str, params: dict | None = None):
+        body = self._request(f"{self.base}/rest/api/{self.api}/{path.lstrip('/')}", params)
+        try:
+            return json.loads(body.decode("utf-8"))
+        except ValueError as e:
+            raise JiraError(0, f"the answer of {self.base} is not JSON (a proxy page?)") from e
 
     def myself(self) -> dict:
         return self.get("myself")

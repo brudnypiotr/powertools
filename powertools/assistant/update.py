@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from .. import clock, export
-from ..graph.client import GraphError
+from ..graph.client import GraphError, TokenExpired
 from ..graph.service import resolve_since
 from ..jira.client import JiraError
-from ..jobs import ACTIVE, Job
+from ..jobs import ACTIVE, Job, Stopped
 from . import collect
 from .digest import Digest
 from .drafts import Drafts
@@ -127,8 +127,14 @@ class Updates(Part):
             try:
                 for row in readers[name](r):       # one by one: what was read before a failure is kept
                     rows.append(row)
+            except (TokenExpired, Stopped):
+                raise
             except (GraphError, JiraError) as e:
                 r.notes.append(str(e))
+                r.again = True
+            except Exception as e:                 # the other sources are still read
+                log.exception("reading %s", name)
+                r.notes.append(f"stopped with {type(e).__name__}, see Diagnostics")
                 r.again = True
             plan.read[name] = rows
             plan.problems += [f"{name.capitalize()}: {note}" for note in r.notes]
@@ -141,6 +147,9 @@ class Updates(Part):
             self.state.data["events"] = collect.events(self.kit.graph.g, day, day + timedelta(days=8), self.kit.exclusions())
         except GraphError as e:
             plan.problems.append(f"Calendar: {e}")
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            log.exception("reading the calendar")
+            plan.problems.append(f"Calendar: could not be read ({type(e).__name__})")
 
     def _read_people(self) -> None:
         d = self.state.data

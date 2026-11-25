@@ -7,6 +7,7 @@ import json
 import locale
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -50,9 +51,12 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    _patiently(path, lambda: os.replace(tmp, path))
+    tmp = path.with_name(f"{path.name}.{threading.get_ident()}.tmp")       # two threads never share one
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        _patiently(path, lambda: os.replace(tmp, path))
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 

@@ -22,7 +22,7 @@ class FakeGraph:
         if path == "/me" and params and "$expand" in params:
             if not self.levels:
                 return 400, None, "Request_UnsupportedQuery: levels"
-            node, m = {"id": "me"}, None
+            node = {"id": "me"}
             cur = node
             for up in ("mgr", "boss"):
                 cur["manager"] = {"id": up}; cur = cur["manager"]

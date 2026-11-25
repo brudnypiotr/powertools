@@ -40,21 +40,27 @@ class Dictation:
 
     def _start(self) -> str:
         if self.engine.state == "error":
-            self.last = {"error": "Whisper is not available: " + self.engine.info.get("error", "")}
-            self._set("error")
-            return self.state
+            self.engine.retry()      # what failed (a download, a full GPU) may work now
+            return self._fail("Whisper is not available, trying to load it again: " + self.engine.info.get("error", ""))
         try:
             self.recorder.start(self.settings["input_device"])
         except Exception as e:
             log.exception("microphone failed")
-            self.last = {"error": f"microphone: {e}"}
-            self._set("error")
-            return self.state
+            return self._fail(f"microphone: {e}")
         self._set("recording")
         return self.state
 
+    def _fail(self, error: str) -> str:
+        self.last = {"error": error}
+        self._set("error")
+        return self.state
+
     def _stop(self) -> str:
-        audio = self.recorder.stop()
+        try:
+            audio = self.recorder.stop()
+        except Exception as e:               # unplugged meanwhile
+            log.exception("microphone failed")
+            return self._fail(f"microphone: {e}")
         if len(audio) / 16000 < MIN_AUDIO_S:
             self._set("idle")
             return self.state
@@ -73,33 +79,31 @@ class Dictation:
             self._finish(r)
 
     def _finish(self, r: Result) -> None:
-        if r.error:
-            with self._lock:
-                self.pending -= 1
-                still_busy = self.state == "recording" or self.pending > 0
-            self.last = {"error": r.error}
-            log.warning("dictation failed: %s", r.error)
-            if not still_busy:
-                self._set("error")
-            return
-        raw = textproc.tidy(r.text)
-        text, note = raw, ""
-        if raw and self.cleaner and self.settings["dictation_cleanup"]:
-            text, note = self.cleaner(raw)
-        text = textproc.apply_replacements(text, self.settings["replacements"])
-        if text:
-            try:
-                self.deliver(text, paste=self.settings["paste"], restore=self.settings["restore_clipboard"])
-            except Exception as e:
-                log.exception("paste failed")
-                self.last = {"error": f"paste: {e}"}
-            item_id = self.store.add(raw, text, r.language, r.audio_s, r.took_s)
-            self.last = {"id": item_id, "text": text, "language": r.language, "audio_s": round(r.audio_s, 1),
-                         "took_s": round(r.took_s, 2), **({"note": note} if note else {})}
-        else:
-            self.last = {"text": "", "note": "no speech detected"}
+        try:
+            self.last = {"error": r.error} if r.error else self._hand_over(r)
+        except Exception as e:
+            log.exception("dictation failed")
+            self.last = {"error": f"{type(e).__name__}: {e}"}
         with self._lock:
             self.pending -= 1
             still_busy = self.state == "recording" or self.pending > 0
         if not still_busy:
-            self._set("idle")
+            self._set("error" if "error" in self.last and "text" not in self.last else "idle")
+
+    def _hand_over(self, r: Result) -> dict:
+        """Clean, paste and keep the text; what the window shows. A paste that fails is said; the text is in the history."""
+        raw = textproc.tidy(r.text)
+        text, note, error = raw, "", ""
+        if raw and self.cleaner and self.settings["dictation_cleanup"]:
+            text, note = self.cleaner(raw)
+        text = textproc.apply_replacements(text, self.settings["replacements"])
+        if not text:
+            return {"text": "", "note": "no speech detected"}
+        try:
+            self.deliver(text, paste=self.settings["paste"], restore=self.settings["restore_clipboard"])
+        except Exception as e:
+            log.exception("paste failed")
+            error = f"paste: {e} (the text is in the history)"
+        item_id = self.store.add(raw, text, r.language, r.audio_s, r.took_s)
+        return {"id": item_id, "text": text, "language": r.language, "audio_s": round(r.audio_s, 1), "took_s": round(r.took_s, 2),
+                **({"note": note} if note else {}), **({"error": error} if error else {})}
