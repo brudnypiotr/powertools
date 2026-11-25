@@ -2,7 +2,6 @@
 import { $, api, busyBtn, plusDays, say, toast } from "../core.js";
 import { tokenSaved, watchGraphToken } from "../graph.js";
 import { showTab } from "../tabs.js";
-import { ask } from "./ask.js";
 import { renderBody, showItem } from "./body.js";
 import { briefTitle, makeBrief, shownBrief } from "./brief.js";
 import { openConnect, withToken } from "./connect.js";
@@ -11,7 +10,7 @@ import { find, next, renderToday, startOfDay } from "./list.js";
 import { R, V, backToItem, loadRecap, opened, running, select } from "./store.js";
 
 // ---------------------------------------------------------------- what leaves the list can be taken back
-const UNDO = { done: "Done", not_mine: "Not yours", mute: "Ignored from now on", snooze: "Later", category: "Moved" };
+const UNDO = { delete: "Deleted", done: "Done", not_mine: "Not yours", mute: "Ignored from now on", snooze: "Later", category: "Moved" };
 const post = (key, action, value = "") => api("POST", "/api/assistant/act", { key, action, value });
 const undoToast = (text, id, undo) => toast(text, 6000, ["Undo", async () => {
   try { await undo(); select(id); await loadRecap(); } catch (e) { say(e.message); }
@@ -31,16 +30,22 @@ async function closePromise(r, state) {
   undoToast("Closed", r.id, () => set("open"));
 }
 async function closeDraft(r, status) {
-  await api("POST", `/api/drafts/${$("#today-body .draftcard").dataset.did}/close`, { status });
-  if (r.d) select("");
+  const did = $("#today-body .draftcard").dataset.did, to = r.d ? next(r.id) : r.id;
+  await api("POST", `/api/drafts/${did}/close`, { status });
+  select(to);
   await loadRecap();
   renderBody(true);
+  if (status === "dropped") undoToast("Thrown away", r.id, () => api("POST", `/api/drafts/${did}/restore`));
 }
-async function memoryEdit(b) {
-  const [x] = await api("POST", "/api/memory/edit", { file: b.dataset.file, old: b.dataset.old, new: b.dataset.new });
-  if (x && x.error) throw new Error(x.error);
-  toast("Saved");
-  b.remove();
+async function saveEdit(form) {
+  const r = find(V.sel), v = (n) => form[n].value.trim();
+  if (r.p) await api("POST", "/api/assistant/promise", { id: r.p.id, state: "open", what: v("action"), due: v("due") });
+  else await post(r.id, "edit", JSON.stringify({ action: v("action"), due: v("due"), person: v("person") }));
+  V.editing = false;
+  document.activeElement.blur();
+  await loadRecap();
+  renderBody(true);
+  if (r.i) undoToast("Saved", r.id, () => post(r.id, "undo"));
 }
 async function newText(title, body) {   // a draft of the user's own, opened
   const d = await api("POST", "/api/drafts", { title, body });
@@ -53,12 +58,7 @@ const ON = {
   "brief-close": () => { V.brief = null; V.noBrief = true; renderBody(true); },
   "brief-draft": async () => showItem(await newText(briefTitle(shownBrief().kind), shownBrief().lines.map((x) => "- " + x).join("\n"))),
   meet: (b) => { V.meet = b.dataset.id; V.card = null; showTab("meetings"); },
-  ask: (b) => ask(b.dataset.q),
-  "ask-close": () => { backToItem(); renderToday(); },
-  "ask-clear": async () => { await api("DELETE", "/api/assistant/talk"); renderBody(true); },
-  file: (b) => { V.mFile = b.dataset.file; V.mTab = "files"; showTab("matters"); },
-  "mem-undo": async (b) => { toast("Undone in " + (await api("POST", "/api/memory/undo", { id: b.dataset.id })).file); b.remove(); },
-  "mem-accept": memoryEdit,
+  "brief-stop": () => api("POST", "/api/ai/stop"),
   "token-get": async () => { await api("POST", "/api/graph/token/fetch"); watchGraphToken(0); await loadRecap(); },
   "token-no": () => { V.pending = null; backToItem(); renderToday(); },
   row: (b) => showItem(b.dataset.id),
@@ -68,6 +68,7 @@ const ON = {
 const ITEM = {
   "p-done": (r) => closePromise(r, "done"),
   "p-no": (r) => closePromise(r, "dropped"),
+  edit: () => { V.editing = !V.editing; renderBody(true); },
   wrong: () => { V.wrong = !V.wrong; renderBody(true); },
   draft: (r, b) => busyBtn(b, async () => { await api("POST", "/api/drafts", { key: r.id }); await loadRecap(); renderBody(true); }),
   copy: async () => { await saveDraft(); await navigator.clipboard.writeText($("#draft-text").value); toast("Copied"); },
@@ -103,6 +104,7 @@ $("#today-body").addEventListener("change", async (e) => {
 $("#today-body").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
+  if (f.dataset.edit) { try { await saveEdit(f); } catch (err) { say(err.message); } return; }
   if (f.id !== "token-form") return rewrite(f);
   try { await api("POST", "/api/graph/token", { token: f.token.value.trim() }); f.token.value = ""; tokenSaved(); } catch (err) { say(err.message); }
 });

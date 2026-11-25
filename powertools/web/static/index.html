@@ -58,7 +58,7 @@
     </div>
     <div class="row">
       <h2>History</h2>
-      <input id="search" type="search" placeholder="Search" aria-label="Search the history">
+      <input id="search" type="search" placeholder="Search" aria-label="Search the history"><span><button id="history-clear" class="quietbtn">Delete all</button></span>
     </div>
     <ul id="history" class="rows"></ul>
   </section>
@@ -87,7 +87,6 @@
       <div class="pane-scroll" id="today-rows"></div>
     </div>
     <div class="pane-main">
-      <form id="ask-form" class="askline"><input name="q" autocomplete="off" aria-label="Ask" placeholder="Ask, or tell me what changed: the deadline is Thursday"><button type="button" id="ai-stop" class="hidden">Stop</button></form>
       <div class="pane-body" id="today-body"><div class="empty muted">Loading...</div></div>
       <div class="pane-bar hidden" id="today-bar"></div>
     </div>
@@ -168,7 +167,7 @@
     </div>
     <div class="muted small">Under org/ in the export folder: an interactive chart (.html, opens anywhere, offline),
       a Markdown tree and a CSV; about 1 s per 80 people.</div>
-    <div class="row"><h2>Chart</h2><select id="org-saved"><option value="">Open a saved chart...</option></select></div>
+    <div class="row"><h2>Chart</h2><select id="org-saved"><option value="">Open a saved chart...</option></select><span><button id="org-del">Delete</button></span></div>
     <div id="org-view" class="orgview"><div class="muted">Export a chart, or open a saved one.</div></div>
     <div class="jobs" data-kind="org"></div>
   </section>
@@ -213,7 +212,7 @@
       <button id="jira-dl-sel" class="primary">Download selected</button></div>
     <div class="jobs" data-kind="jira"></div>
     <div class="row"><h2>Downloaded</h2><input id="jira-dl-filter" aria-label="Filter downloaded issues" type="search" placeholder="Filter">
-      <button id="jira-refresh-sel">Update selected</button><button id="jira-refresh-all" class="primary">Update all</button></div>
+      <span><button id="jira-forget-sel">Remove selected</button></span><button id="jira-refresh-sel">Update selected</button><button id="jira-refresh-all" class="primary">Update all</button></div>
     <div class="card list-card"><table class="list"><thead><tr>
       <th><input type="checkbox" id="jira-dl-check" aria-label="Select all downloaded issues"></th><th>Key</th><th>Summary</th><th>Status</th><th>Updated in Jira</th><th>Downloaded</th><th>Last result</th>
     </tr></thead><tbody id="jira-downloaded"></tbody></table></div>
@@ -237,6 +236,7 @@
         <select id="cmp-limit"><option>10</option><option selected>30</option><option>60</option></select><button id="cmp-run">Compare</button></div>
       <div class="muted small">Sorts conversations of the last updates again on that model and compares with what you confirmed in the Recap ("Why is this here?" → That is right, or a moved item).</div>
       <div id="cmp-result"></div></div>
+    <div class="card"><h3>What it learned from you</h3><div id="ai-learned"></div></div>
     <div class="card" id="ai-status"><span class="muted">Checking the GPU and Ollama...</span></div>
     <div class="card">
       <h3>Can this laptop run it?</h3>
@@ -354,6 +354,13 @@
     <div class="card"><pre id="log"></pre></div>
   </section>
 </main>
+<button id="chat-open" class="chat-fab hidden" title="Ask (Ctrl+K)" aria-label="Ask"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/></svg><i class="dot hidden"></i></button>
+<section id="chat" class="chat hidden" aria-label="Ask">
+  <div id="chat-grip" title="Drag to make it larger"></div>
+  <header><b>Ask</b><span class="grow"></span><button type="button" id="chat-clear" class="hidden" title="Delete the conversation">New</button><button type="button" id="chat-big" title="Larger or smaller" aria-label="Larger or smaller" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg></button><button type="button" id="chat-close" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+  <div id="chat-body"></div><div id="chat-about"></div>
+  <form id="chat-form"><textarea name="q" id="chat-q" rows="1" autocomplete="off" aria-label="Ask" placeholder="Ask, or tell me what changed"></textarea><button class="primary" id="chat-send">Ask</button></form>
+</section>
 <dialog id="about">
   <div class="about-head"><img src="/dot-192.png" alt=""><div><b>powertools</b><div id="about-version" class="muted"></div></div>
     <button class="icon close" title="Close">✕</button></div>

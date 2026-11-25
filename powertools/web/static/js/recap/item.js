@@ -1,5 +1,6 @@
 // Today, the right side: one item, a promise, or a text of the user's own. First the next step, last "this is wrong".
 import { GAP, SRC, bar, button, cap, draw, esc, link, outLink, plain, tag, url } from "../core.js";
+import { micButton } from "../mic.js";
 import { draftCard, draftOf } from "./draft.js";
 import { find, openRows } from "./list.js";
 import { R, V } from "./store.js";
@@ -11,24 +12,32 @@ function bodyItem(force) {
 }
 function promiseBody(p, force) {
   const to = p.to && !/^me$/i.test(p.to) ? " to " + esc(p.to) : "";
+  if (V.editing) return editForm({ action: p.what, due: p.due }, false, force);
   draw(BODY, `<h2 class="big">${esc(cap(p.what))}</h2><p class="lead">${p.mine ? "You promised it" : `${esc(p.who)} promised it`}${to}.</p>
     <dl><dt>Due</dt><dd>${esc(p.due || "no date")}</dd><dt>From</dt><dd>${SRC[p.source] || ""}, ${link(p.link, plain(p.title))}</dd><dt>Why here</dt><dd><q>${esc(p.quote)}</q></dd></dl>`, force);
-  bar(BAR, button("Done", "primary", { do: "p-done", k: "p1" }) + GAP + button("Not a promise", "quietbtn", { do: "p-no", k: "p2" }));
+  bar(BAR, button("Done", "primary", { do: "p-done", k: "p1" }) + button("Edit", "", { do: "edit", k: "pe" }) + GAP + button("Not a promise", "quietbtn", { do: "p-no", k: "p2" }));
 }
 function textBody(d, force) {
-  draw(BODY, `<h2 class="big">${esc(d.title)}</h2>${draftCard(d)}`, force);
+  draw(BODY, `<input class="titleedit" data-k="title" aria-label="Title" value="${esc(d.title)}">${draftCard(d)}`, force);
   bar(BAR, button("Copy", "primary", { do: "copy", k: "c" }) + button("Done", "", { do: "used", k: "u" }));
 }
 
 // ---------------------------------------------------------------- a conversation
 function conversationBody(r, force) {
   const i = r.i, d = draftOf(r), who = i.person || i.people || "";
+  if (V.editing) return editForm(i, true, force);
   draw(BODY, `<h2 class="big">${esc(cap(i.action || i.summary || plain(i.title)))}</h2>${i.action && i.summary ? `<p class="lead">${esc(i.summary)}</p>` : ""}
     ${i.orders ? `<div class="note">This text gives orders to an AI. Check it yourself.</div>` : ""}
     <dl><dt>From</dt><dd>${who ? `<b>${esc(who)}</b>, ` : ""}${SRC[i.source] || ""}, ${link(i.link, plain(i.title))}</dd>
     <dt>When</dt><dd>${whenOf(i.last)} ${tag(i.due, "hot")} ${i.quiet ? tag(`quiet for ${i.days} days`, "hot") : ""}</dd>
     <dt>Matter</dt><dd>${matterPicker(i)}</dd><dt>Why here</dt><dd>${why(i)}</dd>${others(r)}</dl>${d ? draftCard(d) : ""}`, force);
-  bar(BAR, r.kind === "closed" ? button("Bring it back", "primary", { do: "reopen", k: "a1" }) : actions(r, d));
+  bar(BAR, r.kind === "closed" ? button("Bring it back", "primary", { do: "reopen", k: "a1" }) + GAP + button("Delete", "quietbtn", { do: "delete", k: "a5" }) : actions(r, d));
+}
+function editForm(x, withPerson, force) {   // the user's own words for what to do
+  const field = (name, label, value) => `<label>${label}<span class="microw"><input name="${name}" data-k="e-${name}" value="${esc(value || "")}">${micButton()}</span></label>`;
+  draw(BODY, `<form class="form" data-edit="1"><h2 class="big">Edit</h2>${field("action", "What to do", x.action || x.summary)}${field("due", "Until when", x.due)}${withPerson ? field("person", "Who", x.person) : ""}
+    <div class="row0"><button class="primary">Save</button>${button("Cancel", "quietbtn", { do: "edit" })}</div></form>`, force);
+  bar(BAR, "");
 }
 function others(r) {   // the other things in the same conversation
   const conv = r.i.parent || r.i.key, rows = openRows().filter((x) => x.i && x.id !== r.id && (x.i.parent || x.i.key) === conv);
@@ -50,13 +59,13 @@ function why(i) {
 function actions(r, d) {
   const i = r.i, canDraft = ["mail", "teams"].includes(i.source) && ["me", "wait"].includes(r.kind);
   const done = d || canDraft ? button("Done", "", { do: "done", k: "a2" }) : "";
-  return firstAction(r, d, canDraft) + done + LATER + GAP + button("This is wrong", "quietbtn", { do: "wrong", k: "a4" }, `aria-expanded="${V.wrong}"`) + (V.wrong ? wrongChips(i) : "");
+  return firstAction(r, d, canDraft) + done + LATER + MORE + GAP + button("This is wrong", "quietbtn", { do: "wrong", k: "a4" }, `aria-expanded="${V.wrong}"`) + (V.wrong ? wrongChips(i) : "");
 }
 function firstAction(r, d, canDraft) {
   const main = (text, what) => button(text, "primary", { do: what, k: "a1" });
   if (d && r.i.source === "mail") {
-    if (!d.outlook) return main("Put into Outlook drafts", "outlook");
-    if (!d.same) return main("Put the new text into Outlook drafts", "outlook");
+    if (!d.outlook) return main("To Outlook drafts", "outlook");
+    if (!d.same) return main("New text to Outlook drafts", "outlook");
     return url(d.outlook) ? outLink(d.outlook, "Open it in Outlook", "primary") : `<button type="button" class="primary" disabled>In Outlook drafts</button>`;
   }
   if (d) return main("Copy for Teams", "copy");
@@ -65,6 +74,7 @@ function firstAction(r, d, canDraft) {
 }
 const LATER = `<details class="menu up"><summary data-k="later">Later</summary><div>${[["Tomorrow", 1], ["In 3 days", 3], ["In a week", 7]]
   .map(([label, days]) => button(label, "", { do: "snooze", days })).join("")}</div></details>`;
+const MORE = `<details class="menu up"><summary class="dots" data-k="more" title="Edit or delete" aria-label="More">⋯</summary><div>${button("Edit", "", { do: "edit" })}${button("Delete", "", { do: "delete" })}</div></details>`;
 const WRONG = [["not_mine", "", "Not mine"], ["category", "todo", "For me to do"], ["category", "reply", "For me to answer"], ["category", "waiting", "I wait for it"],
   ["category", "fyi", "Only good to know"], ["mute", "", "Ignore this conversation"]];
 const wrongChips = (i) => `<div class="chipsrow">${WRONG.filter(([a, c]) => a !== "category" || c !== i.category)

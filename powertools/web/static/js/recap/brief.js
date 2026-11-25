@@ -1,5 +1,5 @@
 // Today, the right side without an item: the day at a glance, or a brief the model wrote.
-import { $, api, bar, button, clockOf, draw, esc, say, tag } from "../core.js";
+import { api, bar, button, clockOf, draw, esc, say, tag } from "../core.js";
 import { mineFirst } from "./list.js";
 import { R, V, meetingsToday } from "./store.js";
 
@@ -24,20 +24,18 @@ const meetingLine = (e) => `<div><time>${clockOf(e.start)}</time><span class="gr
 function bodyBrief(force) {
   const top = mineFirst(), today = meetingsToday(), b = shownBrief(), said = intro(top);
   const lines = b ? (b.lines || []).map(esc) : top.map(topLine);
-  const saved = b && b.lines ? `<p class="muted small">Saved in ${esc(b.file)}. ${button("Make a draft", "inbtn", { do: "brief-draft", k: "bd" })} ${button("Back to the day", "inbtn", { do: "brief-close", k: "bc" })}</p>` : "";
+  const saved = b && b.lines ? `<p class="muted small">Saved in ${esc(b.file)}. ${button("Make a draft", "inbtn", { do: "brief-draft", k: "bd" })}${button("Back to the day", "inbtn", { do: "brief-close", k: "bc" })}</p>` : "";
   const write = Object.entries(KINDS).map(([k, [, label]]) => button(label, "inbtn", { do: "brief", kind: k, k: "b-" + k })).join("");
-  draw("#today-body", `<h2 class="big">${headline(top)}</h2>${said ? `<p class="lead">${said}</p>` : ""}
+  draw("#today-body", `<h2 class="big">${headline(top)}</h2>${b && b.working ? button("Stop", "", { do: "brief-stop" }) : ""}${said ? `<p class="lead">${said}</p>` : ""}
     ${b && b.working ? "" : `<ol class="lines">${lines.map((x) => `<li>${x}</li>`).join("")}</ol>`}${saved}
     ${today.length ? `<h3>Meetings</h3><div class="lined">${today.map(meetingLine).join("")}</div>` : ""}
     ${R.updated ? `<p class="writefor"><span class="muted">Write for me:</span> ${write}</p>` : ""}`, force);
   bar("#today-bar", "");
 }
 async function makeBrief(kind) {
-  $("#ai-stop").classList.remove("hidden");
   V.brief = { working: true }; V.mode = "brief"; bodyBrief(true);
   try { V.brief = await api("POST", "/api/assistant/brief", { kind }); }
   catch (err) { V.brief = null; say(err.message === "stopped" ? "Stopped" : err.message); }
-  $("#ai-stop").classList.add("hidden");
   if (V.mode === "brief") bodyBrief(true);
 }
 

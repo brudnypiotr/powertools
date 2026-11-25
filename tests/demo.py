@@ -8,6 +8,9 @@ import tempfile
 import time
 from pathlib import Path
 
+import numpy as np
+
+from powertools.engine import Result
 from powertools.graph.client import TokenExpired
 
 from . import test_assistant as t
@@ -86,6 +89,27 @@ class Mailbox:
         return {"webLink": "https://outlook.example.invalid/draft"}
 
 
+class Microphone:
+    active, level = False, 0.0
+
+    def start(self, name):
+        pass
+
+    def stop(self):
+        return np.zeros(16000, dtype=np.float32)
+
+
+class Speech:
+    """Understands everything at once."""
+    state, info = "ready", {}
+
+    def submit(self, audio, done, **k):
+        done(Result("the deadline is Thursday", "en", 1, 0.1))
+
+    def retry(self):
+        pass
+
+
 def build(home: Path, cut: int = 0):
     """(app, the fake Graph). The token store is empty; tests put a token in with `token(app)`."""
     from powertools.app import App
@@ -102,6 +126,9 @@ def build(home: Path, cut: int = 0):
         g.threads[cv] = [t.mail("m" + cv, cv, title, 3 + n * 7, t.ME_ADDR if c == "waiting" else who, summary + " Please answer.",
                                 (who,) if c == "waiting" else (t.ME_ADDR,))]
     app.llm.local.available = lambda: {"installed": True, "running": True}     # the same with and without Ollama
+    app.pasted = []
+    app.dictation.recorder, app.dictation.engine = Microphone(), Speech()
+    app.dictation.deliver = lambda text, **k: app.pasted.append(text)
     m = model()
     m.available = app.llm.available
     app.assistant.kit.llm, app.graph.g = m, Mailbox(app, g, cut)

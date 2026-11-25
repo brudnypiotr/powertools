@@ -20,7 +20,7 @@ async function poll() {
     return setTimeout(poll, 2000);
   }
   watchers.forEach((fn) => fn(s));
-  setTimeout(poll, s.dictation === "recording" ? 150 : 700);
+  setTimeout(poll, s.dictation === "recording" ? 150 : document.hidden ? 2000 : 700);   // nobody looks: less often
 }
 
 export { poll, onState, session, stopped };

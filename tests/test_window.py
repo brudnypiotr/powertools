@@ -116,7 +116,7 @@ def test_a_draft_goes_to_outlook_once(win):
     page.locator("#draft-text").blur()
     page.locator("#today-rows .prow").first.click()
     win.row("Confirm the migration window")
-    see(page, "#today-bar", "Put the new text into Outlook drafts")
+    see(page, "#today-bar", "New text to Outlook drafts")
 
 
 def test_a_failed_update_says_why(win):
@@ -130,9 +130,10 @@ def test_a_failed_update_says_why(win):
 def test_ask_answers_and_remembers(win):
     page = win.open()
     win.update()
-    page.fill("#ask-form input", "Who am I waiting for?")
+    page.click("#chat-open")
+    page.fill("#chat-q", "Who am I waiting for?")
     page.keyboard.press("Enter")
-    see(page, "#today-body", "You wait for Ola")
+    see(page, "#chat-body", "You wait for Ola")
 
 
 def test_matters_people_and_files(win):
@@ -141,7 +142,7 @@ def test_matters_people_and_files(win):
     page.click("[data-tab=matters]")
     see(page, "#matters-body", "Alpha launch")
     page.fill("#matters-bar [name=note]", "Budget is fixed")
-    page.click("#matters-bar form button")
+    page.click("#matters-bar form button:not([data-mic])")
     see(page, "#matters-body", "Budget is fixed")
     page.click("#matters-tabs [data-seg=files]")
     page.locator("#matters-rows .prow", has_text="alpha-launch").click()
@@ -305,11 +306,12 @@ def test_a_brief_and_an_agenda_become_texts_of_mine(win):
 def test_what_i_say_changes_a_file_and_can_be_undone(win):
     page = win.open()
     win.update()
-    page.fill("#ask-form input", "The contract deadline is Thursday")
+    page.keyboard.press("Control+k")
+    page.fill("#chat-q", "The contract deadline is Thursday")
     page.keyboard.press("Enter")
-    see(page, "#today-body .edit", "profile.md")
+    see(page, "#chat-body .edit", "profile.md")
     assert "Thursday" in win.app.assistant.memory.read("profile.md")
-    page.click("[data-do=mem-undo]")
+    page.click("#chat-body [data-c=undo]")
     see(page, ".toasts", "Undone in profile.md")
     assert "Thursday" not in win.app.assistant.memory.read("profile.md")
 
@@ -319,7 +321,7 @@ def test_rewriting_a_draft_offers_a_rule(win):
     win.update()
     win.row("Answer Jan")
     page.fill("#today-body [name=remark]", "no greeting")
-    page.click("#today-body .fixline button")
+    page.click("#today-body .fixline button:not([data-mic])")
     sync.expect(page.locator("#draft-text")).to_have_value("Jan, 3 pm works.")
     page.click("#today-body .rule button")
     see(page, "#today-body .rule", "Remembered")
@@ -334,7 +336,7 @@ def test_a_one_to_one_with_a_person(win):
     page.click("#matters-new button")
     see(page, "#matters-body", "Jan")
     page.fill("#matters-bar [name=note]", "likes short mails")
-    page.click("#matters-bar form button")
+    page.click("#matters-bar form button:not([data-mic])")
     see(page, "#matters-body", "likes short mails")
     page.click("[data-one]")
     see(page, "#meet-rows", "1:1 with Jan")
@@ -378,3 +380,217 @@ def test_three_questions_of_one_chat_are_three_rows_that_know_each_other(win):
     see(page, "#today-body h2", "Book the room")
     page.click("[data-do=seen]")
     sync.expect(page.locator("#today-rows .dot")).to_have_count(0)
+
+
+# ---------------------------------------------------------------- the chat
+def test_the_chat_stays_on_every_tab_grows_and_remembers(win):
+    page = win.open()
+    win.update()
+    page.click("#chat-open")
+    page.fill("#chat-q", "Who am I waiting for?")
+    page.click("#chat-send")
+    see(page, "#chat-body", "You wait for Ola")
+    for tab in ("matters", "meetings", "dictation"):
+        page.click(f"[data-tab={tab}]")
+        sync.expect(page.locator("#chat")).to_be_visible()
+    small = page.locator("#chat").bounding_box()
+    page.click("#chat-big")
+    assert page.locator("#chat").bounding_box()["height"] > small["height"] + 50
+    page.reload()
+    sync.expect(page.locator("#chat.big")).to_be_visible()                     # open and large, as left
+    see(page, "#chat-body", "You wait for Ola")
+    page.locator(".turn").first.hover()
+    page.click(".turn [data-c=again]")
+    sync.expect(page.locator("#chat-q")).to_have_value("Who am I waiting for?")
+    page.click(".turn [data-c=del]")
+    sync.expect(page.locator(".turn")).to_have_count(0)
+    page.locator("#chat-q").press("Escape")
+    sync.expect(page.locator("#chat")).to_be_hidden()
+    sync.expect(page.locator("#chat-open")).to_be_visible()
+
+
+def test_a_question_is_about_the_open_item_unless_i_say_not(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    page.click("#chat-open")
+    see(page, "#chat-about", "Confirm the migration window")
+    page.fill("#chat-q", "What do they want?")
+    page.keyboard.press("Enter")
+    see(page, "#chat-body .q small", "Question about the migration window")
+    page.click("[data-c=nocontext]")
+    sync.expect(page.locator("#chat-about")).to_be_empty()
+
+
+def test_an_answer_can_be_stopped(win):
+    page = win.open()
+    win.update()
+    ask = win.app.assistant.asking.ask
+    win.app.assistant.asking.ask = lambda *a: (time.sleep(1.2), ask(*a))[1]
+    page.click("#chat-open")
+    page.fill("#chat-q", "Anything?")
+    page.keyboard.press("Enter")
+    sync.expect(page.locator("#chat-send")).to_have_text("Stop")
+    see(page, "#chat-body", "Thinking")
+    sync.expect(page.locator("#chat-send")).to_have_text("Ask", timeout=8000)
+
+
+def test_the_question_can_be_dictated(win):
+    page = win.open()
+    page.click("#chat-open")
+    page.fill("#chat-q", "Please note:")
+    mic = page.locator("#chat-form [data-mic]")
+    mic.click()
+    sync.expect(mic).to_have_attribute("aria-pressed", "true")
+    mic.click()
+    sync.expect(page.locator("#chat-q")).to_have_value("Please note: the deadline is Thursday")
+    sync.expect(mic).to_have_attribute("aria-pressed", "false")
+    assert win.app.pasted == []
+
+
+def test_the_chat_does_not_cover_the_buttons_of_an_item(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    wrong, fab = page.locator("#today-bar [data-do=wrong]").bounding_box(), page.locator("#chat-open").bounding_box()
+    assert wrong["x"] + wrong["width"] <= fab["x"]
+
+
+# ---------------------------------------------------------------- deleting and editing
+def test_an_item_is_edited_and_deleted_with_undo(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    page.click("#today-bar [data-k=more]")
+    page.click("#today-bar [data-do=edit]")
+    page.fill("[data-edit] [name=action]", "Confirm the second window")
+    page.fill("[data-edit] [name=due]", "Friday")
+    page.click("[data-edit] .primary")
+    see(page, "#today-rows", "Confirm the second window")
+    win.row("Confirm the second window")
+    page.click("#today-bar [data-k=more]")
+    page.click("#today-bar [data-do=delete]")
+    sync.expect(page.locator("#today-rows")).not_to_contain_text("Confirm the second window")
+    page.locator(".toast button").last.click()
+    see(page, "#today-rows", "Confirm the second window")
+
+
+def test_a_promise_is_edited(win):
+    page = win.open()
+    win.update()
+    win.row("Send the minutes")
+    page.click("[data-do=edit]")
+    page.fill("[data-edit] [name=action]", "send the long minutes")
+    page.click("[data-edit] .primary")
+    see(page, "#today-rows", "Send the long minutes")
+
+
+def test_lines_of_a_matter_are_edited_and_deleted_and_the_matter_too(win):
+    page = win.open()
+    win.app.assistant.memory.create_matter("Alpha launch")
+    page.click("[data-tab=matters]")
+    page.fill("#matters-bar [name=note]", "Budget is fixed")
+    page.click("#matters-bar form button:has-text('Add')")
+    line = page.locator(".eline", has_text="Budget is fixed")
+    line.hover()
+    line.locator("[data-tool=edit]").click()
+    page.fill(".eline [name=line]", "Budget is open")
+    page.click(".eline form button:has-text('Save')")
+    see(page, "#matters-body", "Budget is open")
+    line = page.locator(".eline", has_text="Budget is open")
+    line.hover()
+    line.locator("[data-tool=del]").click()
+    sync.expect(page.locator("#matters-body")).not_to_contain_text("Budget is open")
+    page.locator(".toast button").last.click()
+    see(page, "#matters-body", "Budget is open")
+    page.click("#matters-bar [data-k=more]")
+    page.click("#matters-bar [data-rename]")
+    page.fill("#matters-body [data-rename] input", "Beta launch")
+    page.click("#matters-body [data-rename] button")
+    see(page, "#matters-rows", "Beta launch")
+    page.click("#matters-bar [data-k=more]")
+    page.click("#matters-bar [data-del]")
+    see(page, "#matters-rows", "No matters yet")
+    page.locator(".toast button").last.click()
+    see(page, "#matters-rows", "Beta launch")
+
+
+def test_texts_drafts_people_and_cards_can_be_thrown_away_and_come_back(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    page.click("[data-do=drop]")
+    sync.expect(page.locator(".draftcard")).to_have_count(0)
+    page.locator(".toast button").last.click()
+    sync.expect(page.locator(".draftcard")).to_have_count(1)
+    page.click("[data-tab=matters]")
+    page.click("#matters-tabs [data-seg=people]")
+    page.click("[data-rm]")
+    see(page, "#matters-rows", "Nobody yet")
+    page.locator(".toast button").last.click()
+    see(page, "#matters-rows", "Ola")
+    page.click("[data-tab=meetings]")
+    page.click("[data-m=make]")
+    see(page, "#meet-body", "Get a date")
+    page.click("[data-m=drop]")
+    see(page, "#meet-body", "No card yet")
+
+
+def test_the_dictation_history_is_edited_and_emptied(win):
+    page = win.open()
+    page.click("[data-tab=dictation]")
+    row = page.locator("#history li").first
+    row.hover()
+    row.locator("[data-act=edit]").click()
+    page.fill("#history form.edit textarea", "in my words")
+    page.click("#history form.edit button")
+    see(page, "#history", "in my words")
+    page.click("#history-clear")
+    page.click("[data-sure='0']")
+    see(page, "#history", "Nothing yet")
+
+
+def test_what_it_learned_is_shown_and_can_be_taken_back(win):
+    page = win.open()
+    win.update()
+    win.row("Confirm the migration window")
+    page.click("[data-do=wrong]")
+    page.click("[data-do=category][data-value=fyi]")
+    page.click("#more")
+    page.click("[data-tab=ai]")
+    see(page, "#ai-learned", "Question about the migration window")
+    page.locator("#ai-learned li").hover()
+    page.click("[data-forget]")
+    see(page, "#ai-learned", "Nothing yet")
+
+
+def test_a_recording_is_renamed_and_deleted(win, tmp_path):
+    from powertools.meetings.manager import Session
+    page = win.open()
+    folder = win.app.meetings.root / "20261125-100000"
+    folder.mkdir()
+    Session(folder, {"title": "Teams call", "started": time.time(), "status": "done"}).save()
+    page.click("[data-tab=meetings]")
+    page.click("#meet-tabs [data-seg=rec]")
+    page.click("#meeting-list [data-act=name]")
+    page.fill("#meeting-list [name=title]", "Contract sync")
+    page.click("#meeting-list form button")
+    see(page, "#meeting-list", "Contract sync")
+    page.click("#meeting-list [data-act=del]")
+    page.click("[data-sure='0']")
+    see(page, "#meeting-list", "No recordings yet")
+
+
+def test_a_working_button_is_stop(win):
+    page = win.open()
+    win.update()
+    make = win.app.assistant.briefs.prep
+    win.app.assistant.briefs.prep = lambda *a: (time.sleep(1), make(*a))[1]
+    page.click("[data-tab=meetings]")
+    page.click("[data-m=make]")
+    sync.expect(page.locator("[data-m=make]")).to_have_text("Stop")
+    stopped = []
+    win.app.llm.abort = lambda: stopped.append(1)
+    page.click("[data-m=make]")
+    see(page, "#meet-body", "Get a date")
+    assert stopped

@@ -1,5 +1,5 @@
 // The AI tab: where the model runs, Copilot, the local model, comparing them.
-import { $, api, esc, say, toast } from "./core.js";
+import { $, api, draw, esc, say, toast } from "./core.js";
 import { onTab } from "./tabs.js";
 
 let aiTimer = null;
@@ -120,4 +120,12 @@ async function pollCompare() {
 }
 $("#cmp-run").addEventListener("click", async () => { try { await api("POST", "/api/ai/compare", { provider: $("#cmp-provider").value, limit: Number($("#cmp-limit").value) }); pollCompare(); } catch (err) { toast(err.message, 4000); } });
 
-onTab("ai", loadAI);
+async function loadLearned() {
+  const rows = await api("GET", "/api/assistant/corrections");
+  draw("#ai-learned", rows.length ? `<ul class="elines">${rows.slice(0, 30).map((c) => `<li class="learned"><span class="etext">${esc(c.title)}: not <b>${esc(c.was)}</b> but <b>${esc(c.now)}</b></span><span class="tools"><button type="button" data-forget="${esc(c.at)}" title="Delete" aria-label="Delete">✕</button></span></li>`).join("")}</ul>` : `<p class="muted">Nothing yet. What you correct in Today shows here; the newest eight go into every sorting.</p>`, true);
+}
+$("#ai-learned").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-forget]");
+  if (b) { await api("DELETE", "/api/assistant/corrections?at=" + encodeURIComponent(b.dataset.forget)); loadLearned(); }
+});
+onTab("ai", () => { loadAI(); loadLearned(); });

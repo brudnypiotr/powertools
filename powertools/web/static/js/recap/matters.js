@@ -1,5 +1,7 @@
 // Matters, people and the memory files.
 import { $, GAP, ago, api, attrs, bar, busyBtn, button, draw, esc, link, list, plusDays, rowHtml, say, segments, tag, toast, typingIn, url } from "../core.js";
+import { done, editableList } from "../edit.js";
+import { micButton } from "../mic.js";
 import { showItem } from "./body.js";
 import { find } from "./list.js";
 import { R, V, loadRecap, onRecap, openOfMine } from "./store.js";
@@ -44,19 +46,27 @@ const openRows = (l, withWho) => list(l.map((i) => [button(i.action || i.summary
   withWho ? `<span class="muted">${esc(i.person || "")}${i.days ? `, ${i.days} d` : ""}</span>` : ""].join(" ")));
 function happened(line) {
   const s = line.match(/^(\d{4}-\d\d-\d\d) · (.*)$/);
-  return `<div>${s ? `<time>${s[1].slice(5)}</time>` : ""}<span class="grow">${mdLine(s ? s[2] : line)}</span></div>`;
+  return `${s ? `<time>${s[1].slice(5)}</time> ` : ""}${mdLine(s ? s[2] : line)}`;
 }
-const noteForm = (data, hint) => `<form class="fixline grow"${attrs(data)}><input name="note" data-k="note" aria-label="Note" placeholder="${hint}"><button data-k="add">Add</button></form>`;
+const noteForm = (data, hint) => `<form class="fixline grow"${attrs(data)}><input name="note" data-k="note" aria-label="Note" placeholder="${hint}">${micButton("Dictate the note")}<button data-k="add">Add</button></form>`;
+const renameForm = (title) => `<form class="fixline" data-rename="1"><input name="title" data-k="rename" aria-label="Name" value="${esc(title)}"><button class="primary">Rename</button></form>`;
+async function remove(file) {
+  const e = await api("DELETE", "/api/memory/file?name=" + encodeURIComponent(file));
+  V.mSel = ""; V.mFile = "";
+  clearMatter();
+  await loadRecap();
+  done("Deleted", e.id);
+}
 async function matterBody(id) {
   const m = R.matters.find((x) => x.id === id), file = `matters/${id}.md`, p = parts((await api("GET", "/api/memory/file?name=" + encodeURIComponent(file))).text);
   if (V.mSel !== id || !["on", "off"].includes(V.mTab)) return;
   const tl = [...(p.Timeline || [])].reverse().slice(0, 30);
-  draw("#matters-body", `<h2 class="big">${esc(m.title)}</h2>${(p.State || []).map((x) => `<p class="lead">${esc(x)}</p>`).join("")}
+  draw("#matters-body", `${V.renaming === id ? renameForm(m.title) : `<h2 class="big">${esc(m.title)}</h2>`}${(p.State || []).length ? editableList(file, p.State).replace("elines", "elines lead") : ""}
     <div class="two"><div><h3>Mine</h3>${openRows(forMe(id))}</div><div><h3>Waiting for</h3>${openRows(R.waiting.filter((i) => i.matter === id), true)}</div></div>
-    <h3>Decided</h3>${list((p.Decisions || []).map(esc))}${(p.Notes || []).length ? `<h3>Notes</h3>${list(p.Notes.map(esc))}` : ""}
-    <h3>What happened</h3>${tl.length ? `<div class="lined">${tl.map(happened).join("")}</div>` : `<p class="muted">Nothing yet.</p>`}`);
-  const status = LIVE.includes(m.status) ? button("Park", "", { st: "parked", k: "park" }) + button("Close", "quietbtn", { st: "closed", k: "close" }) : button("Make it active", "", { st: "active", k: "act" });
-  bar("#matters-bar", noteForm({ note: file }, "Add a note, or say what is different") + status + button("Open the file", "quietbtn", { file, k: "mf" }));
+    <h3>Decided</h3>${editableList(file, p.Decisions || [])}${(p.Notes || []).length ? `<h3>Notes</h3>${editableList(file, p.Notes)}` : ""}
+    <h3>What happened</h3>${editableList(file, tl, happened)}`);
+  const status = LIVE.includes(m.status) ? button("Park", "", { st: "parked", k: "park" }) : button("Make it active", "", { st: "active", k: "act" });
+  bar("#matters-bar", noteForm({ note: file }, "Add a note, or say what is different") + status + `<details class="menu up"><summary class="dots" data-k="more" title="More" aria-label="More">⋯</summary><div>${LIVE.includes(m.status) ? button("Close", "", { st: "closed" }) : ""}${button("Rename", "", { rename: id })}${button("Open the file", "", { file })}${button("Delete", "", { del: file })}</div></details>`);
 }
 async function personBody(name) {
   const p = await api("GET", "/api/people/card?name=" + encodeURIComponent(name));
@@ -64,9 +74,8 @@ async function personBody(name) {
   const rows = (l) => list(l.map((x) => `${link(x.link, x.action || x.title)} ${tag(x.due, "hot")}`));
   draw("#matters-body", `<h2 class="big">${esc(name)}</h2><p class="lead">${p.last ? "Last contact " + ago(p.last) : "No contact in the data yet."}</p>
     <div class="two"><div><h3>I owe</h3>${rows(p.mine)}</div><div><h3>They owe</h3>${rows(p.theirs)}</div></div>
-    <h3>Notes</h3>${list(p.notes.map((n) => esc(n.replace(/^- /, ""))))}`);
-  const added = R.people.some((x) => x.name === name && x.added);
-  bar("#matters-bar", noteForm({ person: name }, "A note from your 1:1") + button("Prepare a 1:1", "", { one: name, k: "one" }) + (added ? button("Remove", "quietbtn", { rm: name, k: "rm" }) : ""));
+    <h3>Notes</h3>${editableList(p.file, p.notes.map((n) => n.replace(/^- /, "")))}`);
+  bar("#matters-bar", noteForm({ person: name }, "A note from your 1:1") + button("Prepare a 1:1", "", { one: name, k: "one" }) + button("Remove", "quietbtn", { rm: name, k: "rm" }));
 }
 async function matterFile(name) {
   if ($("#matters-body").file === name && typingIn($("#matters-body"))) return;
@@ -75,7 +84,7 @@ async function matterFile(name) {
   const drawn = draw("#matters-body", `<h2 class="big">${esc(name)}</h2><p class="muted">Plain Markdown. Lines with (you) are yours and stay.</p>
     <textarea id="mem-text" data-k="mem" aria-label="File" rows="20" spellcheck="false">${esc(f.text)}</textarea>`);
   if (drawn) Object.assign($("#matters-body"), { file: name, opened: f.text });
-  bar("#matters-bar", button("Save", "primary", { save: name, k: "save" }) + GAP + button("Open the folder", "quietbtn", { folder: 1, k: "fold" }));
+  bar("#matters-bar", button("Save", "primary", { save: name, k: "save" }) + GAP + button("Open the folder", "quietbtn", { folder: 1, k: "fold" }) + button("Delete", "quietbtn", { del: name, k: "del" }));
 }
 async function saveFile() {   // true when there is nothing left to save
   const box = $("#matters-body"), ta = $("#mem-text");
@@ -101,6 +110,12 @@ $("#matters-new").addEventListener("submit", async (e) => {
     loadRecap();
   } catch (err) { say(err.message); }
 });
+$("#matters-body").addEventListener("submit", async (e) => {
+  const f = e.target.closest("[data-rename]");
+  if (!f) return;
+  e.preventDefault();
+  try { await api("POST", `/api/matters/${encodeURIComponent(V.mSel)}/rename`, { title: f.title.value }); V.renaming = ""; document.activeElement.blur(); await loadRecap(); } catch (err) { say(err.message); }
+});
 $("#matters-body").addEventListener("click", (e) => {
   const b = e.target.closest("[data-do=go]"), r = b && find(b.dataset.id);
   if (r) { V.tab = r.kind === "wait" ? "wait" : "me"; showTab("recap"); showItem(r.id); }
@@ -116,9 +131,16 @@ $("#matters-bar").addEventListener("click", async (e) => {
       toast({ parked: "Parked; it comes back in 30 days", closed: "Closed", active: "Active again" }[d.st]);
       return loadRecap();
     }
+    if (d.del) return await remove(d.del);
+    if (d.rename) { V.renaming = d.rename; await renderMatters(); $("[data-rename] input").select(); return; }
     if (d.file) { V.mTab = "files"; V.mFile = d.file; return renderMatters(); }
     if (d.one) return busyBtn(b, async () => { V.card = await api("POST", "/api/assistant/prep", { person: d.one }); V.meetTab = "ahead"; V.meet = V.card.id; showTab("meetings"); });
-    if (d.rm) { await api("POST", "/api/people/remove", { name: d.rm }); V.mSel = ""; return loadRecap(); }
+    if (d.rm) {
+      await api("POST", "/api/people/remove", { name: d.rm });
+      V.mSel = "";
+      await loadRecap();
+      return toast("Removed", 6000, ["Undo", async () => { await api("POST", "/api/people", { name: d.rm }); V.mSel = d.rm; loadRecap(); }]);
+    }
     if (d.folder) return await api("POST", "/api/memory/open");
     if (d.save) await saveFile();
   } catch (err) { say(err.message); }

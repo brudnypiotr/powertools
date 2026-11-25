@@ -57,11 +57,24 @@ const plain = (t) => String(t || "").replace(/^((re|fw|fwd|aw|odp|pd)\s*:\s*)+/i
 const link = (u, text) => (url(u) ? `<a href="${url(u)}" target="_blank" rel="noopener">${esc(text)}</a>` : esc(text));
 const cap = (t) => { t = String(t || ""); return t.charAt(0).toUpperCase() + t.slice(1); };
 const list = (l) => (l.length ? `<ul>${l.map((x) => `<li>${x}</li>`).join("")}</ul>` : `<p class="muted">Nothing.</p>`);
-const busyBtn = async (b, fn) => {
+const busyBtn = async (b, fn) => {   // the model works: the button becomes Stop
+  if (b.dataset.busy) return api("POST", "/api/ai/stop").catch((e) => say(e.message));
   const label = b.textContent;
-  b.disabled = true; b.textContent = "Working...";
-  try { await fn(); } catch (e) { say(e.message.slice(0, 200)); }
-  b.disabled = false; b.textContent = label;
+  b.dataset.busy = "1"; b.textContent = "Stop";
+  try { await fn(); } catch (e) { say(e.message === "stopped" ? "Stopped" : e.message.slice(0, 200)); }
+  delete b.dataset.busy; b.textContent = label;
+};
+const sure = (b, question, rows) => {   // asks in place, without a dialog; rows: [label, function]
+  const old = [...b.parentElement.children], at = b.parentElement;
+  at.innerHTML = `<span class="muted">${esc(question)}</span>` + rows.map(([label], n) => `<button type="button" data-sure="${n}">${esc(label)}</button>`).join("") + `<button type="button" class="quietbtn" data-sure="no">Cancel</button>`;
+  at.onclick = (e) => {
+    const x = e.target.closest("[data-sure]");
+    if (!x) return;
+    e.stopPropagation();
+    at.onclick = null;
+    at.replaceChildren(...old);
+    if (x.dataset.sure !== "no") rows[Number(x.dataset.sure)][1]();
+  };
 };
 
 // ---------------------------------------------------------------- drawing without disturbing
@@ -94,4 +107,4 @@ const rowHtml = (r) => `<button type="button" class="prow"${attrs({ row: r.id, k
 const outLink = (href, text, kind = "") => `<a class="btnlink ${kind}" href="${url(href)}" target="_blank" rel="noopener" data-k="${esc(text)}">${esc(text)}</a>`;
 
 export { GAP, attrs, button, outLink, rowHtml, tag };
-export { $, SRC, ago, api, bar, busyBtn, cap, clockOf, dayOf, draw, esc, isLocked, isToday, link, list, plain, plusDays, say, segments, setLabel, setText, toast, typingIn, url };
+export { $, SRC, sure, ago, api, bar, busyBtn, cap, clockOf, dayOf, draw, esc, isLocked, isToday, link, list, plain, plusDays, say, segments, setLabel, setText, toast, typingIn, url };

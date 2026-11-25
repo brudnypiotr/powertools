@@ -1,5 +1,5 @@
 // Jira downloads.
-import { $, ago, api, esc, say, toast } from "./core.js";
+import { $, ago, api, esc, say, sure, toast } from "./core.js";
 import { loadJobs } from "./jobs.js";
 import { onTab } from "./tabs.js";
 
@@ -127,6 +127,11 @@ $("#jira-refresh-sel").addEventListener("click", () => {
   const keys = [...document.querySelectorAll("#jira-downloaded input:checked")].map((c) => c.value);
   if (!keys.length) return say("Select downloaded issues first.");
   jiraRefresh(keys);
+});
+$("#jira-forget-sel").addEventListener("click", (e) => {
+  const keys = [...document.querySelectorAll("#jira-downloaded input:checked")].map((c) => c.value);
+  if (!keys.length) return say("Select downloaded issues first.");
+  sure(e.target, `Take ${keys.length} out of this list? The files stay.`, [["Remove", async () => { await api("POST", "/api/jira/forget", { keys }); loadJiraDownloaded(); }]]);
 });
 $("#jira-refresh-all").addEventListener("click", () => jiraRefresh([]));
 let jiraWatch = null;

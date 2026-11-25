@@ -27,6 +27,7 @@ import "./recap/clicks.js";
 import "./recap/matters.js";
 import "./recap/meetings.js";
 import "./recap/setup.js";
+import "./chat.js";
 import { $ } from "./core.js";
 import { loadRecap } from "./recap/store.js";
 import { poll } from "./state.js";

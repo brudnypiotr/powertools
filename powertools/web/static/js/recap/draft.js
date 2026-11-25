@@ -1,5 +1,6 @@
 // The draft under an item (or a text of the user's own): shown, saved when the user leaves it, rewritten on a remark.
 import { $, api, busyBtn, button, GAP, esc } from "../core.js";
+import { micButton } from "../mic.js";
 import { renderToday } from "./list.js";
 import { R } from "./store.js";
 
@@ -9,7 +10,7 @@ function draftCard(d) {
   const old = d.old ? `<div class="note">Written before the newest message. ${button("Write a new one", "inbtn", { do: "draft", k: "redraft" })}</div>` : "";
   return `<div class="draftcard" data-did="${esc(d.id)}"><div class="row0"><label for="draft-text"><b>Draft${d.to ? " to " + esc(d.to) : ""}</b></label>${GAP}${button("Throw away", "quietbtn", { do: "drop", k: "drop" })}</div>${old}
     <textarea id="draft-text" data-k="draft-text" rows="${rowsFor(d.body)}">${esc(d.body)}</textarea>
-    <form class="fixline"><input name="remark" data-k="remark" aria-label="What to change" placeholder="What should change? Shorter, no greeting, say Thursday"><button data-k="fixit">Rewrite</button></form><div class="rule"></div></div>`;
+    <form class="fixline"><input name="remark" data-k="remark" aria-label="What to change" placeholder="What should change? Shorter, no greeting, say Thursday">${micButton("Dictate what should change")}<button data-k="fixit">Rewrite</button></form><div class="rule"></div></div>`;
 }
 async function saveDraft() {   // what is in the field now; the draft, or undefined when there is none on the screen
   const c = $("#today-body .draftcard"), ta = c && c.querySelector("textarea"), d = c && R.draft_list.find((x) => x.id === c.dataset.did);
@@ -27,6 +28,13 @@ async function rewrite(form) {
     if (r.rule) rule.querySelector("button").onclick = async () => { await api("POST", "/api/style", { rule: r.rule }); rule.textContent = "Remembered."; };
   });
 }
-$("#today-body").addEventListener("change", async (e) => { if (e.target.id === "draft-text") { await saveDraft().catch(() => {}); renderToday(); } });
+$("#today-body").addEventListener("change", async (e) => {
+  if (e.target.id === "draft-text") { await saveDraft().catch(() => {}); renderToday(); }
+  if (e.target.matches(".titleedit")) {
+    const c = $("#today-body .draftcard"), d = R.draft_list.find((x) => x.id === c.dataset.did);
+    Object.assign(d, await api("POST", `/api/drafts/${d.id}`, { title: e.target.value, body: c.querySelector("textarea").value }));
+    renderToday();
+  }
+});
 
 export { draftCard, draftOf, rewrite, saveDraft };

@@ -1,5 +1,5 @@
 // Dictation: what it does now, and the history.
-import { $, api, esc, toast } from "./core.js";
+import { $, api, esc, say, sure, toast } from "./core.js";
 import { onState } from "./state.js";
 
 let lastId = null;
@@ -52,10 +52,12 @@ async function loadHistory() {
       <span class="actions">
         <button class="icon" data-act="copy" title="Copy">${ICONS.copy}</button>
         <button class="icon" data-act="fix" title="Fix a word (adds a replacement rule)">${ICONS.fix}</button>
+        <button class="icon" data-act="edit" title="Edit the text">✎</button>
         <button class="icon" data-act="del" title="Delete">${ICONS.del}</button>
       </span>
     </li>`).join("") || `<li class="empty">Nothing yet. Press the hotkey anywhere and speak.</li>`;
 }
+$("#history-clear").addEventListener("click", (e) => sure(e.target, "Delete the whole history?", [["Delete", async () => { await api("DELETE", "/api/history"); loadHistory(); }]]));
 $("#search").addEventListener("input", () => loadHistory());
 const ICONS = {
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
@@ -71,6 +73,13 @@ $("#history").addEventListener("click", async (ev) => {
   const text = li.querySelector(".text").textContent;
   if (act === "copy") { navigator.clipboard.writeText(text); toast("Copied"); }
   if (act === "del") { await api("DELETE", "/api/history/" + li.dataset.id); loadHistory(); }
+  if (act === "edit" && !li.querySelector(".edit")) {
+    li.querySelector(".body").insertAdjacentHTML("beforeend", `<form class="edit fixline"><textarea name="text" rows="3">${esc(text)}</textarea><button class="primary">Save</button></form>`);
+    li.querySelector(".edit").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try { await api("POST", "/api/history/" + li.dataset.id, { text: e.target.text.value }); loadHistory(); } catch (err) { say(err.message); }
+    });
+  }
   if (act === "fix" && !li.querySelector(".fix")) {
     const sel = window.getSelection().toString().trim();
     li.querySelector(".body").insertAdjacentHTML("beforeend", `<form class="fix"><input name="wrong" placeholder="heard" value="${esc(sel)}">

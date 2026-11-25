@@ -15,12 +15,13 @@ async function loadJobs() {
         ${j.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>`;
   document.querySelectorAll(".jobs").forEach((el) => {  // each tab lists only its own exports
     const mine = jobs.filter((j) => !el.dataset.kind || j.kind === el.dataset.kind);
-    el.innerHTML = mine.length ? `<div class="row"><h2>Exports</h2><button class="open-out" data-kind="${el.dataset.kind || ""}">Open export folder</button></div>` +
+    el.innerHTML = mine.length ? `<div class="row"><h2>Exports</h2><button class="open-out" data-kind="${el.dataset.kind || ""}">Open export folder</button><button class="jobs-clear">Clear the list</button></div>` +
       mine.map(card).join("") : "";
   });
   document.querySelectorAll(".jobs .open-out").forEach((b) => (b.onclick = () => api("POST", "/api/open-output", { kind: b.dataset.kind })));
   document.querySelectorAll(".jobs [data-open]").forEach((b) => (b.onclick = () => api("POST", "/api/open-path", { path: b.dataset.open })));
   document.querySelectorAll(".jobs [data-reveal]").forEach((b) => (b.onclick = () => api("POST", "/api/open-path", { path: b.dataset.reveal, folder: true })));
+  document.querySelectorAll(".jobs-clear").forEach((b) => (b.onclick = async () => { await api("DELETE", "/api/jobs"); loadJobs(); }));
   if (jobs.some((j) => j.state === "needs_token")) renderGraphBar();
   clearTimeout(jobsTimer);
   if (jobs.some((j) => j.state === "running" || j.state === "queued")) jobsTimer = setTimeout(loadJobs, 1500);

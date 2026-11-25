@@ -1,5 +1,6 @@
 // Meetings ahead and their cards.
 import { $, GAP, api, bar, busyBtn, button, clockOf, dayOf, draw, esc, isToday, list, outLink, rowHtml, say, segments, url } from "../core.js";
+import { done } from "../edit.js";
 import { showItem } from "./body.js";
 import { newText } from "./clicks.js";
 import { R, V, loadRecap, onRecap } from "./store.js";
@@ -38,7 +39,7 @@ async function meetBody() {
   if (!e && !c) { draw("#meet-body", ""); return bar("#meet-bar", ""); }
   draw("#meet-body", `<h2 class="big">${esc(e ? e.title : c.title)}</h2>${e ? whenWith(e) : ""}${c ? cardHtml(c) : NO_CARD}`, true);
   const join = e && url(e.join) ? outLink(e.join, "Join", c ? "primary" : "") : "";
-  bar("#meet-bar", c ? join + (c.agenda.length ? button("Draft the agenda", "", { m: "agenda", k: "ag" }) : "") + GAP + button("Make it again", "quietbtn", { m: "again", k: "ga" }) + button("Edit the card", "quietbtn", { m: "file", k: "gf" })
+  bar("#meet-bar", c ? join + (c.agenda.length ? button("Draft the agenda", "", { m: "agenda", k: "ag" }) : "") + GAP + button("Make it again", "quietbtn", { m: "again", k: "ga" }) + button("Edit the card", "quietbtn", { m: "file", k: "gf" }) + button("Throw it away", "quietbtn", { m: "drop", k: "gd" })
     : button("Prepare me", "primary", { m: "make", k: "mk" }) + join);
 }
 $("#meet-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-seg]"); if (b) { V.meetTab = b.dataset.seg; renderMeet(); } });
@@ -54,6 +55,12 @@ $("#meet-bar").addEventListener("click", async (e) => {
   });
   try {
     if (a === "agenda") { const id = await newText(c.title, "Agenda:\n" + c.agenda.map((x) => "- " + x).join("\n")); showTab("recap"); return showItem(id); }
+    if (a === "drop") {
+      const e2 = await api("DELETE", "/api/assistant/prep?id=" + encodeURIComponent(c.id));
+      V.card = null;
+      await loadRecap();
+      return done("Thrown away", e2.id);
+    }
     if (a === "file") { V.mTab = "files"; V.mFile = c.file; showTab("matters"); }
   } catch (err) { say(err.message); }
 });

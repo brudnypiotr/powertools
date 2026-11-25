@@ -197,9 +197,14 @@ The window is a list on the left and one thing on the right, with at most one fi
   under it. **Done**, **Later** and **This is wrong** (not mine, another group, ignore the conversation) can be undone, the
   next item opens by itself, and what you correct goes into the next prompts. The morning brief is the first row;
   *Write for me*: today in 5 lines, the week in 10, for my manager, I was away.
-- **Ask** is the field above: answers from the memory and the items, with sources. Say what is different ("no, the deadline
-  is Thursday") and it changes the memory file, marked `(you)`, with Undo. A change that does not come from your words is
-  only proposed.
+- **Ask** is the chat in the bottom right corner of every tab (Ctrl+K): answers from the memory and the items, with sources;
+  it knows which item is open ("About", click ✕ when the question is not about it). Say what is different ("no, the deadline
+  is Thursday") and it changes the memory file, marked `(you)`, with Undo; a change that does not come from your words is
+  only proposed. It can be dictated into (the microphone, also next to notes, drafts and Edit), made larger, and it
+  remembers; single answers can be deleted, copied or made into a draft.
+- **Edit and delete**: an item (⋯), a promise, every line of a matter or a person (hover over it), matters, people, files,
+  drafts, meeting cards, recordings (with the transcript if you want), dictations, saved charts, the list of exports and
+  of Jira issues, and what the app learned from you (AI tab). What would be lost can be undone.
 - **Drafts** are written in the app and stay there; say what should change, and it also proposes a style rule you can
   accept. **Nothing is ever sent**: the Graph client refuses every write except a reply put into the Outlook *Drafts* folder
   (needs Mail.ReadWrite in the token), and only when you click it.

@@ -1,5 +1,5 @@
 // Recorded meetings, and the question whether to record the call.
-import { $, api, draw, esc, say } from "./core.js";
+import { $, api, draw, esc, say, sure } from "./core.js";
 import { onState } from "./state.js";
 import { onTab } from "./tabs.js";
 
@@ -102,7 +102,7 @@ async function loadMeetings() {
         ${s.md ? `<button data-act="open">Open</button>` : ""}
         ${(s.status === "interrupted" || s.status === "done") && s.audio ? `<button data-act="final">Transcribe again</button>` : ""}
         ${s.status === "done" && s.md && s.summary_status !== "running" ? `<button data-act="sum">${s.summary ? "Summarize again" : "Summarize"}</button>` : ""}
-        <button data-act="del">Delete</button></div></li>`;
+        <button data-act="name">Rename</button><button data-act="del">Delete</button></div></li>`;
   }).join("") || "<li>No recordings yet.</li>");
   document.querySelectorAll(".open-out:not([data-kind])").forEach((b) => (b.onclick = () => api("POST", "/api/open-output")));
   if ($("#meetings").classList.contains("active")) meetTimer = setTimeout(loadMeetings, cur ? 1000 : 4000);
@@ -111,7 +111,7 @@ $("#meeting-list").addEventListener("click", async (e) => {
   const act = e.target.dataset.act, li = e.target.closest("li");
   if (!li || !li.dataset.id) return;
   if (!act) {  // click on the row: show / hide the details
-    if (e.target.closest("details, a")) return;
+    if (e.target.closest("details, a, form")) return;
     li.classList.toggle("open");
     li.classList.contains("open") ? openMeetings.add(li.dataset.id) : openMeetings.delete(li.dataset.id);
     return;
@@ -127,12 +127,24 @@ $("#meeting-list").addEventListener("click", async (e) => {
     try { await api("POST", `/api/meetings/${li.dataset.id}/summarize`, {}); } catch (err) { say(err.message); }
     loadMeetings(); return;
   }
-  if (act === "del" && !confirm("Delete this recording (audio and live transcript)? The exported Markdown stays.")) return;
-  try {
-    await api(act === "del" ? "DELETE" : "POST", `/api/meetings/${li.dataset.id}` + (act === "final" ? "/finalize" : ""));
-  } catch (err) { say(err.message); }
+  if (act === "del") {
+    clearTimeout(meetTimer);
+    const del = (file) => async () => { try { await api("DELETE", `/api/meetings/${li.dataset.id}${file}`); } catch (err) { say(err.message); } loadMeetings(); };
+    return sure(e.target, "Delete", [["the recording", del("")], ["and the transcript file", del("?file=1")]]);
+  }
+  if (act === "name") return rename(li);
+  await post(`${li.dataset.id}/finalize`);
   loadMeetings();
 });
+
+function rename(li) {
+  clearTimeout(meetTimer);
+  const head = li.querySelector(".mhead"), old = head.querySelector("b").textContent;
+  head.innerHTML = `<form class="fixline"><input name="title" aria-label="Title" value="${esc(old)}"><button class="primary">Rename</button></form>`;
+  const f = head.querySelector("form");
+  f.title.select();
+  f.onsubmit = async (e) => { e.preventDefault(); await post(`${li.dataset.id}/title`, { title: f.title.value }); $("#meeting-list").html = ""; loadMeetings(); };
+}
 
 $("#update-all").onclick = async () => {
   const b = $("#update-all"); b.disabled = true;

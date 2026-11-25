@@ -1,5 +1,5 @@
 // Org charts.
-import { $, api, esc, say } from "./core.js";
+import { $, api, esc, say, sure } from "./core.js";
 import { graphCall, onToken } from "./graph.js";
 import { loadJobs } from "./jobs.js";
 import { on, onTab } from "./tabs.js";
@@ -57,6 +57,11 @@ async function openOrg(name) {
   try { OrgChart($("#org-view"), await api("GET", "/api/org/saved/" + encodeURIComponent(name))); }
   catch (e) { $("#org-view").textContent = e.message; }
 }
+$("#org-del").addEventListener("click", (e) => {
+  const name = $("#org-saved").value;
+  if (!name) return say("Open a saved chart first.");
+  sure(e.target, "Delete this chart and its files?", [["Delete", async () => { await api("DELETE", "/api/org/saved/" + encodeURIComponent(name)); $("#org-view").innerHTML = ""; $("#org-saved").value = ""; loadOrgSaved(); }]]);
+});
 $("#org-saved").addEventListener("change", (e) => openOrg(e.target.value));
 
 onTab("org", () => { loadOrgSaved(); if (!orgChain.length) loadOrgChain(); });

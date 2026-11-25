@@ -4,13 +4,15 @@ import { on, onTab } from "../tabs.js";
 
 let R = null, recapTimer = null;
 const V = {
-  tab: "me", sel: "", mode: "brief", wrong: false, brief: null,     // Today: mode brief | item | ask | connect
+  tab: "me", sel: "", mode: "brief", wrong: false, brief: null, editing: false,     // Today: mode brief | item | connect
   mTab: "on", mSel: "", mFile: "",                                  // Matters
   meetTab: "ahead", meet: "", card: null,                           // Meetings
   pending: null,                                                    // goes on by itself when the Graph token is there
 };
 const opened = {};                                                  // folded groups the user opened
 const running = () => R && R.job && ["queued", "running"].includes(R.job.state);
+const listeners = [];
+const onLoaded = (fn) => listeners.push(fn);
 const panes = [];
 const onRecap = (tab, fn) => panes.push([tab, fn]);
 async function loadRecap() {
@@ -23,12 +25,13 @@ async function loadRecap() {
   setText("#nav-today", mine ? String(mine) : "");
   setText("#nav-meetings", today ? String(today) : "");
   for (const [tab, fn] of panes) if (on(tab)) fn();
+  listeners.forEach((fn) => fn());
 }
 const openOfMine = () => [...R.decisions, ...R.mine];
 const meetingsToday = () => R.events.filter((e) => isToday(e.start));
-const select = (id) => { V.sel = id; V.mode = id ? "item" : "brief"; V.wrong = false; };
+const select = (id) => { V.sel = id; V.mode = id ? "item" : "brief"; V.wrong = false; V.editing = false; };
 const backToItem = () => { V.mode = V.sel ? "item" : "brief"; };
 
 onTab(["recap", "matters", "meetings"], loadRecap);
 
-export { R, V, backToItem, loadRecap, meetingsToday, onRecap, openOfMine, opened, running, select };
+export { R, V, backToItem, loadRecap, meetingsToday, onLoaded, onRecap, openOfMine, opened, running, select };
